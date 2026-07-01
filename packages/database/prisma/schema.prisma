@@ -1,0 +1,85 @@
+// ====================================================================
+// FrontCore — schema base (domain-agnostic, multi-tenant)
+// --------------------------------------------------------------------
+// Contém apenas modelos CORE reutilizáveis por qualquer produto SaaS:
+// Organization (tenant), User, Membership (RBAC) e HealthCheck.
+// NENHUM modelo de domínio (restaurantes, etc.) vive aqui.
+// Modelos específicos de produto entram nos respetivos apps em fases
+// próprias, referenciando estes por organizationId.
+// ====================================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  // Output customizado: gera o Client como ficheiros reais dentro do próprio
+  // package (não em node_modules/.prisma). Isto é o que torna o Client
+  // imune a "pnpm deploy" — que materializa node_modules de novo a partir do
+  // lockfile e NÃO preserva efeitos de "prisma generate" corridos numa árvore
+  // node_modules diferente. Ao viver em src/, o Client é copiado para dist/
+  // como qualquer outro ficheiro do package, e é isso que chega a produção.
+  output        = "../src/generated/prisma"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Papéis genéricos de acesso dentro de uma organização (RBAC base).
+enum Role {
+  OWNER
+  ADMIN
+  MANAGER
+  MEMBER
+}
+
+/// Tenant. Unidade de isolamento multi-tenant para qualquer produto.
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+
+  @@index([slug])
+}
+
+/// Utilizador da plataforma. Pode pertencer a várias organizações.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  isSuperAdmin Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships Membership[]
+
+  @@index([email])
+}
+
+/// Ligação utilizador<->organização com papel. Base do RBAC multi-tenant.
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           Role     @default(MEMBER)
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+/// Tabela mínima para validar que as migrações correm ponta a ponta.
+model HealthCheck {
+  id        String   @id @default(cuid())
+  status    String   @default("ok")
+  createdAt DateTime @default(now())
+}

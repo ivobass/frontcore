@@ -1,0 +1,26 @@
+{
+  "name": "@frontcore/database",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FrontCore — Prisma client e schema base multi-tenant (domain-agnostic).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "prisma"],
+  "scripts": {
+    "build": "prisma generate && tsc -p tsconfig.json && cp -R src/generated dist/generated",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "dotenv -e ../../.env -- prisma migrate dev",
+    "prisma:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "prisma:studio": "dotenv -e ../../.env -- prisma studio",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "5.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.11",
+    "dotenv-cli": "^7.4.4",
+    "prisma": "5.22.0",
+    "typescript": "^5.6.3"
+  }
+}

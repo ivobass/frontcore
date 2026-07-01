@@ -1,0 +1,32 @@
+# Dependências e binários nativos do host (macOS) — nunca na imagem Linux
+**/node_modules
+.pnpm-store
+
+# Builds locais (refeitos dentro da imagem)
+**/dist
+**/.next
+**/out
+**/build
+.turbo
+
+# Git e metadados
+.git
+.gitignore
+.github
+
+# Segredos — nunca copiar .env reais (mantém-se o .example)
+**/.env
+**/.env.*
+!**/.env.example
+
+# Docs e infra que não entram nas imagens
+docs
+infrastructure
+
+# Logs / cobertura / OS
+**/*.log
+coverage
+.DS_Store
+
+# Editor
+.vscode
