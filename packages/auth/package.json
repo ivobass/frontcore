@@ -2,7 +2,7 @@
   "name": "@frontcore/auth",
   "version": "0.1.0",
   "private": true,
-  "description": "FrontCore — contratos de autenticação genéricos (impl real na Fase 2).",
+  "description": "FrontCore — autenticação JWT + refresh tokens + guards NestJS (domain-agnostic).",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": ["dist"],
@@ -10,7 +10,25 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@frontcore/config": "workspace:*",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^10.0.0",
+    "@nestjs/core": "^10.0.0",
+    "rxjs": "^7.0.0"
+  },
   "devDependencies": {
+    "@nestjs/common": "^10.4.4",
+    "@nestjs/core": "^10.4.4",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20.16.11",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
     "typescript": "^5.6.3"
   }
 }

@@ -56,7 +56,8 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  memberships Membership[]
+  memberships   Membership[]
+  refreshTokens RefreshToken[]
 
   @@index([email])
 }
@@ -82,4 +83,21 @@ model HealthCheck {
   id        String   @id @default(cuid())
   status    String   @default("ok")
   createdAt DateTime @default(now())
+}
+
+/// Refresh token opaco (valor guardado apenas como hash). Permite rotação
+/// e revogação imediata. Genérico — qualquer produto FrontCore o reutiliza.
+model RefreshToken {
+  id             String    @id @default(cuid())
+  userId         String
+  organizationId String
+  tokenHash      String    @unique
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
 }

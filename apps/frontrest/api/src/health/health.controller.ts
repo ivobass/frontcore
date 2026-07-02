@@ -3,6 +3,7 @@ import {
   Get,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Public } from '@frontcore/auth';
 import { buildLiveness, buildReadiness } from '@frontcore/monitoring';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -13,12 +14,14 @@ export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
   // Liveness: o processo está vivo.
+  @Public()
   @Get()
   liveness() {
     return buildLiveness(SERVICE_NAME);
   }
 
   // Readiness: dependências críticas respondem (DB).
+  @Public()
   @Get('ready')
   async readiness() {
     try {

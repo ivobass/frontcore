@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@frontcore/auth": "workspace:*",
     "@frontcore/config": "workspace:*",
     "@frontcore/database": "workspace:*",
     "@frontcore/monitoring": "workspace:*",
