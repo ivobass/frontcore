@@ -21,3 +21,4 @@ consideradas e as consequências aceites — para que produtos futuros
 | [0002](./0002-ui-framework-agnostic.md) | `packages/ui` agnóstico de framework — sem dependência direta de Next.js | Aceite |
 | [0003](./0003-ui-internal-structure.md) | Estrutura interna de `packages/ui/src` e categorização de componentes | Aceite |
 | [0004](./0004-theme-engine-distribution.md) | Distribuição do Theme Engine entre produtos | Aceite |
+| [0005](./0005-ui-public-api-encapsulation.md) | `@frontcore/ui` como única API pública — encapsulamento do Radix UI | Aceite |
