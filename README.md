@@ -1,70 +1,217 @@
 # FrontCore / FrontRest IA
 
 Base SaaS reutilizável **FrontCore** + primeiro produto **FrontRest IA**.
-Monorepo: Next.js 15 · NestJS · Prisma · PostgreSQL · Redis · MinIO · Docker Compose.
 
-Ver `docs/ARCHITECTURE.md`, `docs/PHASES.md` e `docs/DEPLOY-COOLIFY.md`.
+Monorepo baseado em:
 
-## Arranque local
+- Next.js 15
+- NestJS
+- Prisma
+- PostgreSQL
+- Redis
+- MinIO
+- Docker Compose
+
+---
+
+# Visão
+
+**FrontCore** é a plataforma SaaS reutilizável da FrontWeb.
+
+**FrontRest IA** é o primeiro produto desenvolvido sobre essa plataforma.
+
+Toda a arquitetura foi desenhada para permitir a criação de novos produtos, como:
+
+- FrontClinic
+- FrontGym
+- FrontHotel
+- FrontRetail
+- FrontOffice
+
+reutilizando o mesmo core sem alterações estruturais.
+
+---
+
+# Estrutura do projeto
+
+```text
+frontcore/
+│
+├── apps/          → Produtos
+├── packages/      → Core reutilizável
+├── docs/          → Documentação técnica
+└── docker/        → Infraestrutura
+```
+
+---
+
+# Documentação principal
+
+Consultar primeiro:
+
+- `docs/ARCHITECTURE.md`
+- `docs/PHASES.md`
+- `docs/DEPLOY-COOLIFY.md`
+
+---
+
+# Documentação de engenharia
+
+Antes de trabalhar no projeto, qualquer programador ou agente de IA deve ler:
+
+1. `docs/AI_WORKFLOW.md`
+2. `docs/PROJECT_STRUCTURE.md`
+3. `docs/DEVELOPER_GUIDE.md`
+4. `docs/GIT_WORKFLOW.md`
+5. `docs/CODING_STANDARDS.md`
+6. `docs/RELEASE_PROCESS.md`
+
+Estes documentos definem o workflow oficial do FrontCore e devem prevalecer sobre o contexto de qualquer conversa.
+
+---
+
+# Arranque local
 
 ```bash
 corepack enable
 corepack prepare pnpm@9.12.0 --activate
+
 cp .env.example .env
+
 pnpm install
+
 docker compose up -d --build
+
 pnpm db:build
 pnpm db:migrate --name init
 ```
 
-## Fase 2 — Auth & Multi-tenant
+---
 
-### Fluxo
-- **Registo** (`POST /api/auth/register`): cria organização + utilizador
-  (role `OWNER`) + devolve `accessToken`/`refreshToken`.
-- **Login** (`POST /api/auth/login`): autentica contra a primeira
-  organização do utilizador.
-- **Refresh** (`POST /api/auth/refresh`): roda o refresh token (revoga o
-  antigo, emite novo par).
-- **Logout** (`POST /api/auth/logout`): revoga o refresh token.
-- **Perfil** (`GET /api/auth/me`, protegido): identidade + organização
-  atual, a partir do access token.
+# Fase 2 — Auth & Multi-tenant
 
-### Tokens
-- Access token: JWT assinado (`JWT_ACCESS_SECRET`), TTL curto (`JWT_ACCESS_TTL`,
-  segundos). Payload: `userId`, `organizationId`, `role`, `isSuperAdmin`.
-- Refresh token: valor opaco aleatório, guardado em BD apenas como hash
-  (SHA-256) — nunca em texto simples. Permite revogação imediata e rotação.
+## Fluxo
 
-### Multi-tenant
-Todas as rotas protegidas exigem um access token válido; o `organizationId`
-vem embutido no token e é a base do isolamento por tenant. `@Roles('ADMIN')`
-etc. exige role mínima; `isSuperAdmin` faz bypass.
+- **Registo** (`POST /api/auth/register`)
+  - cria organização
+  - cria utilizador OWNER
+  - devolve Access Token + Refresh Token
 
-### Seeds
+- **Login** (`POST /api/auth/login`)
+  - autentica o utilizador
+
+- **Refresh**
+  - roda o Refresh Token
+  - invalida o anterior
+
+- **Logout**
+  - revoga o Refresh Token
+
+- **Perfil**
+  - `/api/auth/me`
+
+---
+
+## Tokens
+
+### Access Token
+
+JWT assinado.
+
+Payload:
+
+- userId
+- organizationId
+- role
+- isSuperAdmin
+
+TTL configurável.
+
+### Refresh Token
+
+- valor aleatório
+- armazenado apenas como SHA-256
+- permite rotação
+- permite revogação imediata
+
+---
+
+## Multi-tenancy
+
+Todas as rotas protegidas utilizam o `organizationId`
+presente no Access Token.
+
+O isolamento é feito por organização.
+
+`isSuperAdmin` faz bypass das roles.
+
+---
+
+## Seeds
+
 ```bash
 pnpm db:seed
 ```
-Cria organização `frontrest-demo` e utilizador `owner@frontrest.dev` /
-`ChangeMe123!` (role `OWNER`).
 
-### Frontend
-`/login`, `/register`, `/dashboard` (protegido, consome `/auth/me`). Sessão
-guardada em `localStorage` (`frontrest.session`): `accessToken`,
-`refreshToken`, `user`, `organization`, `role`.
+Cria:
 
-### Testar
-```bash
-curl http://localhost:3001/api/auth/me                  # 401 sem token
-
-curl -X POST http://localhost:3001/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"demo@teste.pt","password":"password123","name":"Demo","organizationName":"Demo Org"}'
-
-curl -X POST http://localhost:3001/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"demo@teste.pt","password":"password123"}'
-
-curl http://localhost:3001/api/auth/me \
-  -H "Authorization: Bearer <accessToken>"
 ```
+Organização:
+frontrest-demo
+
+Utilizador:
+owner@frontrest.dev
+
+Password:
+ChangeMe123!
+```
+
+---
+
+## Frontend
+
+Existem atualmente:
+
+- `/login`
+- `/register`
+- `/dashboard`
+
+A sessão é guardada em:
+
+```
+localStorage
+
+frontrest.session
+```
+
+Campos:
+
+- accessToken
+- refreshToken
+- user
+- organization
+- role
+
+---
+
+# Testes rápidos
+
+```bash
+curl http://localhost:3001/api/auth/me
+```
+
+```bash
+curl -X POST http://localhost:3001/api/auth/register \
+-H "Content-Type: application/json" \
+-d '{"email":"demo@teste.pt","password":"password123","name":"Demo","organizationName":"Demo Org"}'
+```
+
+```bash
+curl -X POST http://localhost:3001/api/auth/login \
+-H "Content-Type: application/json" \
+-d '{"email":"demo@teste.pt","password":"password123"}'
+```
+
+```bash
+curl http://localhost:3001/api/auth/me \
+-H "Authorization: Bearer <accessToken>"
