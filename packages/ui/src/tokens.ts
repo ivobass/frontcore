@@ -1,19 +1,5 @@
 /**
- * Design tokens base do FrontCore.
- * Genéricos e neutros; cada produto pode estender o seu tema por cima.
+ * Ficheiro de compatibilidade — os tokens vivem em `./tokens/`.
+ * Mantido para não partir imports existentes que apontem para `./tokens`.
  */
-export const tokens = {
-  radius: {
-    sm: '0.375rem',
-    md: '0.5rem',
-    lg: '0.75rem',
-    xl: '1rem',
-  },
-  status: {
-    up: 'bg-green-500',
-    down: 'bg-red-500',
-    checking: 'bg-yellow-400',
-  },
-} as const;
-
-export type StatusKey = keyof typeof tokens.status;
+export * from './tokens/index';

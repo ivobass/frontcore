@@ -10,7 +10,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "scripts": {
-    "build": "prisma generate && tsc -p tsconfig.json && cp -R src/generated dist/generated",
+    "build": "prisma generate && tsc -p tsconfig.json && rm -rf dist/generated && cp -R src/generated dist/generated",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "dotenv -e ../../.env -- prisma migrate dev",
     "prisma:deploy": "dotenv -e ../../.env -- prisma migrate deploy",

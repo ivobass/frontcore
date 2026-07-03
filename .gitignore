@@ -12,6 +12,9 @@ packages/*/dist/
 # Turbo
 .turbo/
 
+# TypeScript incremental build info
+*.tsbuildinfo
+
 # Env
 .env
 .env.local

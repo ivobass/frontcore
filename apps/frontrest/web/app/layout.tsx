@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ThemeProvider } from '@frontcore/ui';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -10,9 +11,9 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="pt">
-      <body className="min-h-screen bg-neutral-50 text-neutral-900 antialiased">
-        {children}
+    <html lang="pt" suppressHydrationWarning>
+      <body className="min-h-screen bg-background text-foreground antialiased">
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );
