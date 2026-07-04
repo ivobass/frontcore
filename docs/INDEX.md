@@ -107,7 +107,8 @@ Nunca começar pela implementação. Nunca saltar os passos 1–4.
 | Fase 3.3 — UI Foundation | `docs/phases/phase-3.3-ui-foundation.md` | Registo de conclusão da Fase 3.3 | Fases | Concluído | ADR-0003; commit `4734e4b`, tag `v0.3.3-ui-foundation` |
 | Fase 3.4 — UI Primitives | `docs/phases/phase-3.4-ui-primitives.md` | Registo de conclusão da Fase 3.4 | Fases | Concluído | ADRs 0001–0005; commit `17872da`, tag `v0.3.4-ui-primitives` |
 | Fase 3.5 — UI Composition Foundation | `docs/phases/phase-3.5-ui-composition-foundation.md` | Registo de conclusão da Fase 3.5 | Fases | Concluído | ADRs 0001–0005; commit `66cfd4c`, tag `v0.3.5-ui-composition-foundation` |
-| Fase 3.6 — UI Application Foundation | `docs/phases/phase-3.6-ui-application-foundation.md` | Registo de conclusão da Fase 3.6 — primeiro consumo real do Design System por `apps/frontrest` | Fases | Concluído | ADRs 0001–0003, 0005; commit/tag por criar |
+| Fase 3.6 — UI Application Foundation | `docs/phases/phase-3.6-ui-application-foundation.md` | Registo de conclusão da Fase 3.6 — primeiro consumo real do Design System por `apps/frontrest` | Fases | Concluído | ADRs 0001–0003, 0005; commit `ebcf240`, tag `v0.3.6-ui-application-foundation` |
+| Fase 3.7 — Overlay | `docs/phases/phase-3.7-overlay.md` | Registo de conclusão da Fase 3.7 — categoria `overlay/` completa as 8 categorias da ADR-0003 | Fases | Concluído | ADRs 0001–0003, 0005; commit/tag por criar |
 
 ## Release
 
