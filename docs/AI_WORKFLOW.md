@@ -1,6 +1,6 @@
 # FrontCore AI Workflow
 
-Version: 1.1
+Version: 1.2
 
 ## Objetivo
 
@@ -142,6 +142,30 @@ Apresentar:
 - validações executadas
 - riscos restantes
 - próximo passo recomendado
+
+## Definition of Done (DoD)
+
+Uma fase apenas pode ser considerada concluída quando cumprir todos os
+critérios seguintes:
+
+- implementação concluída
+- arquitetura aprovada
+- ADRs respeitadas
+- documentação da fase criada
+- documentação geral atualizada (`INDEX.md`, `PHASES.md` e restantes
+  documentos relevantes)
+- roadmap atualizado (quando aplicável)
+- typecheck limpo
+- build limpa
+- testes executados (quando existirem)
+- revisão arquitetural concluída
+- Git limpo após commit
+- commit realizado
+- tag criada
+- push efetuado
+
+Nenhuma fase deverá ser considerada concluída se algum destes pontos
+estiver em falta.
 
 ## Âmbito da tarefa
 
