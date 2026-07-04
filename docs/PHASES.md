@@ -6,7 +6,9 @@
 - **Fase 2 — Auth & multi-tenant**: users, organizations, memberships, JWT +
   refresh, login/register/logout, guards, proteção por organização, seeds.
 - **Fase 3 — UI base**: layout, sidebar, topbar, dark/light, login/registo,
-  dashboard vazio, shadcn/ui.
+  dashboard vazio, shadcn/ui. *(O Design System que sustenta esta fase é
+  desenvolvido em subfases próprias — 3.1 a 3.x — documentadas em
+  `docs/phases/` e `docs/adr/`, com numeração distinta desta lista.)*
 - **Fase 4 — Fornecedores e despesas**: suppliers, invoices, invoice_items,
   categories, CRUD, filtros.
 - **Fase 5 — Upload & MinIO**: upload PDF/imagem, storage, files, URLs
