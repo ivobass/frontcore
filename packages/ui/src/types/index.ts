@@ -1,5 +1,5 @@
 /**
  * Tipos partilhados entre categorias de componentes do design system FrontCore.
- * Sem exports ainda.
  */
-export {};
+export * from './nav-item';
+export * from './render-link';

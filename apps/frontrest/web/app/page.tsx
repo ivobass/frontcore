@@ -1,7 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { cn } from '@frontcore/ui';
+import Link from 'next/link';
+import {
+  Typography,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  cn,
+  buttonVariants,
+} from '@frontcore/ui';
 import { API_URL } from '../lib/api';
 
 type State = 'checking' | 'up' | 'down';
@@ -11,9 +20,9 @@ function StatusDot({ state }: { state: State }) {
     <span
       className={cn(
         'inline-block h-3 w-3 rounded-full',
-        state === 'up' && 'bg-green-500',
-        state === 'down' && 'bg-red-500',
-        state === 'checking' && 'bg-yellow-400',
+        state === 'up' && 'bg-success',
+        state === 'down' && 'bg-destructive',
+        state === 'checking' && 'bg-warning',
       )}
     />
   );
@@ -42,49 +51,48 @@ export default function HomePage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-8 px-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">FrontRest IA</h1>
-        <p className="mt-1 text-neutral-500">
+        <Typography variant="h1">FrontRest IA</Typography>
+        <Typography variant="muted" className="mt-1">
           Fase 1 — fundação técnica sobre <strong>FrontCore</strong> a correr.
-        </p>
+        </Typography>
       </div>
 
-      <div className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-400">
-          Estado dos serviços
-        </h2>
-        <ul className="space-y-3">
-          <li className="flex items-center justify-between">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm uppercase tracking-wide text-muted-foreground">
+            Estado dos serviços
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between">
             <span>API (NestJS)</span>
-            <span className="flex items-center gap-2 text-sm text-neutral-600">
+            <span className="flex items-center gap-2 text-sm text-muted-foreground">
               <StatusDot state={api} /> {label(api)}
             </span>
-          </li>
-          <li className="flex items-center justify-between">
+          </div>
+          <div className="flex items-center justify-between">
             <span>Base de dados (PostgreSQL via API)</span>
-            <span className="flex items-center gap-2 text-sm text-neutral-600">
+            <span className="flex items-center gap-2 text-sm text-muted-foreground">
               <StatusDot state={db} /> {label(db)}
             </span>
-          </li>
-        </ul>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      <p className="text-xs text-neutral-400">
+      <Typography variant="muted" className="text-xs">
         API: <code>{API_URL}</code>
-      </p>
+      </Typography>
 
       <div className="flex gap-3">
-        <a
-          href="/login"
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
-        >
+        <Link href="/login" className={cn(buttonVariants({ variant: 'primary' }))}>
           Entrar
-        </a>
-        <a
+        </Link>
+        <Link
           href="/register"
-          className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-medium"
+          className={cn(buttonVariants({ variant: 'outline' }))}
         >
           Criar conta
-        </a>
+        </Link>
       </div>
     </main>
   );

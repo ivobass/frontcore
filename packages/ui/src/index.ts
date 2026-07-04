@@ -6,4 +6,5 @@
 export * from './lib';
 export * from './tokens';
 export * from './theme';
+export * from './types';
 export * from './components';
