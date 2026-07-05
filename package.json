@@ -12,6 +12,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
     "db:generate": "pnpm --filter @frontcore/database prisma:generate",
     "db:build": "pnpm --filter @frontcore/database... build",
     "db:migrate": "pnpm --filter @frontcore/database prisma:migrate",
