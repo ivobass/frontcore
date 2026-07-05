@@ -16,7 +16,7 @@ Nenhuma IA é considerada fonte de verdade.
 A documentação oficial do projeto é a única Source of Truth.
 
 A filosofia completa por trás desta regra, incluindo princípios e
-estrutura da equipa, está em `docs/AI_GOVERNANCE.md`.
+estrutura da equipa, está em `docs/ai/AI_GOVERNANCE.md`.
 
 ---
 
@@ -37,26 +37,24 @@ atualizar este índice.
 Antes de qualquer tarefa técnica no FrontCore, ler nesta ordem:
 
 1. `docs/INDEX.md` — este ficheiro, ponto de entrada.
-2. `docs/AI_GOVERNANCE.md` — princípios, filosofia, Source of Truth.
-3. `docs/AI_WORKFLOW.md` — fluxo operacional obrigatório.
-4. `docs/AI_RESPONSE_FORMAT.md` — formato de resposta a usar.
-5. `docs/ARCHITECTURE.md` — arquitetura geral do FrontCore.
-6. `docs/PHASES.md` — fases do produto FrontRest.
-7. ADRs relevantes em `docs/adr/` (ver tabela abaixo).
-8. Documentação da fase atual em `docs/phases/`, quando existir.
-9. Ficheiros de código diretamente relacionados com a tarefa.
+2. `docs/ai/README.md` e os documentos que indexa — princípios, fluxo
+   operacional, formato de resposta e de prompt.
+3. `docs/ARCHITECTURE.md` — arquitetura geral do FrontCore.
+4. `docs/PHASES.md` — fases do produto FrontRest.
+5. ADRs relevantes em `docs/adr/` (ver tabela abaixo).
+6. Documentação da fase atual em `docs/phases/`, quando existir.
+7. `docs/quality/README.md`, quando a tarefa envolver `packages/ui`.
+8. Ficheiros de código diretamente relacionados com a tarefa.
 
-Nunca começar pela implementação. Nunca saltar os passos 1–4.
+Nunca começar pela implementação. Nunca saltar os passos 1–2.
 
 ---
 
 ## Documentação obrigatória (governação de IA)
 
-| Documento | Localização | Objetivo | Categoria | Estado | Relação com outros documentos |
-|---|---|---|---|---|---|
-| AI Governance | `docs/AI_GOVERNANCE.md` | Filosofia, princípios, Source of Truth, estrutura da equipa | Workflow | Ativo | Base para `AI_WORKFLOW.md` e `AI_RESPONSE_FORMAT.md` |
-| AI Workflow | `docs/AI_WORKFLOW.md` | Fluxo operacional obrigatório para qualquer IA | Workflow | Ativo | Aplica os princípios de `AI_GOVERNANCE.md` |
-| AI Response Format | `docs/AI_RESPONSE_FORMAT.md` | Formato normalizado de resposta (Trabalho/Arquitetura/Revisão/Implementação) | Workflow | Ativo | Usado por `AI_WORKFLOW.md` |
+Consolidada em `docs/ai/` — ver `docs/ai/README.md` para o índice
+completo e a ordem de leitura. Lista individual dos documentos na secção
+"IA", abaixo.
 
 ---
 
@@ -65,8 +63,21 @@ Nunca começar pela implementação. Nunca saltar os passos 1–4.
 | Documento | Localização | Objetivo | Categoria | Estado | Relação com outros documentos |
 |---|---|---|---|---|---|
 | Índice da documentação | `docs/INDEX.md` | Este ficheiro — ponto de entrada único para localizar qualquer documento técnico | Índices | Ativo | Cobre todos os documentos deste ficheiro |
-| Índice das ADRs | `docs/adr/README.md` | Lista e convenção de numeração das Architecture Decision Records | Índices | Ativo | `docs/adr/0001`–`0005` |
+| Índice de IA | `docs/ai/README.md` | Mapa e ordem de leitura da documentação de IA | Índices | Ativo | `docs/ai/*` |
+| Índice das ADRs | `docs/adr/README.md` | Lista e convenção de numeração das Architecture Decision Records | Índices | Ativo | `docs/adr/0001`–`0006` |
 | Índice de fases | `docs/phases/README.md` | Regra de quando criar documentação detalhada por fase | Índices | Ativo | `docs/PHASES.md`, `docs/phases/*` |
+| Índice de qualidade | `docs/quality/README.md` | Mapa dos standards de qualidade do Design System | Índices | Ativo | `docs/quality/*` |
+
+## IA
+
+| Documento | Localização | Objetivo | Categoria | Estado | Relação com outros documentos |
+|---|---|---|---|---|---|
+| AI Governance | `docs/ai/AI_GOVERNANCE.md` | Filosofia, princípios, Source of Truth, estrutura da equipa | IA | Ativo | Base para os restantes documentos de `docs/ai/` |
+| AI Workflow | `docs/ai/AI_WORKFLOW.md` | Fluxo operacional obrigatório para qualquer IA | IA | Ativo | Aplica os princípios de `AI_GOVERNANCE.md` |
+| AI Response Format | `docs/ai/AI_RESPONSE_FORMAT.md` | Formato normalizado de resposta (Trabalho/Arquitetura/Revisão/Implementação) | IA | Ativo | Usado por `AI_WORKFLOW.md`; esqueletos em `docs/ai/templates/` |
+| AI Prompt Standard | `docs/ai/AI_PROMPT_STANDARD.md` | Formato normalizado de pedido (lado do utilizador) | IA | Ativo | Espelha `AI_RESPONSE_FORMAT.md` |
+| AI Documentation | `docs/ai/AI_DOCUMENTATION.md` | Regras de como escrever e localizar documentação | IA | Ativo | Consolida regras antes em `AI_GOVERNANCE.md`/`AI_WORKFLOW.md` |
+| AI Quality Review | `docs/ai/AI_QUALITY_REVIEW.md` | Checklist de revisão de IA específico de `packages/ui` | IA | Ativo | Complementa `AI_WORKFLOW.md`; referencia `docs/quality/` |
 
 ## ADRs
 
@@ -77,26 +88,27 @@ Nunca começar pela implementação. Nunca saltar os passos 1–4.
 | ADR-0003 | `docs/adr/0003-ui-internal-structure.md` | Estrutura interna e categorização de `packages/ui/src` | ADRs | Aceite | Consome ADR-0001; usada por `docs/phases/*` |
 | ADR-0004 | `docs/adr/0004-theme-engine-distribution.md` | Distribuição do Theme Engine (CSS vars + preset Tailwind) entre produtos | ADRs | Aceite | Depende dos tokens/theme (Fases 3.1/3.2) |
 | ADR-0005 | `docs/adr/0005-ui-public-api-encapsulation.md` | `@frontcore/ui` como única API pública; Radix UI é detalhe interno | ADRs | Aceite | Estende ADR-0002; aplica-se à Fase 3.5 |
+| ADR-0006 | `docs/adr/0006-documentation-architecture.md` | Arquitetura da documentação — `docs/ai/`, `docs/quality/`, critério para novas subpastas | ADRs | Aceite | Reorganiza `docs/AI_*.md` para `docs/ai/` |
 
 ## Arquitetura
 
 | Documento | Localização | Objetivo | Categoria | Estado | Relação com outros documentos |
 |---|---|---|---|---|---|
 | Arquitetura geral | `docs/ARCHITECTURE.md` | Visão e regras de arquitetura do FrontCore e do FrontRest | Arquitetura | Ativo | Base para todas as ADRs |
-| Estrutura do projeto | `docs/PROJECT_STRUCTURE.md` | Organização oficial do repositório; separação `FrontCore/docs` vs `frontcore/docs` | Arquitetura | Ativo | Referenciado por `docs/AI_WORKFLOW.md` |
+| Estrutura do projeto | `docs/PROJECT_STRUCTURE.md` | Organização oficial do repositório; separação `FrontCore/docs` vs `frontcore/docs` | Arquitetura | Ativo | Referenciado por `docs/ai/AI_WORKFLOW.md` |
 
 ## Workflow (processo, não governação de IA)
 
 | Documento | Localização | Objetivo | Categoria | Estado | Relação com outros documentos |
 |---|---|---|---|---|---|
-| Git Workflow | `docs/GIT_WORKFLOW.md` | Uso de Git, mensagens de commit, tags | Workflow | Ativo | Usado por `docs/RELEASE_PROCESS.md`; ver também secção "Documentação obrigatória" acima |
+| Git Workflow | `docs/GIT_WORKFLOW.md` | Uso de Git, mensagens de commit, tags | Workflow | Ativo | Usado por `docs/RELEASE_PROCESS.md`; regras de IA em `docs/ai/AI_WORKFLOW.md` |
 | Coding Standards | `docs/CODING_STANDARDS.md` | Regras base para código no FrontCore | Workflow | Ativo | Aplica-se a `packages/*` e `apps/*` |
 
 ## Guias
 
 | Documento | Localização | Objetivo | Categoria | Estado | Relação com outros documentos |
 |---|---|---|---|---|---|
-| Developer Guide | `docs/DEVELOPER_GUIDE.md` | Guia rápido para começar a trabalhar no FrontCore | Guias | Ativo | Aponta para `docs/AI_WORKFLOW.md`, `docs/PROJECT_STRUCTURE.md` |
+| Developer Guide | `docs/DEVELOPER_GUIDE.md` | Guia rápido para começar a trabalhar no FrontCore | Guias | Ativo | Aponta para `docs/INDEX.md`, `docs/PROJECT_STRUCTURE.md` |
 | Deploy Coolify | `docs/DEPLOY-COOLIFY.md` | Deploy do FrontCore em Coolify | Guias | Ativo | Relacionado com `docker-compose.yml` |
 
 ## Fases
@@ -108,7 +120,17 @@ Nunca começar pela implementação. Nunca saltar os passos 1–4.
 | Fase 3.4 — UI Primitives | `docs/phases/phase-3.4-ui-primitives.md` | Registo de conclusão da Fase 3.4 | Fases | Concluído | ADRs 0001–0005; commit `17872da`, tag `v0.3.4-ui-primitives` |
 | Fase 3.5 — UI Composition Foundation | `docs/phases/phase-3.5-ui-composition-foundation.md` | Registo de conclusão da Fase 3.5 | Fases | Concluído | ADRs 0001–0005; commit `66cfd4c`, tag `v0.3.5-ui-composition-foundation` |
 | Fase 3.6 — UI Application Foundation | `docs/phases/phase-3.6-ui-application-foundation.md` | Registo de conclusão da Fase 3.6 — primeiro consumo real do Design System por `apps/frontrest` | Fases | Concluído | ADRs 0001–0003, 0005; commit `ebcf240`, tag `v0.3.6-ui-application-foundation` |
-| Fase 3.7 — Overlay | `docs/phases/phase-3.7-overlay.md` | Registo de conclusão da Fase 3.7 — categoria `overlay/` completa as 8 categorias da ADR-0003 | Fases | Concluído | ADRs 0001–0003, 0005; commit/tag por criar |
+| Fase 3.7 — Overlay | `docs/phases/phase-3.7-overlay.md` | Registo de conclusão da Fase 3.7 — categoria `overlay/` completa as 8 categorias da ADR-0003 | Fases | Concluído | ADRs 0001–0003, 0005; commit `ac278ae`, tag `v0.3.7-overlay-foundation` |
+
+## Qualidade
+
+| Documento | Localização | Objetivo | Categoria | Estado | Relação com outros documentos |
+|---|---|---|---|---|---|
+| Component Guidelines | `docs/quality/component-guidelines.md` | Convenções de API pública de componentes | Qualidade | Ativo | Aplica ADR-0003, ADR-0005 |
+| Accessibility Guidelines | `docs/quality/accessibility.md` | Semântica HTML, teclado, foco, `aria-*`, responsive | Qualidade | Ativo | Referenciado por `docs/ai/AI_QUALITY_REVIEW.md` |
+| Quality Checklist | `docs/quality/quality-checklist.md` | Checklist condensado antes de considerar um componente pronto | Qualidade | Ativo | Referencia os restantes documentos de `docs/quality/` |
+| Quality Gates | `docs/quality/quality-gates.md` | Processo de validação obrigatório (typecheck/build/test/lint) | Qualidade | Ativo | Usado antes de qualquer commit em `packages/ui` |
+| Component Definition of Done | `docs/quality/component-definition-of-done.md` | Definition of Done por componente individual | Qualidade | Ativo | Complementa a DoD de fase em `docs/ai/AI_WORKFLOW.md` |
 
 ## Release
 
@@ -133,9 +155,9 @@ Nenhum documento nesta categoria por agora.
   Standards.md`/`Folder Structure.md`/`Decisions Log.md` vs os equivalentes
   aqui dentro) **não foi corrigida** — está fora do âmbito deste índice, que
   cobre apenas `frontcore/docs/`.
-- `docs/DEVELOPER_GUIDE.md` e `docs/RELEASE_PROCESS.md` têm as suas
-  próprias listas de leitura/documentação obrigatória, escritas antes deste
-  índice existir, e ainda não referenciam `docs/INDEX.md` nem
-  `docs/AI_GOVERNANCE.md`/`docs/AI_RESPONSE_FORMAT.md` — risco de
-  divergência, sinalizado mas não corrigido aqui (fora do âmbito desta
-  tarefa).
+- `docs/DEVELOPER_GUIDE.md` deixou de ter a sua própria lista de leitura
+  divergente — passou a apontar para `docs/INDEX.md` (ver ADR-0006).
+- `docs/RELEASE_PROCESS.md` continua com o seu próprio checklist de
+  encerramento, sobreposto (não idêntico) à Definition of Done de fase em
+  `docs/ai/AI_WORKFLOW.md` — sinalizado, não corrigido aqui, fora do
+  âmbito desta tarefa.

@@ -1,6 +1,6 @@
 # FrontCore Developer Guide
 
-Version: 1.0
+Version: 1.1
 
 ## Objetivo
 
@@ -8,14 +8,9 @@ Este documento é o guia rápido para qualquer pessoa ou agente de IA começar a
 
 ## Leitura inicial obrigatória
 
-Antes de trabalhar no projeto, ler:
-
-1. `README.md`
-2. `docs/AI_WORKFLOW.md`
-3. `docs/PROJECT_STRUCTURE.md`
-4. `docs/ARCHITECTURE.md`
-5. `docs/PHASES.md`
-6. ADRs relevantes em `docs/adr/`
+Antes de trabalhar no projeto, ler `docs/INDEX.md` — é o ponto de entrada
+único e mantém a ordem de leitura atualizada, para não haver uma segunda
+lista aqui a divergir dela (ver `docs/adr/0006-documentation-architecture.md`).
 
 ## Visão rápida
 
@@ -77,27 +72,10 @@ pnpm db:migrate --name init
 
 ## Papel das IAs
 
-### ChatGPT
-
-Usar para:
-
-- arquitetura
-- revisão técnica
-- planeamento
-- documentação
-- análise de riscos
-- preparação de prompts
-
-### Claude/Codex/outros agentes
-
-Usar para:
-
-- implementação controlada
-- refactors pequenos
-- geração de ficheiros
-- execução de tarefas técnicas específicas
-
-A ferramenta não interessa tanto como o workflow. Todas devem seguir `docs/AI_WORKFLOW.md`.
+A divisão de responsabilidades entre assistentes de IA está definida em
+`docs/ai/AI_GOVERNANCE.md` ("Estrutura da equipa") — não repetida aqui,
+para evitar as duas descrições divergirem. A ferramenta não interessa
+tanto como o workflow: todas devem seguir `docs/ai/AI_WORKFLOW.md`.
 
 ## Critério para mexer em código
 

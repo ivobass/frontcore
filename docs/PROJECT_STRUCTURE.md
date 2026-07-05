@@ -1,6 +1,6 @@
 # FrontCore Project Structure
 
-Version: 1.0
+Version: 1.1
 
 ## Objetivo
 
@@ -47,9 +47,11 @@ frontcore/
 │   └── ui/
 ├── docs/
 │   ├── adr/
-│   ├── architecture/
 │   ├── phases/
-│   ├── AI_WORKFLOW.md
+│   ├── ai/
+│   ├── quality/
+│   ├── INDEX.md
+│   ├── ARCHITECTURE.md
 │   ├── PROJECT_STRUCTURE.md
 │   ├── DEVELOPER_GUIDE.md
 │   ├── GIT_WORKFLOW.md
@@ -61,7 +63,7 @@ frontcore/
 └── README.md
 ```
 
-Nem todas as pastas precisam existir desde o primeiro dia. Devem ser criadas quando forem úteis.
+Nem todas as pastas precisam existir desde o primeiro dia. Devem ser criadas quando forem úteis — ver ADR-0006 para o critério exato de quando uma subpasta nova de `docs/` se justifica (documentado abaixo, em "Antes de criar uma pasta nova").
 
 ## Regras por zona
 
@@ -113,6 +115,24 @@ Exemplo:
 docs/phases/phase-3-ui.md
 ```
 
+### `docs/ai/`
+
+Contém toda a governação, workflow, formato de resposta e de prompt de
+IA. Ver `docs/ai/README.md`.
+
+### `docs/quality/`
+
+Contém os standards de qualidade do Design System (`packages/ui`) —
+audiência-agnóstica, aplica-se a qualquer contribuidor. Ver
+`docs/quality/README.md`.
+
+### `docs/architecture/` (ainda não existe)
+
+Reservado para documentação técnica por área (ex. `database.md`,
+`security.md`, `infrastructure.md`, `backend.md`, `frontend.md`), a
+nascer só quando a primeira dessas áreas tiver conteúdo real para
+documentar — nunca especulativamente. Ver ADR-0006.
+
 ## Antes de criar uma pasta nova
 
 Confirmar:
@@ -121,6 +141,8 @@ Confirmar:
 2. A responsabilidade não pertence a outra zona.
 3. A criação respeita `docs/ARCHITECTURE.md`.
 4. A alteração está dentro da fase atual.
+5. Existem 3+ documentos genuinamente relacionados que a justifiquem —
+   ver ADR-0006 para o critério completo.
 
 ## Regra anti-caos
 

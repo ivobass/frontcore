@@ -1,6 +1,6 @@
 # FrontCore AI Workflow
 
-Version: 1.2
+Version: 1.3
 
 ## Objetivo
 
@@ -12,10 +12,13 @@ usado para analisar, planear, implementar ou rever código.
 
 ## Âmbito deste documento
 
-Este documento é exclusivamente operacional — define o **como**. Os
-princípios, a filosofia e a estrutura de decisão vivem em
-`docs/AI_GOVERNANCE.md`. O formato das respostas vive em
-`docs/AI_RESPONSE_FORMAT.md`.
+Este documento é exclusivamente operacional — define o **como** do fluxo
+de trabalho com código. Os princípios, a filosofia e a estrutura de
+decisão vivem em `docs/ai/AI_GOVERNANCE.md`. O formato das respostas vive
+em `docs/ai/AI_RESPONSE_FORMAT.md`. Como escrever prompts vive em
+`docs/ai/AI_PROMPT_STANDARD.md`. Como escrever documentação vive em
+`docs/ai/AI_DOCUMENTATION.md`. A revisão de qualidade específica de
+`packages/ui` vive em `docs/ai/AI_QUALITY_REVIEW.md`.
 
 ## Ordem obrigatória de leitura
 
@@ -33,14 +36,24 @@ Antes de propor ou escrever código, a IA deve:
 Leitura mínima recomendada, sempre:
 
 1. `README.md`
-2. `docs/AI_GOVERNANCE.md`
-3. `docs/AI_WORKFLOW.md` (este documento)
-4. `docs/ARCHITECTURE.md`
-5. `docs/PHASES.md`
-6. ADRs relevantes em `docs/adr/`
-7. Documentação da fase atual, quando existir
+2. `docs/ai/AI_GOVERNANCE.md`
+3. `docs/ai/AI_WORKFLOW.md` (este documento)
+4. `docs/ai/AI_RESPONSE_FORMAT.md`
+5. `docs/ARCHITECTURE.md`
+6. `docs/PHASES.md`
+7. ADRs relevantes em `docs/adr/`
+8. Documentação da fase atual, quando existir
 
 Nunca começar pela implementação.
+
+## Início de fase ou de conversa
+
+Sempre que se inicia uma nova fase, ou um novo chat depois de um commit,
+tag e push, é obrigatório validar o estado do Git e rever toda a
+documentação alterada na fase anterior, bem como os documentos de
+arquitetura relevantes, antes de qualquer análise, planeamento ou
+implementação. Não assumir que o estado descrito numa conversa anterior
+continua válido sem essa validação.
 
 ## Documentação utilizada (formato obrigatório)
 
@@ -51,7 +64,7 @@ explicitamente quais documentos foram consultados, neste formato:
 Documentação utilizada
 
 - docs/INDEX.md
-- docs/AI_WORKFLOW.md
+- docs/ai/AI_WORKFLOW.md
 - docs/ARCHITECTURE.md
 - docs/...
 - docs/adr/...
@@ -59,12 +72,12 @@ Documentação utilizada
 ```
 
 Este bloco é o conteúdo da secção "Documentação utilizada" do Modo
-Trabalho definido em `docs/AI_RESPONSE_FORMAT.md`.
+Trabalho definido em `docs/ai/AI_RESPONSE_FORMAT.md`.
 
 ## Fonte da verdade (aplicação operacional)
 
 A filosofia de "documentação como Source of Truth" está definida em
-`docs/AI_GOVERNANCE.md`. Operacionalmente, a ordem de prioridade entre
+`docs/ai/AI_GOVERNANCE.md`. Operacionalmente, a ordem de prioridade entre
 fontes é:
 
 1. ADRs em `docs/adr/`
@@ -215,12 +228,10 @@ Toda decisão arquitetural relevante deve:
 
 ## Documentação
 
-Sempre que uma alteração modificar arquitetura, workflow, estrutura do
-projeto ou processo de release, a IA deve indicar quais documentos
-precisam de ser atualizados.
-
-Nunca assumir que a documentação continua correta depois de uma alteração
-estrutural.
+As regras de como escrever e atualizar documentação (incluindo o que
+fazer quando uma alteração modifica arquitetura, workflow ou estrutura do
+projeto) estão em `docs/ai/AI_DOCUMENTATION.md`, para não se repetirem em
+mais do que um sítio.
 
 ## Regras proibidas
 

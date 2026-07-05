@@ -57,14 +57,7 @@ Consultar primeiro:
 
 # Documentação de engenharia
 
-Antes de trabalhar no projeto, qualquer programador ou agente de IA deve ler:
-
-1. `docs/AI_WORKFLOW.md`
-2. `docs/PROJECT_STRUCTURE.md`
-3. `docs/DEVELOPER_GUIDE.md`
-4. `docs/GIT_WORKFLOW.md`
-5. `docs/CODING_STANDARDS.md`
-6. `docs/RELEASE_PROCESS.md`
+Antes de trabalhar no projeto, qualquer programador ou agente de IA deve começar por `docs/INDEX.md` — ponto de entrada único e ordem de leitura oficial (ver `docs/adr/0006-documentation-architecture.md`).
 
 Estes documentos definem o workflow oficial do FrontCore e devem prevalecer sobre o contexto de qualquer conversa.
 

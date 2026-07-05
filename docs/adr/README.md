@@ -22,3 +22,4 @@ consideradas e as consequências aceites — para que produtos futuros
 | [0003](./0003-ui-internal-structure.md) | Estrutura interna de `packages/ui/src` e categorização de componentes | Aceite |
 | [0004](./0004-theme-engine-distribution.md) | Distribuição do Theme Engine entre produtos | Aceite |
 | [0005](./0005-ui-public-api-encapsulation.md) | `@frontcore/ui` como única API pública — encapsulamento do Radix UI | Aceite |
+| [0006](./0006-documentation-architecture.md) | Arquitetura da documentação do FrontCore — `docs/ai/`, `docs/quality/`, critério para novas subpastas | Aceite |

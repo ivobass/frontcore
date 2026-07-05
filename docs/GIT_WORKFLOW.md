@@ -1,6 +1,6 @@
 # FrontCore Git Workflow
 
-Version: 1.0
+Version: 1.1
 
 ## Objetivo
 
@@ -76,16 +76,8 @@ Tags devem ser usadas para pontos recuperáveis, não para cada pequena alteraç
 
 ## Regras para agentes de IA
 
-Agentes de IA não devem executar automaticamente:
-
-```bash
-git add
-git commit
-git push
-git tag
-```
-
-Apenas sugerem comandos, excepto quando o utilizador pedir explicitamente para alterar o GitHub.
+Definidas em `docs/ai/AI_WORKFLOW.md`, secção "Git" — não repetidas aqui,
+para as duas versões não divergirem.
 
 ## Checklist antes de commit
 
