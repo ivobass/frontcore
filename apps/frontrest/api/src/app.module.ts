@@ -5,6 +5,9 @@ import { JwtAuthGuard, RolesGuard } from '@frontcore/auth';
 import { PrismaModule } from './prisma/prisma.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
+import { ExpenseCategoriesModule } from './expense-categories/expense-categories.module';
+import { InvoicesModule } from './invoices/invoices.module';
 
 @Module({
   imports: [
@@ -12,6 +15,9 @@ import { AuthModule } from './auth/auth.module';
     PrismaModule,
     HealthModule,
     AuthModule,
+    SuppliersModule,
+    ExpenseCategoriesModule,
+    InvoicesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

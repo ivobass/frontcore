@@ -1,11 +1,17 @@
 // ====================================================================
-// FrontCore — schema base (domain-agnostic, multi-tenant)
+// FrontCore — schema partilhado (core multi-tenant + domínio FrontRest)
 // --------------------------------------------------------------------
-// Contém apenas modelos CORE reutilizáveis por qualquer produto SaaS:
-// Organization (tenant), User, Membership (RBAC) e HealthCheck.
-// NENHUM modelo de domínio (restaurantes, etc.) vive aqui.
-// Modelos específicos de produto entram nos respetivos apps em fases
-// próprias, referenciando estes por organizationId.
+// Secção CORE: modelos reutilizáveis por qualquer produto SaaS —
+// Organization (tenant), User, Membership (RBAC), RefreshToken,
+// HealthCheck. Zero lógica de domínio.
+//
+// Secção FRONTREST (a partir daqui, ver marcador abaixo): modelos de
+// domínio do produto FrontRest (Fase 4+), todos com organizationId.
+// Vivem neste mesmo ficheiro porque o monorepo gera um único Prisma
+// Client sobre uma única base de dados — não porque packages/database
+// deixou de ser genérico. Um segundo produto (FrontClinic, ...) com
+// modelos próprios repete o mesmo padrão numa secção equivalente, sem
+// partilhar tabelas de domínio com o FrontRest.
 // ====================================================================
 
 generator client {
@@ -41,7 +47,10 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships Membership[]
+  memberships       Membership[]
+  suppliers         Supplier[]
+  expenseCategories ExpenseCategory[]
+  invoices          Invoice[]
 
   @@index([slug])
 }
@@ -100,4 +109,87 @@ model RefreshToken {
 
   @@index([userId])
   @@index([tokenHash])
+}
+
+// ====================================================================
+// FRONTREST — domínio de fornecedores e despesas (Fase 4)
+// ====================================================================
+
+/// Fornecedor de uma organização. Domínio FrontRest.
+model Supplier {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  taxId          String?
+  email          String?
+  phone          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoices     Invoice[]
+
+  @@index([organizationId])
+}
+
+/// Categoria de despesa de uma organização. Domínio FrontRest.
+model ExpenseCategory {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoices     Invoice[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+/// Fatura de despesa associada a um fornecedor. Domínio FrontRest.
+model Invoice {
+  id             String        @id @default(cuid())
+  organizationId String
+  supplierId     String
+  categoryId     String?
+  number         String?
+  issueDate      DateTime
+  dueDate        DateTime?
+  totalAmount    Decimal       @db.Decimal(12, 2)
+  status         InvoiceStatus @default(PENDING)
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  category     ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  items        InvoiceItem[]
+
+  @@index([organizationId])
+  @@index([supplierId])
+  @@index([categoryId])
+}
+
+/// Linha de item de uma fatura. Domínio FrontRest.
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Decimal  @default(1) @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  totalPrice  Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
 }

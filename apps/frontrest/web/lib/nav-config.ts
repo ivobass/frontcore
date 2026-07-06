@@ -4,6 +4,11 @@ import type { NavItem } from '@frontcore/ui';
 export function getNavItems(pathname: string): NavItem[] {
   return [
     { label: 'Dashboard', href: '/dashboard', active: pathname === '/dashboard' },
+    {
+      label: 'Fornecedores',
+      href: '/suppliers',
+      active: pathname === '/suppliers',
+    },
     { label: 'Definições', href: '/settings', active: pathname === '/settings' },
   ];
 }
