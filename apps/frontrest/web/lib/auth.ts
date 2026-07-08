@@ -1,4 +1,4 @@
-import { API_URL } from './api';
+import { API_URL, parseJsonOrThrow, authHeaders } from './api';
 
 const SESSION_KEY = 'frontrest.session';
 
@@ -29,14 +29,6 @@ export function getSession(): Session | null {
 export function clearSession(): void {
   if (typeof window === 'undefined') return;
   window.localStorage.removeItem(SESSION_KEY);
-}
-
-async function parseJsonOrThrow(response: Response): Promise<any> {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data?.message ?? 'Pedido falhou.');
-  }
-  return data;
 }
 
 export async function register(input: {
@@ -75,7 +67,7 @@ export async function logout(refreshToken: string): Promise<void> {
 
 export async function fetchMe(accessToken: string): Promise<any> {
   const response = await fetch(`${API_URL}/auth/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   return parseJsonOrThrow(response);
 }

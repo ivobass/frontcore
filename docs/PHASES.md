@@ -9,14 +9,16 @@
   dashboard vazio, shadcn/ui. *(O Design System que sustenta esta fase é
   desenvolvido em subfases próprias — 3.1 a 3.x — documentadas em
   `docs/phases/` e `docs/adr/`, com numeração distinta desta lista.)*
-- **Fase 4 — Fornecedores e despesas** *(primeiro incremento em curso)*:
-  API completa — modelos `Supplier`, `ExpenseCategory`, `Invoice`,
-  `InvoiceItem` (`packages/database/prisma/schema.prisma`), CRUD protegido
-  por organização e role (`MANAGER+` para escrita) em
+- **Fase 4 — Fornecedores e despesas**: API completa — modelos `Supplier`,
+  `ExpenseCategory`, `Invoice`, `InvoiceItem`
+  (`packages/database/prisma/schema.prisma`), CRUD protegido por
+  organização e role (`MANAGER+` para escrita) em
   `apps/frontrest/api/src/{suppliers,expense-categories,invoices}/`,
-  listagem paginada (`@frontcore/shared`). Frontend ainda parcial: só
-  `/suppliers` (listagem, sem criação/edição); falta UI de faturas e
-  categorias de despesa.
+  listagem paginada (`@frontcore/shared`) — Fase 4.1. Frontend com CRUD
+  completo (criar/editar/eliminar) para as 3 entidades — `/suppliers`,
+  `/expense-categories`, `/invoices` — em `apps/frontrest/web` — Fase 4.2
+  (`docs/phases/phase-4.2-frontend-crud.md`). Testes automatizados do
+  backend por fazer.
 - **Fase 5 — Upload & MinIO**: upload PDF/imagem, storage, files, URLs
   assinados, validação, segurança por organização.
 - **Fase 6 — Worker OCR**: BullMQ, worker-ocr, estados, OCR mock → provider real.

@@ -9,6 +9,16 @@ export function getNavItems(pathname: string): NavItem[] {
       href: '/suppliers',
       active: pathname === '/suppliers',
     },
+    {
+      label: 'Categorias de Despesa',
+      href: '/expense-categories',
+      active: pathname === '/expense-categories',
+    },
+    {
+      label: 'Faturas',
+      href: '/invoices',
+      active: pathname === '/invoices',
+    },
     { label: 'Definições', href: '/settings', active: pathname === '/settings' },
   ];
 }
