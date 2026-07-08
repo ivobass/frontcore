@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { ExpenseCategoriesModule } from './expense-categories/expense-categories.module';
 import { InvoicesModule } from './invoices/invoices.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { InvoicesModule } from './invoices/invoices.module';
     SuppliersModule,
     ExpenseCategoriesModule,
     InvoicesModule,
+    UploadsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

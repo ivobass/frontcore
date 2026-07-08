@@ -125,6 +125,7 @@ completo e a ordem de leitura. Lista individual dos documentos na secção
 | Fase 4.2 — Frontend CRUD | `docs/phases/phase-4.2-frontend-crud.md` | Registo de conclusão da Fase 4.2 — CRUD completo de Fornecedores/Categorias de Despesa/Faturas em `apps/frontrest/web`, sobre a API da Fase 4.1 | Fases | Concluído | ADRs 0001, 0002, 0005; `docs/PHASES.md`; commit/tag por criar |
 | Fase 4.4 — Backend Tests | `docs/phases/phase-4.4-backend-tests.md` | Registo de conclusão da Fase 4.4 — testes unitários e e2e para Suppliers/Expense Categories/Invoices em `apps/frontrest/api`, sem base de dados real | Fases | Concluído | `docs/PHASES.md`; `docs/ai/AI_WORKFLOW.md`; commit/tag por criar |
 | Fase 5.1 — Upload & Storage Foundation | `docs/phases/phase-5.1-upload-storage-foundation.md` | Registo de conclusão da Fase 5.1 — `@frontcore/storage` concretizado sobre MinIO/S3, `getDownloadUrl`, sem consumidor real ainda | Fases | Concluído | `docs/PHASES.md`; commit/tag por criar |
+| Fase 5.2 — Upload API Foundation | `docs/phases/phase-5.2-upload-api-foundation.md` | Registo de conclusão da Fase 5.2 — primeiro consumidor real de `@frontcore/storage`, `UploadsController`/`UploadsService` em `apps/frontrest/api`, modelo `StorageObject` (sem migration aplicada) | Fases | Concluído | `docs/PHASES.md`; `docs/ARCHITECTURE.md`; `docs/phases/phase-5.1-upload-storage-foundation.md`; commit/tag por criar |
 
 ## Qualidade
 

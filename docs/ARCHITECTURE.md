@@ -24,7 +24,7 @@ alterações**.
 | `@frontcore/shared`      | Tipos/utils genéricos (Result, paginação, health)    | ativo         |
 | `@frontcore/database`    | Prisma client + schema core (Org/User/Membership)    | ativo         |
 | `@frontcore/auth`        | Contratos de auth (JWT/refresh)                      | contrato      |
-| `@frontcore/storage`     | Contrato de storage S3                               | contrato      |
+| `@frontcore/storage`     | Storage de objetos S3-compatível (MinIO/S3)          | ativo         |
 | `@frontcore/ai`          | Contrato de provider de IA                           | contrato      |
 | `@frontcore/notifications` | Contrato de notificações                           | contrato      |
 | `@frontcore/monitoring`  | Helpers de health/observabilidade                    | ativo         |
@@ -32,6 +32,25 @@ alterações**.
 
 > "contrato" = na Fase 1 expõe apenas tipos/interfaces de fronteira. A
 > implementação concreta entra na fase indicada, sem quebrar consumidores.
+
+## Storage de objetos
+
+`@frontcore/storage` passou de contrato vazio (Fase 1) a implementação
+real sobre MinIO/S3 (`S3ObjectStorage`, Fase 5.1) e ganhou o primeiro
+consumidor real em `apps/frontrest/api` (Fase 5.2):
+
+```
+UploadsController → UploadsService → ObjectStorage → S3ObjectStorage
+```
+
+Só `apps/frontrest/api/src/uploads/uploads.module.ts` importa
+`S3ObjectStorage`/`@frontcore/storage` diretamente — regista-o sob um
+token de injeção NestJS (`OBJECT_STORAGE`). `UploadsController` e
+`UploadsService` só conhecem o tipo `ObjectStorage`, nunca a
+implementação concreta, o que permite substituir o provider (testes, ou
+uma implementação alternativa futura) sem tocar em mais nenhum ficheiro.
+Ver `docs/phases/phase-5.1-upload-storage-foundation.md` e
+`docs/phases/phase-5.2-upload-api-foundation.md`.
 
 ## Apps (FrontRest)
 

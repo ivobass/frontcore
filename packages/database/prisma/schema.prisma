@@ -51,6 +51,7 @@ model Organization {
   suppliers         Supplier[]
   expenseCategories ExpenseCategory[]
   invoices          Invoice[]
+  storageObjects    StorageObject[]
 
   @@index([slug])
 }
@@ -192,4 +193,23 @@ model InvoiceItem {
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([invoiceId])
+}
+
+/// Objeto genérico armazenado em storage de objetos (S3/MinIO). Sem
+/// lógica de domínio — módulos consumidores (Invoice, Avatar, Report,
+/// OCR, ...) referenciam StorageObject.id, nunca `key` diretamente.
+/// `key` é nula até o objeto ser efetivamente guardado em storage;
+/// leituras públicas devem sempre filtrar `key: { not: null }`.
+model StorageObject {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String?  @unique
+  filename       String
+  contentType    String
+  size           Int
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }

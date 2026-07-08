@@ -24,9 +24,13 @@
   assinados, validação, segurança por organização. `@frontcore/storage`
   concretizado sobre MinIO/S3 (`S3ObjectStorage`, `getDownloadUrl`,
   configuração via ambiente) — Fase 5.1
-  (`docs/phases/phase-5.1-upload-storage-foundation.md`). Sem consumidor
-  real ainda: endpoint de upload, `getUploadUrl()` e integração com
-  `Invoice` ficam para subfases seguintes.
+  (`docs/phases/phase-5.1-upload-storage-foundation.md`). Primeiro
+  consumidor real — `UploadsController`/`UploadsService`
+  (`apps/frontrest/api/src/uploads/`), modelo `StorageObject` (schema
+  proposto em `packages/database/prisma/schema.prisma`, **sem migration
+  aplicada**), endpoints `POST`/`GET`/`DELETE /uploads` — Fase 5.2
+  (`docs/phases/phase-5.2-upload-api-foundation.md`). `getUploadUrl()` e
+  integração com `Invoice` continuam por fazer, para subfases seguintes.
 - **Fase 6 — Worker OCR**: BullMQ, worker-ocr, estados, OCR mock → provider real.
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
