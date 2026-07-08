@@ -1,5 +1,7 @@
 # FrontCore — Documentação de IA
 
+Version: 1.0
+
 Reúne toda a governação, workflow e formato de resposta para qualquer
 assistente de IA (Claude, ChatGPT, Codex, Gemini ou outro) que trabalhe no
 FrontCore. `docs/INDEX.md` continua a ser o ponto de entrada oficial de
@@ -16,6 +18,18 @@ toda a documentação técnica — esta pasta é a secção de IA desse índice.
 | [AI_DOCUMENTATION.md](./AI_DOCUMENTATION.md) | Regras de como escrever e localizar documentação |
 | [AI_QUALITY_REVIEW.md](./AI_QUALITY_REVIEW.md) | Checklist de revisão específico de `packages/ui` |
 | [templates/](./templates/) | Esqueletos prontos a preencher, um por tipo de tarefa |
+
+## Camadas
+
+Organização conceptual desta pasta — porquê existe, ver `AI_GOVERNANCE.md`,
+secção "Camadas da documentação de IA". Esta tabela é a única fonte da
+classificação — não repetida em mais nenhum documento:
+
+| Camada | Documentos |
+|---|---|
+| Filosofia | `AI_GOVERNANCE.md` |
+| Processo | `AI_WORKFLOW.md` |
+| Especificações | `AI_RESPONSE_FORMAT.md`, `AI_PROMPT_STANDARD.md`, `AI_DOCUMENTATION.md`, `AI_QUALITY_REVIEW.md` |
 
 ## Ordem de leitura
 

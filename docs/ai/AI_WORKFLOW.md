@@ -1,6 +1,6 @@
 # FrontCore AI Workflow
 
-Version: 1.4
+Version: 1.5
 
 ## Objetivo
 
@@ -33,16 +33,9 @@ Antes de propor ou escrever código, a IA deve:
 5. Só depois, ler os ficheiros de código diretamente relacionados com a
    tarefa.
 
-Leitura mínima recomendada, sempre:
-
-1. `README.md`
-2. `docs/ai/AI_GOVERNANCE.md`
-3. `docs/ai/AI_WORKFLOW.md` (este documento)
-4. `docs/ai/AI_RESPONSE_FORMAT.md`
-5. `docs/ARCHITECTURE.md`
-6. `docs/PHASES.md`
-7. ADRs relevantes em `docs/adr/`
-8. Documentação da fase atual, quando existir
+A lista concreta de leitura mínima vive em `docs/INDEX.md`, secção "Ordem
+de leitura obrigatória" — não duplicada aqui, para as duas não
+divergirem.
 
 Nunca começar pela implementação.
 
@@ -136,15 +129,29 @@ Não fazer refactors oportunistas.
 
 ### 4. Validação
 
-Executar apenas validações necessárias.
+Executar apenas validações necessárias. Checklist canónico — `docs/GIT_WORKFLOW.md`
+e `docs/RELEASE_PROCESS.md` apontam para aqui em vez de manterem cópias
+próprias, para as três versões não divergirem:
 
-Confirmar, quando aplicável:
+```bash
+git status
+pnpm install
+pnpm typecheck
+pnpm build
+pnpm test
+```
 
-- instalação sem erros
-- lint sem erros
-- tipos corretos
-- build funcional
-- comportamento inalterado
+Notas:
+
+- `pnpm test` só corre onde existirem testes (hoje, `packages/ui` — ver
+  `docs/quality/quality-gates.md`); não falhar a validação por ausência de
+  testes onde nunca existiram.
+- `lint` **não é** um gate ativo hoje em nenhuma parte do monorepo (ver
+  `docs/quality/quality-gates.md`, "Gates planeados, ainda não ativos") —
+  não o correr nem reportar como validação real; quando for ativado,
+  atualizar este checklist primeiro.
+- Confirmar sempre, independentemente de comandos: comportamento
+  inalterado fora do âmbito da tarefa.
 
 #### Validação Docker para fases full-stack
 

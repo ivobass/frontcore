@@ -1,6 +1,6 @@
 # FrontCore AI Governance
 
-Version: 1.1
+Version: 1.2
 
 ## Objetivo
 
@@ -57,6 +57,27 @@ As regras de governação documental (o que é ADR, o que é fase, onde vive
 cada tipo de documento, como evitar duplicação entre `frontcore/docs/` e
 `FrontCore/docs/`) estão consolidadas em `docs/ai/AI_DOCUMENTATION.md`,
 para não se repetirem em mais do que um sítio.
+
+## Camadas da documentação de IA
+
+A documentação em `docs/ai/` organiza-se em três camadas conceptuais:
+
+- **Filosofia** — explica *porquê* as regras existem.
+- **Processo** — explica *como* trabalhar dentro dessa filosofia.
+- **Especificações** — definem regras técnicas concretas e formatos
+  (de resposta, de pedido, de documentação, de qualidade).
+
+Esta separação existe para que cada camada evolua de forma independente
+— alterar como um pedido é formulado não deve exigir alterar a filosofia
+nem o formato de resposta, e vice-versa — e para preparar o FrontCore
+para um ecossistema com múltiplos agentes especializados (Backend,
+Frontend, DevOps, QA, Documentation, Security, ...), onde é esperado que
+todos partilhem a mesma Filosofia e o mesmo Processo, mas cada um possa
+vir a ter Especificações próprias.
+
+A classificação de qual documento pertence a qual camada vive em
+`docs/ai/README.md` — não repetida aqui, para não haver duas fontes da
+mesma taxonomia.
 
 ## Processo de tomada de decisão
 

@@ -159,7 +159,3 @@ Nenhum documento nesta categoria por agora.
   cobre apenas `frontcore/docs/`.
 - `docs/DEVELOPER_GUIDE.md` deixou de ter a sua própria lista de leitura
   divergente — passou a apontar para `docs/INDEX.md` (ver ADR-0006).
-- `docs/RELEASE_PROCESS.md` continua com o seu próprio checklist de
-  encerramento, sobreposto (não idêntico) à Definition of Done de fase em
-  `docs/ai/AI_WORKFLOW.md` — sinalizado, não corrigido aqui, fora do
-  âmbito desta tarefa.

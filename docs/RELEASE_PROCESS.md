@@ -1,6 +1,6 @@
 # FrontCore Release Process
 
-Version: 1.0
+Version: 1.1
 
 ## Objetivo
 
@@ -8,29 +8,13 @@ Este documento define como fechar fases, criar pontos estáveis e preparar conti
 
 ## O que é uma fase fechada
 
-Uma fase só está fechada quando:
-
-- objetivo cumprido
-- alterações dentro do escopo
-- arquitetura respeitada
-- documentação atualizada
-- validações executadas
-- working tree limpa
-- commit feito
-- tag criada quando for marco importante
+Critérios definidos em `docs/ai/AI_WORKFLOW.md`, secção "Definition of
+Done (DoD)" — não repetidos aqui, para as duas versões não divergirem.
 
 ## Checklist de encerramento
 
-Antes de fechar uma fase:
-
-```bash
-git status
-pnpm lint
-pnpm typecheck
-pnpm build
-```
-
-Executar apenas comandos existentes e adequados ao estado do projeto.
+Checklist canónico definido em `docs/ai/AI_WORKFLOW.md`, secção
+"Validação" — não repetido aqui, para as duas versões não divergirem.
 
 ## Documentação obrigatória
 

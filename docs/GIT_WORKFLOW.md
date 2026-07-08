@@ -1,6 +1,6 @@
 # FrontCore Git Workflow
 
-Version: 1.1
+Version: 1.2
 
 ## Objetivo
 
@@ -81,14 +81,8 @@ para as duas versões não divergirem.
 
 ## Checklist antes de commit
 
-```bash
-git status
-pnpm lint
-pnpm typecheck
-pnpm build
-```
-
-Executar apenas os comandos que existirem e fizerem sentido para a fase atual.
+Checklist canónico definido em `docs/ai/AI_WORKFLOW.md`, secção
+"Validação" — não repetido aqui, para as duas versões não divergirem.
 
 ## Checklist depois de push
 
