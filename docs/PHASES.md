@@ -18,7 +18,8 @@
   completo (criar/editar/eliminar) para as 3 entidades — `/suppliers`,
   `/expense-categories`, `/invoices` — em `apps/frontrest/web` — Fase 4.2
   (`docs/phases/phase-4.2-frontend-crud.md`). Testes automatizados do
-  backend por fazer.
+  backend (unitários + e2e, `apps/frontrest/api`) — Fase 4.4
+  (`docs/phases/phase-4.4-backend-tests.md`).
 - **Fase 5 — Upload & MinIO**: upload PDF/imagem, storage, files, URLs
   assinados, validação, segurança por organização.
 - **Fase 6 — Worker OCR**: BullMQ, worker-ocr, estados, OCR mock → provider real.

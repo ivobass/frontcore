@@ -144,8 +144,11 @@ pnpm test
 Notas:
 
 - `pnpm test` só corre onde existirem testes (hoje, `packages/ui` — ver
-  `docs/quality/quality-gates.md`); não falhar a validação por ausência de
-  testes onde nunca existiram.
+  `docs/quality/quality-gates.md` — e os testes unitários de
+  `apps/frontrest/api`, Fase 4.4); não falhar a validação por ausência de
+  testes onde nunca existiram. Os testes e2e de `apps/frontrest/api`
+  (`pnpm --filter @frontrest/api test:e2e`) não fazem parte do `pnpm test`
+  por omissão — ver `docs/phases/phase-4.4-backend-tests.md`.
 - `lint` **não é** um gate ativo hoje em nenhuma parte do monorepo (ver
   `docs/quality/quality-gates.md`, "Gates planeados, ainda não ativos") —
   não o correr nem reportar como validação real; quando for ativado,
