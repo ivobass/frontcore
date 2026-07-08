@@ -1,6 +1,6 @@
 # FrontCore AI Workflow
 
-Version: 1.3
+Version: 1.4
 
 ## Objetivo
 
@@ -146,6 +146,51 @@ Confirmar, quando aplicável:
 - build funcional
 - comportamento inalterado
 
+#### Validação Docker para fases full-stack
+
+Quando uma fase altera **backend e frontend**, ou quando há dúvida se as
+imagens Docker em execução refletem o código atual, a validação manual deve
+reconstruir e reiniciar pelo menos os serviços de aplicação afetados:
+
+```bash
+docker compose build api web
+docker compose up -d api web
+docker ps
+```
+
+Depois da reconstrução, validar explicitamente:
+
+```bash
+curl http://localhost:3001/api/health
+```
+
+E testar no browser:
+
+```text
+http://localhost:3000
+```
+
+Regra operacional:
+
+- se a fase alterou apenas frontend, reconstruir `web` pode ser suficiente;
+- se a fase alterou apenas backend, reconstruir `api` pode ser suficiente;
+- se a fase alterou backend e frontend, reconstruir sempre `api` e `web`;
+- nunca validar uma fase full-stack com `web` novo contra `api` antigo, ou
+  com `api` novo contra `web` antigo;
+- se aparecerem erros como `Cannot GET /api/...` ou rotas novas não
+  existirem em Docker, confirmar primeiro se a imagem do serviço relevante
+  foi reconstruída.
+
+Para validação completa de release ou encerramento de fase, preferir:
+
+```bash
+docker compose build
+docker compose up -d
+docker ps
+```
+
+Esta regra evita falsos bugs causados por containers desatualizados.
+
 ### 5. Encerramento
 
 Apresentar:
@@ -171,6 +216,8 @@ critérios seguintes:
 - typecheck limpo
 - build limpa
 - testes executados (quando existirem)
+- validação Docker executada para os serviços afetados, especialmente
+  `api` e `web` em fases full-stack
 - revisão arquitetural concluída
 - Git limpo após commit
 - commit realizado
