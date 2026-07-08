@@ -21,7 +21,12 @@
   backend (unitários + e2e, `apps/frontrest/api`) — Fase 4.4
   (`docs/phases/phase-4.4-backend-tests.md`).
 - **Fase 5 — Upload & MinIO**: upload PDF/imagem, storage, files, URLs
-  assinados, validação, segurança por organização.
+  assinados, validação, segurança por organização. `@frontcore/storage`
+  concretizado sobre MinIO/S3 (`S3ObjectStorage`, `getDownloadUrl`,
+  configuração via ambiente) — Fase 5.1
+  (`docs/phases/phase-5.1-upload-storage-foundation.md`). Sem consumidor
+  real ainda: endpoint de upload, `getUploadUrl()` e integração com
+  `Invoice` ficam para subfases seguintes.
 - **Fase 6 — Worker OCR**: BullMQ, worker-ocr, estados, OCR mock → provider real.
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
