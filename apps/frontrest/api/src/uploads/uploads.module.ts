@@ -18,5 +18,9 @@ import { OBJECT_STORAGE } from './object-storage.token';
       useFactory: () => new S3ObjectStorage(loadStorageConfig()),
     },
   ],
+  // Exportado para módulos consumidores de domínio (ex. Invoice
+  // Attachments, Fase 5.3) reutilizarem UploadsService via DI — nenhum
+  // outro módulo deve construir S3ObjectStorage diretamente.
+  exports: [UploadsService],
 })
 export class UploadsModule {}

@@ -238,3 +238,19 @@ Aprovação separada da migration do `StorageObject`, seguida de validação
 manual end-to-end real (upload/download/eliminação contra MinIO real).
 Só depois disso faz sentido considerar Fase 5.3+ (integração com
 `Invoice`, `getUploadUrl()`, ou frontend de upload).
+
+## Nota de encerramento (2026-07-08)
+
+A limitação "sem migration aplicada" registada acima ficou resolvida
+como primeiro passo da Fase 5.3: migration `add_storage_object` criada e
+aplicada (`packages/database/prisma/migrations/20260708211230_add_storage_object/`),
+seguida de validação manual ponta a ponta contra PostgreSQL e MinIO
+reais — `POST`/`GET`/`DELETE /uploads` com ficheiro real, objeto
+confirmado a existir/desaparecer no MinIO, linha confirmada a
+existir/desaparecer no Postgres, download do URL assinado com conteúdo
+íntegro, e isolamento por organização confirmado (404 ao tentar aceder
+ao objeto de outra organização, sem efeitos colaterais). `pnpm test`,
+`pnpm typecheck` e `pnpm build` confirmados limpos depois da migration.
+
+Esta dívida técnica está encerrada. A Fase 5.2 considera-se totalmente
+fechada.

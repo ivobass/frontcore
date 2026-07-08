@@ -26,11 +26,18 @@
   configuração via ambiente) — Fase 5.1
   (`docs/phases/phase-5.1-upload-storage-foundation.md`). Primeiro
   consumidor real — `UploadsController`/`UploadsService`
-  (`apps/frontrest/api/src/uploads/`), modelo `StorageObject` (schema
-  proposto em `packages/database/prisma/schema.prisma`, **sem migration
-  aplicada**), endpoints `POST`/`GET`/`DELETE /uploads` — Fase 5.2
-  (`docs/phases/phase-5.2-upload-api-foundation.md`). `getUploadUrl()` e
-  integração com `Invoice` continuam por fazer, para subfases seguintes.
+  (`apps/frontrest/api/src/uploads/`), modelo `StorageObject`, endpoints
+  `POST`/`GET`/`DELETE /uploads` — Fase 5.2
+  (`docs/phases/phase-5.2-upload-api-foundation.md`). Migration de
+  `StorageObject` aplicada e fluxo real (upload/download/delete,
+  isolamento por organização) validado contra PostgreSQL/MinIO reais em
+  2026-07-08. Primeiro consumidor de domínio — `Invoice` ganha anexos
+  genéricos via `InvoiceAttachment` (`invoices/attachments/`), reutiliza
+  `UploadsService` por inteiro, migration própria aplicada e validada
+  ponta a ponta (incluindo isolamento e proteção contra eliminação
+  indevida via FK Restrict) — Fase 5.3
+  (`docs/phases/phase-5.3-invoice-attachments.md`). `getUploadUrl()`,
+  upload direto do browser e frontend de anexos continuam por fazer.
 - **Fase 6 — Worker OCR**: BullMQ, worker-ocr, estados, OCR mock → provider real.
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por

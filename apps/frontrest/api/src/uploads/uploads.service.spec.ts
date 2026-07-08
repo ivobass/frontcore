@@ -1,5 +1,13 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@frontcore/database';
 import { UploadsService } from './uploads.service';
+
+function prismaError(code: string): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError('erro simulado', {
+    code,
+    clientVersion: '5.22.0',
+  });
+}
 
 function createMockPrisma() {
   return {
@@ -152,6 +160,18 @@ describe('UploadsService', () => {
       await expect(service.remove('org-1', 'obj-1')).rejects.toThrow(NotFoundException);
       expect(storage.delete).not.toHaveBeenCalled();
       expect(prisma.storageObject.delete).not.toHaveBeenCalled();
+    });
+
+    it('mapeia o erro P2003 (objeto ainda associado, ex. anexo de fatura) para ConflictException, sem tocar em storage', async () => {
+      prisma.storageObject.findFirst.mockResolvedValue({
+        id: 'obj-1',
+        organizationId: 'org-1',
+        key: 'organizations/org-1/uploads/obj-1',
+      });
+      prisma.storageObject.delete.mockRejectedValue(prismaError('P2003'));
+
+      await expect(service.remove('org-1', 'obj-1')).rejects.toThrow(ConflictException);
+      expect(storage.delete).not.toHaveBeenCalled();
     });
   });
 });

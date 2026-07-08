@@ -47,11 +47,12 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships       Membership[]
-  suppliers         Supplier[]
-  expenseCategories ExpenseCategory[]
-  invoices          Invoice[]
-  storageObjects    StorageObject[]
+  memberships        Membership[]
+  suppliers          Supplier[]
+  expenseCategories  ExpenseCategory[]
+  invoices           Invoice[]
+  storageObjects     StorageObject[]
+  invoiceAttachments InvoiceAttachment[]
 
   @@index([slug])
 }
@@ -170,10 +171,11 @@ model Invoice {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier     Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  category     ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier     Supplier            @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  category     ExpenseCategory?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   items        InvoiceItem[]
+  attachments  InvoiceAttachment[]
 
   @@index([organizationId])
   @@index([supplierId])
@@ -209,7 +211,26 @@ model StorageObject {
   size           Int
   createdAt      DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  attachment   InvoiceAttachment?
 
   @@index([organizationId])
+}
+
+/// Liga uma fatura a um StorageObject já existente — StorageObject
+/// continua genérico, sem conhecimento de Invoice; toda a lógica de
+/// domínio fica aqui. Domínio FrontRest.
+model InvoiceAttachment {
+  id              String   @id @default(cuid())
+  organizationId  String
+  invoiceId       String
+  storageObjectId String   @unique
+  createdAt       DateTime @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoice       Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  storageObject StorageObject @relation(fields: [storageObjectId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([invoiceId])
 }

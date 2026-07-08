@@ -1,4 +1,5 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@frontcore/database';
 import type { ObjectStorage } from '@frontcore/storage';
 import { PrismaService } from '../prisma/prisma.service';
 import { OBJECT_STORAGE } from './object-storage.token';
@@ -65,7 +66,25 @@ export class UploadsService {
       throw new NotFoundException('Objeto não encontrado.');
     }
 
+    // A linha da BD é apagada primeiro — se houver um registo dependente
+    // (ex. InvoiceAttachment, FK Restrict), falha aqui, antes de o
+    // objeto ser tocado em storage. Apagar por esta ordem evita um
+    // estado inconsistente (objeto removido do MinIO mas a linha da BD
+    // impossível de apagar).
+    try {
+      await this.prisma.storageObject.delete({ where: { id } });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        throw new ConflictException(
+          'Não é possível remover um objeto ainda associado a outro registo (ex. anexo de fatura).',
+        );
+      }
+      throw error;
+    }
+
     await this.storage.delete(object.key);
-    await this.prisma.storageObject.delete({ where: { id } });
   }
 }
