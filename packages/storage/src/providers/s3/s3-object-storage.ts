@@ -63,6 +63,19 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
+  async get(key: string): Promise<Buffer> {
+    assertValidKey(key);
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      const bytes = await response.Body!.transformToByteArray();
+      return Buffer.from(bytes);
+    } catch (error) {
+      throw new StorageError(`Falha ao ler o objeto "${key}".`, { cause: error });
+    }
+  }
+
   async getDownloadUrl(key: string, expiresInSeconds: number): Promise<string> {
     assertValidKey(key);
     try {

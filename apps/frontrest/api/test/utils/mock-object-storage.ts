@@ -2,6 +2,7 @@
 export function createMockObjectStorage() {
   return {
     put: jest.fn(),
+    get: jest.fn(),
     getDownloadUrl: jest.fn(),
     delete: jest.fn(),
   };

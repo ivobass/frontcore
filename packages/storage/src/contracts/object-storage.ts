@@ -43,6 +43,12 @@ export interface StorageConfig {
  */
 export interface ObjectStorage {
   put(input: PutObjectInput): Promise<StoredObject>;
+  /**
+   * Lê o objeto diretamente para memória — para consumo servidor→servidor
+   * (ex. um worker que processa o ficheiro), nunca para expor a um browser.
+   * `getDownloadUrl` continua a ser a via correta para isso.
+   */
+  get(key: string): Promise<Buffer>;
   getDownloadUrl(key: string, expiresInSeconds: number): Promise<string>;
   delete(key: string): Promise<void>;
 }

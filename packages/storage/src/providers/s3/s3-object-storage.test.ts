@@ -75,6 +75,35 @@ describe('S3ObjectStorage', () => {
     });
   });
 
+  describe('get', () => {
+    it('lê o objeto e devolve o conteúdo como Buffer', async () => {
+      sendMock.mockResolvedValue({
+        Body: { transformToByteArray: () => Promise.resolve(Uint8Array.from([1, 2, 3])) },
+      });
+      const storage = new S3ObjectStorage(config);
+
+      const result = await storage.get('org-1/file.pdf');
+
+      expect(sendMock).toHaveBeenCalledTimes(1);
+      expect(Buffer.isBuffer(result)).toBe(true);
+      expect(result).toEqual(Buffer.from([1, 2, 3]));
+    });
+
+    it('rejeita key inválida sem chamar o SDK', async () => {
+      const storage = new S3ObjectStorage(config);
+
+      await expect(storage.get('')).rejects.toThrow(StorageError);
+      expect(sendMock).not.toHaveBeenCalled();
+    });
+
+    it('mapeia falhas do SDK para StorageError', async () => {
+      sendMock.mockRejectedValue(new Error('network down'));
+      const storage = new S3ObjectStorage(config);
+
+      await expect(storage.get('k')).rejects.toThrow(StorageError);
+    });
+  });
+
   describe('getDownloadUrl', () => {
     it('devolve o URL assinado', async () => {
       getSignedUrlMock.mockResolvedValue('https://signed.example/k');

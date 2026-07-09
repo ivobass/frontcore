@@ -51,7 +51,14 @@
   partilhado movido para `@frontcore/database` (deixa de estar duplicado
   entre apps), fila `ocr-processing` com consumidor mock validado ponta a
   ponta contra Redis real — sem nenhum motor OCR, provider ou lógica de
-  IA — Fase 6.1 (`docs/phases/phase-6.1-ocr-worker-foundation.md`).
+  IA — Fase 6.1 (`docs/phases/phase-6.1-ocr-worker-foundation.md`). Pipeline
+  de OCR extensível — novo package `@frontcore/ocr` (contrato `OCRProvider`,
+  `OCRResult` normalizado, `OCRService`, provider `Tesseract` real via
+  `tesseract.js`, seleção por `OCR_PROVIDER`), `ObjectStorage` ganha `get()`
+  (leitura direta servidor→servidor, extensão de `@frontcore/storage`),
+  Worker atualizado para o fluxo completo (obter ficheiro → extrair texto →
+  registar resultado) — sem parsing de campos, sem extração fiscal, sem IA —
+  Fase 6.2 (`docs/phases/phase-6.2-ocr-pipeline-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.
