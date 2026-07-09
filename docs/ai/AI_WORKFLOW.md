@@ -1,6 +1,6 @@
 # FrontCore AI Workflow
 
-Version: 1.5
+Version: 1.6
 
 ## Objetivo
 
@@ -39,14 +39,57 @@ divergirem.
 
 Nunca começar pela implementação.
 
-## Início de fase ou de conversa
+## Início de fase ou de conversa — Protocolo de Transição de Fase
 
-Sempre que se inicia uma nova fase, ou um novo chat depois de um commit,
-tag e push, é obrigatório validar o estado do Git e rever toda a
-documentação alterada na fase anterior, bem como os documentos de
-arquitetura relevantes, antes de qualquer análise, planeamento ou
-implementação. Não assumir que o estado descrito numa conversa anterior
-continua válido sem essa validação.
+**Gatilho oficial.** A sequência abaixo, executada pelo utilizador (a IA
+nunca a executa sozinha por sua iniciativa — ver "Git", mais abaixo), é
+o sinal oficial de que uma fase terminou:
+
+```bash
+git commit
+git tag <tag-da-fase>
+git push origin main
+git push origin <tag-da-fase>
+```
+
+Assim que esta sequência é confirmada — reportada pelo utilizador, ou
+observada diretamente pela IA — esta deve assumir automaticamente que:
+
+- a fase anterior terminou;
+- o estado publicado em `origin/main` no GitHub passa a ser a
+  referência a sincronizar — qualquer ficheiro já lido nesta conversa
+  antes do push pode estar desatualizado, mesmo que pareça inalterado;
+- é obrigatório sincronizar com o repositório antes de responder a
+  qualquer pedido novo, mesmo dentro da mesma conversa.
+
+Isto não substitui nem compete com o Source of Truth definido em
+`docs/ai/AI_GOVERNANCE.md` ("a documentação em `frontcore/docs/`
+prevalece sempre") — é o mesmo princípio aplicado no momento exato em
+que essa documentação muda de versão: depois do push, a versão
+publicada em `origin/main` é a única garantidamente atual.
+
+O mesmo se aplica ao início de uma conversa nova depois de uma fase ter
+fechado — não assumir que o estado descrito numa conversa anterior, ou
+a memória de qualquer IA, continua válido sem esta sincronização.
+
+**Sincronização obrigatória**, antes de qualquer análise, plano ou
+implementação:
+
+1. Confirmar o estado do repositório — `git status`; `git pull origin main`
+   (ou equivalente) se a cópia local estiver desatualizada face ao
+   remoto. Usar o conector/integração GitHub da ferramenta, quando
+   disponível, para o mesmo efeito.
+2. Consultar `docs/INDEX.md` — ponto de entrada obrigatório (ver
+   "Ordem de leitura obrigatória", acima).
+3. Reler a documentação relevante para o pedido atual — nunca reutilizar
+   uma versão lida antes do gatilho.
+4. Rever a arquitetura e o código diretamente afetados pelo pedido.
+5. Só depois responder, propor um plano, ou implementar.
+
+Protocolo agnóstico de ferramenta — aplica-se a qualquer IA (ChatGPT,
+Claude, Codex, Gemini, Cursor, ou outra), com ou sem acesso direto a
+git/GitHub a partir da própria conversa (ver `docs/ai/AI_GOVERNANCE.md`,
+"Boas práticas" e "Escalabilidade futura").
 
 ## Documentação utilizada (formato obrigatório)
 
