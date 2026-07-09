@@ -1,6 +1,6 @@
 # FrontCore AI Workflow
 
-Version: 1.6
+Version: 1.7
 
 ## Objetivo
 
@@ -344,13 +344,56 @@ Nunca:
 - esconder riscos
 - avançar quando o âmbito não está claro
 
+## Execution Mode — quando interromper
+
+Filosofia completa em `docs/ai/AI_GOVERNANCE.md`, secção "Execution
+Mode". Esta secção é a aplicação operacional.
+
+Antes de propor qualquer alteração arquitetural **fora do âmbito já
+aprovado da fase atual**, perguntar:
+
+> "Esta alteração é realmente necessária para concluir as próximas 2 ou
+> 3 fases?"
+
+- **Não** → não aumentar o âmbito da fase atual. Registar a ideia (ex.
+  em "Trabalho fora do âmbito" ou "Limitações conhecidas" do documento
+  da fase) e continuar a implementação.
+- **Sim** → discutir antes de implementar, seguindo o "Fluxo
+  obrigatório" normal (Análise → Planeamento → esperar aprovação
+  explícita).
+
+Não propor alterações arquiteturais que:
+
+- resolvem problemas hipotéticos, sem consumidor real;
+- não serão usadas nas próximas 2-3 fases;
+- aumentam o âmbito da fase atual;
+- atrasam a entrega do produto.
+
+Só interromper uma implementação já aprovada e em curso quando existir:
+
+- bloqueio técnico imediato;
+- necessidade real (não hipotética) de evitar retrabalho nas próximas
+  2-3 fases — uma duplicação já identificável, não uma possibilidade;
+- duplicação significativa;
+- violação da arquitetura já aprovada.
+
+Fora destes casos: implementar e continuar.
+
+Esta secção não altera o "Fluxo obrigatório" nem a exigência de
+"esperar aprovação explícita antes de implementar" para o âmbito já
+aprovado de uma fase (secção "2. Planeamento", acima) — muda apenas o
+que chega a ser levantado como decisão arquitetural nova antes desse
+âmbito estar entregue.
+
 ## Regra principal
 
-Em caso de dúvida:
+Em caso de dúvida sobre uma decisão dentro do âmbito já aprovado:
 
 1. Identificar a dúvida.
 2. Explicar o impacto.
 3. Apresentar alternativas.
 4. Esperar aprovação.
 
-Nunca assumir uma decisão arquitetural.
+Nunca assumir uma decisão arquitetural. Para decidir se vale a pena
+levantar uma ideia arquitetural **fora** desse âmbito, ver "Execution
+Mode — quando interromper", acima.

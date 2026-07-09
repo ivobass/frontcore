@@ -3,9 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@frontcore/database';
+import { Prisma, PrismaService } from '@frontcore/database';
 import type { ExpenseCategory } from '@frontcore/database';
-import { PrismaService } from '../prisma/prisma.service';
 import { CreateExpenseCategoryDto } from './dto/create-expense-category.dto';
 import { UpdateExpenseCategoryDto } from './dto/update-expense-category.dto';
 

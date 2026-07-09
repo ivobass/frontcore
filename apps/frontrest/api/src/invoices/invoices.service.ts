@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { normalizePagination, type Paginated } from '@frontcore/shared';
+import { PrismaService } from '@frontcore/database';
 import type { Prisma } from '@frontcore/database';
-import { PrismaService } from '../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { ListInvoicesDto } from './dto/list-invoices.dto';

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '@frontcore/database';
 import { InvoicesService } from '../invoices.service';
 import { UploadsService } from '../../uploads/uploads.service';
 import type { UploadFileInput } from '../../uploads/uploads.service';

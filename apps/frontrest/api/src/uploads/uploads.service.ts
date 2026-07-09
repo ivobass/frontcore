@@ -1,7 +1,6 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@frontcore/database';
+import { Prisma, PrismaService } from '@frontcore/database';
 import type { ObjectStorage } from '@frontcore/storage';
-import { PrismaService } from '../prisma/prisma.service';
 import { OBJECT_STORAGE } from './object-storage.token';
 import { DOWNLOAD_URL_TTL_SECONDS } from './constants';
 

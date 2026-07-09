@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Public } from '@frontcore/auth';
 import { buildLiveness, buildReadiness } from '@frontcore/monitoring';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '@frontcore/database';
 
 const SERVICE_NAME = 'frontrest-api';
 

@@ -13,7 +13,7 @@ import {
   type AuthenticatedIdentity,
   type TokenPair,
 } from '@frontcore/auth';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '@frontcore/database';
 import type { RegisterDto } from './dto/register.dto';
 import type { LoginDto } from './dto/login.dto';
 

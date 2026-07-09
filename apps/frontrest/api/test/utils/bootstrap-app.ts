@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ValidationPipe } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { AppModule } from '../../src/app.module';
-import { PrismaService } from '../../src/prisma/prisma.service';
+import { PrismaService } from '@frontcore/database';
 import { OBJECT_STORAGE } from '../../src/uploads/object-storage.token';
 import { createMockPrismaService } from './mock-prisma';
 import type { MockPrismaService } from './mock-prisma';

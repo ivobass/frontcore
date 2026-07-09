@@ -1,8 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { normalizePagination, type Paginated } from '@frontcore/shared';
-import { Prisma } from '@frontcore/database';
+import { Prisma, PrismaService } from '@frontcore/database';
 import type { Supplier } from '@frontcore/database';
-import { PrismaService } from '../prisma/prisma.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { ListSuppliersDto } from './dto/list-suppliers.dto';

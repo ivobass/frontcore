@@ -89,6 +89,34 @@ Mau comentário:
 // incrementa i por 1
 ```
 
+## Configuração
+
+Qualquer package que precise de ler configuração do ambiente segue a
+convenção `load<X>Config(): <X>Config` — uma função só, sem classes, sem
+`ConfigService` do NestJS, usando apenas `requireEnv`/`optionalEnv`/
+`parseCsvEnv` de `@frontcore/config`.
+
+Exemplos já existentes:
+
+```text
+loadTokenConfig()    — packages/auth/src/jwt.ts
+loadStorageConfig()  — packages/storage/src/config/storage-config.ts
+loadQueueConfig()    — packages/queue/src/config/queue-config.ts
+```
+
+Regras:
+
+- Uma variável obrigatória usa `requireEnv(name)` — lança se ausente.
+- Uma variável opcional usa `optionalEnv(name, fallback)`.
+- O tipo de retorno é uma interface simples (`<X>Config`), sem métodos,
+  exportada a partir de `contracts/` (quando o package os tiver).
+- Sem validação de schema externa (`zod` ou equivalente) — os erros de
+  `requireEnv` já são específicos o suficiente para esta escala.
+
+Esta convenção não é imposta por nenhum código partilhado — é uma prática
+a seguir manualmente por quem escrever um novo `<X>Config`, registada
+aqui para não ter de ser inferida a partir dos exemplos existentes.
+
 ## Dependências
 
 Antes de adicionar uma dependência, justificar:

@@ -44,7 +44,14 @@
   (`docs/phases/phase-5.4-upload-frontend-foundation.md`; validação
   manual no browser pendente). `getUploadUrl()` e upload direto do
   browser continuam por fazer.
-- **Fase 6 — Worker OCR**: BullMQ, worker-ocr, estados, OCR mock → provider real.
+- **Fase 6 — Worker OCR**: BullMQ, worker-ocr, estados, OCR mock → provider
+  real. Foundation técnica — `apps/frontrest/workers` passa a app NestJS
+  standalone real (sem HTTP), novo package `@frontcore/queue`
+  (contrato/config/provider BullMQ-Redis, genérico), `PrismaModule`
+  partilhado movido para `@frontcore/database` (deixa de estar duplicado
+  entre apps), fila `ocr-processing` com consumidor mock validado ponta a
+  ponta contra Redis real — sem nenhum motor OCR, provider ou lógica de
+  IA — Fase 6.1 (`docs/phases/phase-6.1-ocr-worker-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

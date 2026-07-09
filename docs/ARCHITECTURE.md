@@ -25,6 +25,7 @@ alterações**.
 | `@frontcore/database`    | Prisma client + schema core (Org/User/Membership)    | ativo         |
 | `@frontcore/auth`        | Contratos de auth (JWT/refresh)                      | contrato      |
 | `@frontcore/storage`     | Storage de objetos S3-compatível (MinIO/S3)          | ativo         |
+| `@frontcore/queue`       | Filas assíncronas sobre BullMQ/Redis                 | ativo         |
 | `@frontcore/ai`          | Contrato de provider de IA                           | contrato      |
 | `@frontcore/notifications` | Contrato de notificações                           | contrato      |
 | `@frontcore/monitoring`  | Helpers de health/observabilidade                    | ativo         |
@@ -52,13 +53,43 @@ uma implementação alternativa futura) sem tocar em mais nenhum ficheiro.
 Ver `docs/phases/phase-5.1-upload-storage-foundation.md` e
 `docs/phases/phase-5.2-upload-api-foundation.md`.
 
+## Filas assíncronas
+
+`@frontcore/queue` (Fase 6.1) segue exatamente a mesma forma de
+`@frontcore/storage`: contrato genérico (`QueueProducer`/`QueueConsumer`),
+configuração (`loadQueueConfig()`), erros normalizados (`QueueError`) e
+um provider concreto sobre BullMQ/Redis. Sem lógica de domínio — o nome
+da fila e o payload são sempre decisão do consumidor.
+
+```
+apps/frontrest/workers → QueueConsumer (token) → BullMQQueueConsumer
+```
+
+Só `apps/frontrest/workers/src/queues/ocr-processing.module.ts` importa
+`BullMQQueueConsumer`/`@frontcore/queue` diretamente, sob um token de
+injeção (`QUEUE_CONSUMER`) — mesmo padrão do `OBJECT_STORAGE` em
+`uploads.module.ts`. Ver
+`docs/phases/phase-6.1-ocr-worker-foundation.md`.
+
+## Base de dados partilhada entre apps NestJS
+
+`PrismaModule`/`PrismaService` vivem em `@frontcore/database`
+(`src/nestjs/`), não em cada app individualmente — mesmo padrão já usado
+por `@frontcore/auth` (`src/nestjs/`, guards e decorators). Qualquer app
+NestJS do monorepo (`apps/frontrest/api`, `apps/frontrest/workers`, e
+futuras) importa `PrismaModule` de `@frontcore/database`, nunca duplica
+o ficheiro. `@nestjs/common`/`@nestjs/core` são `peerDependencies` de
+`@frontcore/database` — o package continua utilizável sem NestJS (o
+singleton `prisma` exportado do barrel raiz, reservado a scripts fora de
+qualquer container Nest, ex. seeds).
+
 ## Apps (FrontRest)
 
 | App                    | Stack       | Porta | Estado Fase 1            |
 |------------------------|-------------|-------|--------------------------|
 | `@frontrest/api`       | NestJS      | 3001  | health + prisma          |
 | `@frontrest/web`       | Next.js 15  | 3000  | página de estado         |
-| `@frontrest/workers`   | NestJS std. | —     | estrutura (Fase 6)       |
+| `@frontrest/workers`   | NestJS std. | —     | foundation (Fase 6.1)    |
 
 ## Multi-tenancy
 

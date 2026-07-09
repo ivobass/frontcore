@@ -1,15 +1,20 @@
 import { PrismaClient } from './generated/prisma';
 
 export * from './generated/prisma';
+export * from './nestjs';
 
 /**
  * CONVENÇÃO DE USO DO PRISMA (FrontCore)
  * --------------------------------------
- * - Em apps NestJS (ex.: apps/frontrest/api) usa-se EXCLUSIVAMENTE um
- *   `PrismaService` via injeção de dependências. NÃO importar este singleton
- *   dentro dessas apps — evita um segundo pool de conexões a competir.
- * - Este singleton existe para WORKERS/SCRIPTS (fases futuras) que correm fora
- *   do contexto de DI e precisam de um cliente partilhado e leve.
+ * - Em qualquer app NestJS (ex.: apps/frontrest/api, apps/frontrest/workers)
+ *   usa-se EXCLUSIVAMENTE `PrismaModule`/`PrismaService` (exportados por este
+ *   package, em `./nestjs`) via injeção de dependências — inclui workers
+ *   standalone criados com `NestFactory.createApplicationContext`, que
+ *   continuam a ser um contexto de DI real mesmo sem HTTP. NÃO importar o
+ *   singleton abaixo dentro dessas apps — evita um segundo pool de conexões
+ *   a competir.
+ * - O singleton `prisma` abaixo existe só para SCRIPTS puros, fora de
+ *   qualquer container Nest (ex. seeds).
  */
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;

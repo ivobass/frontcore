@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard, RolesGuard } from '@frontcore/auth';
-import { PrismaModule } from './prisma/prisma.module';
+import { PrismaModule } from '@frontcore/database';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { SuppliersModule } from './suppliers/suppliers.module';

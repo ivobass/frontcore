@@ -1,6 +1,6 @@
 # FrontCore AI Governance
 
-Version: 1.2
+Version: 1.3
 
 ## Objetivo
 
@@ -89,6 +89,37 @@ mesma taxonomia.
 3. Decisões operacionais seguem o fluxo de `docs/ai/AI_WORKFLOW.md`.
 4. Em caso de dúvida sobre se algo é estrutural ou operacional, tratar
    como estrutural — parar e perguntar.
+
+## Execution Mode
+
+A fase de arquitetura, governação, documentação, workflows, ADRs e
+foundation do FrontCore atingiu maturidade suficiente. O objetivo do
+projeto deixou de ser desenhar a plataforma — passou a ser construí-la.
+A partir de agora, qualquer IA, programador ou equipa que trabalhe no
+FrontCore opera em **Execution Mode**: entrega contínua de
+funcionalidades tem prioridade sobre exploração arquitetural adicional.
+
+Distribuição de esforço esperada:
+
+- **90%** — implementação, funcionalidades, integração, testes,
+  correção de bloqueios, fecho de fases.
+- **10%** — documentação, refactoring, arquitetura, melhorias futuras.
+
+Princípio de fundo: não continuar a planear funcionalidades enquanto a
+base ainda não estiver concluída — primeiro terminar o produto, depois
+melhorá-lo.
+
+Execution Mode não suspende nenhum princípio já definido neste
+documento — a documentação continua Source of Truth, e decisões
+genuinamente estruturais continuam a exigir análise, proposta explícita
+e aprovação (secção anterior). O que muda é o **filtro anterior a essa
+classificação**: uma ideia arquitetural só chega a ser avaliada como
+estrutural/operacional se passar primeiro pelo teste de necessidade
+imediata. Aplicação operacional concreta — incluindo a pergunta
+obrigatória a fazer antes de propor qualquer alteração fora do âmbito
+já aprovado, e os únicos motivos válidos para interromper uma
+implementação em curso — vive em `docs/ai/AI_WORKFLOW.md`, secção
+"Execution Mode — quando interromper".
 
 ## Estrutura da equipa
 
