@@ -6,8 +6,13 @@ import type { StorageConfig } from '../contracts';
  * S3-compatível) — espelha `loadTokenConfig()` de `@frontcore/auth`.
  */
 export function loadStorageConfig(): StorageConfig {
+  const endpoint = requireEnv('S3_ENDPOINT');
   return {
-    endpoint: requireEnv('S3_ENDPOINT'),
+    endpoint,
+    // Sem S3_PUBLIC_ENDPOINT definido, assume o mesmo endpoint interno —
+    // mantém o comportamento anterior inalterado onde os dois coincidem
+    // (ex. produção atrás de um único endpoint público).
+    publicEndpoint: optionalEnv('S3_PUBLIC_ENDPOINT', endpoint),
     region: requireEnv('S3_REGION'),
     bucket: requireEnv('S3_BUCKET'),
     accessKey: requireEnv('S3_ACCESS_KEY'),

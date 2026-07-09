@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { S3Client } from '@aws-sdk/client-s3';
 import { StorageError } from '../../errors';
 import type { StorageConfig } from '../../contracts';
 import { S3ObjectStorage } from './s3-object-storage';
@@ -20,6 +21,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 
 const config: StorageConfig = {
   endpoint: 'http://localhost:9000',
+  publicEndpoint: 'http://localhost:9000',
   region: 'us-east-1',
   bucket: 'frontcore',
   accessKey: 'test',
@@ -31,6 +33,7 @@ describe('S3ObjectStorage', () => {
   beforeEach(() => {
     sendMock.mockReset();
     getSignedUrlMock.mockReset();
+    vi.mocked(S3Client).mockClear();
   });
 
   describe('put', () => {
@@ -113,6 +116,50 @@ describe('S3ObjectStorage', () => {
       const storage = new S3ObjectStorage(config);
 
       await expect(storage.delete('k')).rejects.toThrow(StorageError);
+    });
+  });
+
+  describe('endpoint de assinatura (publicEndpoint)', () => {
+    it('constrói um único S3Client quando publicEndpoint é igual a endpoint', () => {
+      new S3ObjectStorage(config);
+
+      expect(S3Client).toHaveBeenCalledTimes(1);
+    });
+
+    it('constrói um segundo S3Client com o endpoint público quando este difere do interno', () => {
+      new S3ObjectStorage({
+        ...config,
+        endpoint: 'http://minio:9000',
+        publicEndpoint: 'http://localhost:9000',
+      });
+
+      expect(S3Client).toHaveBeenCalledTimes(2);
+      expect(S3Client).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ endpoint: 'http://minio:9000' }),
+      );
+      expect(S3Client).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ endpoint: 'http://localhost:9000' }),
+      );
+    });
+
+    it('usa o cliente construído com o endpoint público para assinar o URL de download', async () => {
+      getSignedUrlMock.mockResolvedValue('http://localhost:9000/frontcore/k?signed');
+      const storage = new S3ObjectStorage({
+        ...config,
+        endpoint: 'http://minio:9000',
+        publicEndpoint: 'http://localhost:9000',
+      });
+      const signingClientInstance = vi.mocked(S3Client).mock.results[1]?.value;
+
+      await storage.getDownloadUrl('org-1/file.pdf', 300);
+
+      expect(getSignedUrlMock).toHaveBeenCalledWith(
+        signingClientInstance,
+        expect.anything(),
+        { expiresIn: 300 },
+      );
     });
   });
 });

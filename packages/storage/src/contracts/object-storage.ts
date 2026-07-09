@@ -14,7 +14,17 @@ export interface PutObjectInput {
 
 /** Configuração genérica de um cliente de storage (S3-compatível). */
 export interface StorageConfig {
+  /** Endpoint usado para operações servidor → storage (put/get/delete). */
   endpoint: string;
+  /**
+   * Endpoint embutido nos URLs assinados devolvidos a clientes externos
+   * (browser). Distinto de `endpoint` sempre que o servidor e o cliente
+   * externo resolvem o storage por caminhos de rede diferentes (ex.:
+   * `endpoint` interno de uma rede Docker vs. porta publicada no host).
+   * Resolvido em `loadStorageConfig()` — assume o valor de `endpoint`
+   * quando não há um endpoint público distinto configurado.
+   */
+  publicEndpoint: string;
   region: string;
   bucket: string;
   accessKey: string;

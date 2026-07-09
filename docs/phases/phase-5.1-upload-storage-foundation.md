@@ -181,3 +181,20 @@ Primeiro consumidor real de `@frontcore/storage` — provavelmente um
 endpoint de upload em `apps/frontrest/api` (Fase 5.2), momento em que
 `docs/ARCHITECTURE.md` passa a marcar o package como "ativo" e em que um
 wrapper NestJS (se necessário) e `getUploadUrl()` fazem sentido.
+
+## Nota de atualização (2026-07-09)
+
+`StorageConfig` ganhou um segundo campo, `publicEndpoint`, distinto do
+`endpoint` original — necessário porque `getDownloadUrl()` (decidido
+nesta fase) embutia sempre o endpoint **operacional** (interno, usado
+para `put`/`delete`) nos URLs assinados devolvidos ao cliente. Dentro
+de Docker Compose isso é o hostname interno (`http://minio:9000`), não
+resolúvel por um browser a correr no host — só descoberto na validação
+manual da Fase 5.4. `S3ObjectStorage` passou a manter dois `S3Client`
+quando os dois endpoints divergem: um para operações reais
+servidor→storage, outro só para assinar URLs. Ver
+`docs/phases/phase-5.4-upload-frontend-foundation.md`, secção "Correção
+pós-validação", para a decisão completa. O contrato `ObjectStorage`
+(`put`/`getDownloadUrl`/`delete`) não mudou — só `StorageConfig` ganhou
+o campo novo, com fallback que preserva o comportamento anterior quando
+não está definido.

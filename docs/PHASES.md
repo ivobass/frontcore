@@ -36,8 +36,14 @@
   `UploadsService` por inteiro, migration própria aplicada e validada
   ponta a ponta (incluindo isolamento e proteção contra eliminação
   indevida via FK Restrict) — Fase 5.3
-  (`docs/phases/phase-5.3-invoice-attachments.md`). `getUploadUrl()`,
-  upload direto do browser e frontend de anexos continuam por fazer.
+  (`docs/phases/phase-5.3-invoice-attachments.md`). Fundação frontend —
+  componentes genéricos de upload em `@frontcore/ui`
+  (`components/forms/upload/`) e painel de anexos por fatura em
+  `apps/frontrest/web` (`invoice-attachments-panel.tsx`), consumindo a
+  API da Fase 5.3 sem alterações a backend/Prisma — Fase 5.4
+  (`docs/phases/phase-5.4-upload-frontend-foundation.md`; validação
+  manual no browser pendente). `getUploadUrl()` e upload direto do
+  browser continuam por fazer.
 - **Fase 6 — Worker OCR**: BullMQ, worker-ocr, estados, OCR mock → provider real.
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por

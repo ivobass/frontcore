@@ -15,6 +15,7 @@ import type { ExpenseCategory } from '../../../lib/expense-categories';
 import { listInvoices, deleteInvoice } from '../../../lib/invoices';
 import type { Invoice, InvoiceStatus, Paginated } from '../../../lib/invoices';
 import { InvoiceFormSheet } from './invoice-form-sheet';
+import { InvoiceAttachmentsPanel } from './invoice-attachments-panel';
 import { STATUS_LABELS, selectClassName } from './constants';
 
 const PAGE_SIZE = 20;
@@ -55,6 +56,7 @@ export default function InvoicesPage() {
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [deleting, setDeleting] = useState<Invoice | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [attachmentsFor, setAttachmentsFor] = useState<Invoice | null>(null);
 
   useEffect(() => {
     listSuppliers(session.accessToken, { pageSize: PICKER_PAGE_SIZE })
@@ -198,7 +200,7 @@ export default function InvoicesPage() {
                   <th className="px-4 py-3 text-start">Vencimento</th>
                   <th className="px-4 py-3 text-end">Total</th>
                   <th className="px-4 py-3 text-start">Estado</th>
-                  {manage ? <th className="px-4 py-3 text-end">Ações</th> : null}
+                  <th className="px-4 py-3 text-end">Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -221,23 +223,28 @@ export default function InvoicesPage() {
                         {STATUS_LABELS[invoice.status]}
                       </Badge>
                     </td>
-                    {manage ? (
-                      <td className="px-4 py-3 text-end">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => openEdit(invoice)}>
-                            Editar
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() => setDeleting(invoice)}
-                          >
-                            Eliminar
-                          </Button>
-                        </div>
-                      </td>
-                    ) : null}
+                    <td className="px-4 py-3 text-end">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => setAttachmentsFor(invoice)}>
+                          Anexos
+                        </Button>
+                        {manage ? (
+                          <>
+                            <Button variant="ghost" size="sm" onClick={() => openEdit(invoice)}>
+                              Editar
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setDeleting(invoice)}
+                            >
+                              Eliminar
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -279,6 +286,17 @@ export default function InvoicesPage() {
         description={`Tem a certeza que quer eliminar a fatura "${deleting?.number ?? deleting?.id}"? Esta ação não pode ser revertida.`}
         loading={deleteLoading}
         onConfirm={confirmDelete}
+      />
+
+      <InvoiceAttachmentsPanel
+        open={Boolean(attachmentsFor)}
+        onOpenChange={(open) => {
+          if (!open) setAttachmentsFor(null);
+        }}
+        accessToken={session.accessToken}
+        invoiceId={attachmentsFor?.id ?? null}
+        invoiceLabel={attachmentsFor?.number ?? attachmentsFor?.id}
+        canManage={manage}
       />
     </div>
   );

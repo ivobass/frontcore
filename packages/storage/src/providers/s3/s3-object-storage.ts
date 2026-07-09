@@ -18,13 +18,27 @@ import { buildS3ClientConfig } from './build-s3-client-config';
 /**
  * Implementação de `ObjectStorage` sobre o SDK AWS S3 — compatível com
  * MinIO (via `forcePathStyle`) e qualquer storage S3-compatível.
+ *
+ * Mantém dois clientes quando `config.endpoint` e `config.publicEndpoint`
+ * divergem: `client` (endpoint interno) para `put`/`delete`, chamadas
+ * reais servidor → storage; `signingClient` (endpoint público) usado
+ * exclusivamente para assinar URLs em `getDownloadUrl` — construir um
+ * `S3Client` não estabelece nenhuma ligação de rede por si só, a
+ * assinatura SigV4 é computada localmente, por isso não há custo real em
+ * ter uma segunda instância só para este fim. Evita `replace()` sobre o
+ * URL já assinado, que invalidaria a assinatura.
  */
 export class S3ObjectStorage implements ObjectStorage {
   private readonly client: S3Client;
+  private readonly signingClient: S3Client;
   private readonly bucket: string;
 
   constructor(config: StorageConfig) {
     this.client = new S3Client(buildS3ClientConfig(config));
+    this.signingClient =
+      config.publicEndpoint === config.endpoint
+        ? this.client
+        : new S3Client(buildS3ClientConfig(config, config.publicEndpoint));
     this.bucket = config.bucket;
   }
 
@@ -53,7 +67,7 @@ export class S3ObjectStorage implements ObjectStorage {
     assertValidKey(key);
     try {
       const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
-      return await getSignedUrl(this.client, command, { expiresIn: expiresInSeconds });
+      return await getSignedUrl(this.signingClient, command, { expiresIn: expiresInSeconds });
     } catch (error) {
       throw new StorageError(`Falha ao gerar URL de download para "${key}".`, { cause: error });
     }
