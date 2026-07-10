@@ -65,7 +65,12 @@
   em `apps/frontrest/api/src/invoices/drafts/` (`/invoices/drafts`) e
   promoção transacional explícita a `Invoice` + `InvoiceAttachment` — sem
   parsing fiscal, sem o Worker OCR a escrever no draft ainda — Fase 6.3
-  (`docs/phases/phase-6.3-invoice-draft-foundation.md`).
+  (`docs/phases/phase-6.3-invoice-draft-foundation.md`). Integração OCR →
+  InvoiceDraft — criação automática de job após criação do draft,
+  contrato de job partilhado e persistência de `ocrText` e
+  `ocrConfidence` pelo Worker, mantendo parsing fiscal e extração
+  estruturada fora do âmbito — Fase 6.4
+  (`docs/phases/phase-6.4-ocr-draft-integration-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

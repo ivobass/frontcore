@@ -9,6 +9,11 @@ import { AppModule } from './app.module';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // Necessário para o NestJS invocar onModuleDestroy() (ex. fechar a
+  // ligação do QueueProducer, Fase 6.4) num SIGTERM/SIGINT real, não só
+  // em app.close() explícito.
+  app.enableShutdownHooks();
+
   // Reverse proxy / Cloudflare: confia em N saltos para resolver
   // X-Forwarded-For (req.ip) e X-Forwarded-Proto (req.protocol).
   const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);

@@ -17,6 +17,7 @@
     "@frontcore/config": "workspace:*",
     "@frontcore/database": "workspace:*",
     "@frontcore/monitoring": "workspace:*",
+    "@frontcore/queue": "workspace:*",
     "@frontcore/shared": "workspace:*",
     "@frontcore/storage": "workspace:*",
     "@nestjs/common": "^10.4.4",

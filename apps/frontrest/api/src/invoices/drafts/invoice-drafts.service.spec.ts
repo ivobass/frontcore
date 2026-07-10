@@ -2,18 +2,30 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+import { OCR_PROCESSING_QUEUE } from '@frontcore/queue';
 import { InvoiceDraftsService } from './invoice-drafts.service';
 import { createMockPrismaService } from '../../../test/utils/mock-prisma';
 import type { MockPrismaService } from '../../../test/utils/mock-prisma';
 
+function createMockQueueProducer() {
+  return {
+    add: jest.fn().mockResolvedValue({ id: 'job-1' }),
+    close: jest.fn(),
+  };
+}
+type MockQueueProducer = ReturnType<typeof createMockQueueProducer>;
+
 describe('InvoiceDraftsService', () => {
   let service: InvoiceDraftsService;
   let prisma: MockPrismaService;
+  let queueProducer: MockQueueProducer;
 
   beforeEach(() => {
     prisma = createMockPrismaService();
-    service = new InvoiceDraftsService(prisma as never);
+    queueProducer = createMockQueueProducer();
+    service = new InvoiceDraftsService(prisma as never, queueProducer as never);
     // Por omissão, o StorageObject existe, pertence à organização e está
     // livre — os testes que querem o caso contrário sobrescrevem.
     prisma.storageObject.findFirst.mockResolvedValue({ id: 'obj-1', organizationId: 'org-1' });
@@ -130,6 +142,165 @@ describe('InvoiceDraftsService', () => {
         service.create('org-1', { storageObjectId: 'obj-1', categoryId: 'cat-x' }),
       ).rejects.toThrow(NotFoundException);
       expect(prisma.invoiceDraft.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('create — publicação do job OCR (Fase 6.4)', () => {
+    it('1. criação válida publica um job OCR', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-1',
+        storageObjectId: 'obj-1',
+      });
+
+      await service.create('org-1', { storageObjectId: 'obj-1' });
+
+      expect(queueProducer.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('2. payload contém invoiceDraftId, storageObjectId e organizationId', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-1',
+        storageObjectId: 'obj-1',
+      });
+
+      await service.create('org-1', { storageObjectId: 'obj-1' });
+
+      expect(queueProducer.add).toHaveBeenCalledWith(
+        expect.any(String),
+        {
+          invoiceDraftId: 'draft-1',
+          storageObjectId: 'obj-1',
+          organizationId: 'org-1',
+        },
+        expect.any(Object),
+      );
+    });
+
+    it('3. usa o nome de fila partilhado OCR_PROCESSING_QUEUE', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-1',
+        storageObjectId: 'obj-1',
+      });
+
+      await service.create('org-1', { storageObjectId: 'obj-1' });
+
+      expect(queueProducer.add).toHaveBeenCalledWith(
+        OCR_PROCESSING_QUEUE,
+        expect.any(Object),
+        expect.any(Object),
+      );
+    });
+
+    it('4. usa um jobId determinístico derivado do id do draft', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-1',
+        storageObjectId: 'obj-1',
+      });
+
+      await service.create('org-1', { storageObjectId: 'obj-1' });
+
+      expect(queueProducer.add).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.objectContaining({ jobId: 'invoice-draft-ocr-draft-1' }),
+      );
+    });
+
+    it('4b. o jobId nunca contém ":" — o BullMQ rejeita custom ids com esse caráter (bug real encontrado na validação Docker desta fase)', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-1',
+        storageObjectId: 'obj-1',
+      });
+
+      await service.create('org-1', { storageObjectId: 'obj-1' });
+
+      const [, , options] = queueProducer.add.mock.calls[0] as [unknown, unknown, { jobId: string }];
+      expect(options.jobId).not.toMatch(/:/);
+    });
+
+    it('5. configura um número explícito de tentativas', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-1',
+        storageObjectId: 'obj-1',
+      });
+
+      await service.create('org-1', { storageObjectId: 'obj-1' });
+
+      expect(queueProducer.add).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.objectContaining({ attempts: 3 }),
+      );
+    });
+
+    it('6. o job só é publicado depois de o draft ser criado (usa o id devolvido pelo create)', async () => {
+      const callOrder: string[] = [];
+      prisma.invoiceDraft.create.mockImplementation(async () => {
+        callOrder.push('prisma.invoiceDraft.create');
+        return { id: 'draft-gerado', storageObjectId: 'obj-1' };
+      });
+      queueProducer.add.mockImplementation(async () => {
+        callOrder.push('queueProducer.add');
+        return { id: 'job-1' };
+      });
+
+      await service.create('org-1', { storageObjectId: 'obj-1' });
+
+      expect(callOrder).toEqual(['prisma.invoiceDraft.create', 'queueProducer.add']);
+      expect(queueProducer.add).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ invoiceDraftId: 'draft-gerado' }),
+        expect.any(Object),
+      );
+    });
+
+    it('7. se a criação do draft falhar, nenhum job é publicado', async () => {
+      prisma.invoiceDraft.create.mockRejectedValue(new Error('falha na BD'));
+
+      await expect(
+        service.create('org-1', { storageObjectId: 'obj-1' }),
+      ).rejects.toThrow('falha na BD');
+      expect(queueProducer.add).not.toHaveBeenCalled();
+    });
+
+    it('8. se a publicação falhar, o erro é propagado e o draft não é apagado', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-1',
+        storageObjectId: 'obj-1',
+      });
+      queueProducer.add.mockRejectedValue(new Error('ECONNREFUSED 127.0.0.1:6379'));
+
+      await expect(
+        service.create('org-1', { storageObjectId: 'obj-1' }),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(prisma.invoiceDraft.delete).not.toHaveBeenCalled();
+    });
+
+    it('8b. a mensagem de erro ao cliente não expõe detalhes internos do Redis', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-1',
+        storageObjectId: 'obj-1',
+      });
+      queueProducer.add.mockRejectedValue(new Error('ECONNREFUSED 127.0.0.1:6379'));
+
+      await expect(
+        service.create('org-1', { storageObjectId: 'obj-1' }),
+      ).rejects.toThrow(/agendar o processamento OCR/);
+    });
+
+    it('9. o payload do job respeita a organização do pedido (isolamento)', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-org-2',
+        storageObjectId: 'obj-2',
+      });
+
+      await service.create('org-2', { storageObjectId: 'obj-2' });
+
+      expect(queueProducer.add).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ organizationId: 'org-2' }),
+        expect.any(Object),
+      );
     });
   });
 

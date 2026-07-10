@@ -29,6 +29,9 @@ importers:
       '@frontcore/monitoring':
         specifier: workspace:*
         version: link:../../../packages/monitoring
+      '@frontcore/queue':
+        specifier: workspace:*
+        version: link:../../../packages/queue
       '@frontcore/shared':
         specifier: workspace:*
         version: link:../../../packages/shared

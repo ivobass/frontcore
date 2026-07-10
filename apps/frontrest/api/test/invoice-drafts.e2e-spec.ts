@@ -1,15 +1,18 @@
 import request from 'supertest';
 import type { INestApplication } from '@nestjs/common';
+import { OCR_PROCESSING_QUEUE } from '@frontcore/queue';
 import { createTestApp } from './utils/bootstrap-app';
 import { authHeader } from './utils/auth';
 import type { MockPrismaService } from './utils/mock-prisma';
+import type { MockQueueProducer } from './utils/mock-queue-producer';
 
 describe('Invoice Drafts (e2e)', () => {
   let app: INestApplication;
   let prisma: MockPrismaService;
+  let queueProducer: MockQueueProducer;
 
   beforeAll(async () => {
-    ({ app, prisma } = await createTestApp());
+    ({ app, prisma, queueProducer } = await createTestApp());
   });
 
   afterAll(async () => {
@@ -92,6 +95,55 @@ describe('Invoice Drafts (e2e)', () => {
         .expect(201);
 
       expect(response.body.id).toBe('draft-1');
+    });
+
+    it('POST publica o job OCR correto através do QueueProducer mockado (Fase 6.4)', async () => {
+      mockStorageObjectAvailable();
+      prisma.invoiceDraft.findFirst.mockResolvedValue(null);
+      prisma.invoiceAttachment.findFirst.mockResolvedValue(null);
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-ocr-1',
+        storageObjectId: 'obj-1',
+      });
+
+      await request(app.getHttpServer())
+        .post('/api/invoices/drafts')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+        .send({ storageObjectId: 'obj-1' })
+        .expect(201);
+
+      expect(queueProducer.add).toHaveBeenCalledWith(
+        OCR_PROCESSING_QUEUE,
+        {
+          invoiceDraftId: 'draft-ocr-1',
+          storageObjectId: 'obj-1',
+          organizationId: 'org-1',
+        },
+        expect.objectContaining({
+          jobId: 'invoice-draft-ocr-draft-ocr-1',
+          attempts: 3,
+        }),
+      );
+    });
+
+    it('POST devolve 503 (sem expor detalhes internos) quando a publicação do job falha', async () => {
+      mockStorageObjectAvailable();
+      prisma.invoiceDraft.findFirst.mockResolvedValue(null);
+      prisma.invoiceAttachment.findFirst.mockResolvedValue(null);
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-falha-fila',
+        storageObjectId: 'obj-1',
+      });
+      queueProducer.add.mockRejectedValueOnce(new Error('ECONNREFUSED 127.0.0.1:6379'));
+
+      const response = await request(app.getHttpServer())
+        .post('/api/invoices/drafts')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+        .send({ storageObjectId: 'obj-1' })
+        .expect(503);
+
+      expect(JSON.stringify(response.body)).not.toMatch(/ECONNREFUSED|6379|redis/i);
+      expect(prisma.invoiceDraft.delete).not.toHaveBeenCalled();
     });
 
     it('GET :id devolve o draft', async () => {

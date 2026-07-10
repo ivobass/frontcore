@@ -1,15 +1,34 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { normalizePagination, type Paginated } from '@frontcore/shared';
 import { PrismaService } from '@frontcore/database';
 import type { Prisma } from '@frontcore/database';
+import { OCR_PROCESSING_QUEUE } from '@frontcore/queue';
+import type { OcrProcessingJob, QueueProducer } from '@frontcore/queue';
+import { QUEUE_PRODUCER } from '../../queue/queue-producer.token';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
 import { UpdateInvoiceDraftDto } from './dto/update-invoice-draft.dto';
 import { ListInvoiceDraftsDto } from './dto/list-invoice-drafts.dto';
+
+/** Tentativas do job OCR — mesma ordem de grandeza já usada noutras filas do FrontCore. */
+const OCR_JOB_ATTEMPTS = 3;
+
+/**
+ * `jobId` determinístico — dois `add()` para o mesmo draft nunca duplicam
+ * o job. Separador `-`, nunca `:` — o BullMQ rejeita `:` num custom id
+ * (`Error: Custom Id cannot contain :`, usa `:` como separador interno de
+ * namespace nas chaves Redis); descoberto na validação real desta fase.
+ */
+function ocrJobId(invoiceDraftId: string): string {
+  return `invoice-draft-ocr-${invoiceDraftId}`;
+}
 
 const INVOICE_DRAFT_INCLUDE = {
   supplier: true,
@@ -40,8 +59,9 @@ type PromotedInvoice = Prisma.InvoiceGetPayload<{
 }>;
 
 /**
- * CRUD de rascunhos de fatura (Fase 6.3) + promoção explícita a Invoice.
- * `InvoiceDraft` é uma entidade separada de `Invoice` — ver
+ * CRUD de rascunhos de fatura (Fase 6.3) + promoção explícita a Invoice +
+ * publicação do job OCR após a criação (Fase 6.4). `InvoiceDraft` é uma
+ * entidade separada de `Invoice` — ver
  * `docs/phases/phase-6.3-invoice-draft-foundation.md` para a justificação
  * completa. Validação de posse do `StorageObject` é feita diretamente via
  * Prisma (não via `UploadsService.findOne()`), mesmo padrão já usado por
@@ -50,8 +70,24 @@ type PromotedInvoice = Prisma.InvoiceGetPayload<{
  */
 @Injectable()
 export class InvoiceDraftsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(InvoiceDraftsService.name);
 
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(QUEUE_PRODUCER) private readonly queueProducer: QueueProducer,
+  ) {}
+
+  /**
+   * Cria o `InvoiceDraft` e, só depois de persistido com sucesso, publica
+   * o job OCR correspondente. Não existe transação distribuída entre
+   * PostgreSQL e Redis (fora do âmbito — sem transactional outbox nesta
+   * fase): se a publicação falhar, o draft criado **não é apagado**
+   * automaticamente (uma compensação nesse ponto seria enganadora — o
+   * draft em si é válido, só falta o job) e a exceção propagada ao
+   * cliente não expõe detalhes internos do Redis/BullMQ. Ver "Consistência
+   * PostgreSQL/Redis" em
+   * `docs/phases/phase-6.4-ocr-draft-integration-foundation.md`.
+   */
   async create(
     organizationId: string,
     dto: CreateInvoiceDraftDto,
@@ -64,7 +100,7 @@ export class InvoiceDraftsService {
       await this.assertCategoryBelongsToOrg(organizationId, dto.categoryId);
     }
 
-    return this.prisma.invoiceDraft.create({
+    const draft = await this.prisma.invoiceDraft.create({
       data: {
         organizationId,
         storageObjectId: dto.storageObjectId,
@@ -78,6 +114,32 @@ export class InvoiceDraftsService {
       },
       include: INVOICE_DRAFT_INCLUDE,
     });
+
+    try {
+      await this.queueProducer.add<OcrProcessingJob>(
+        OCR_PROCESSING_QUEUE,
+        {
+          invoiceDraftId: draft.id,
+          storageObjectId: draft.storageObjectId,
+          organizationId,
+        },
+        {
+          jobId: ocrJobId(draft.id),
+          attempts: OCR_JOB_ATTEMPTS,
+        },
+      );
+    } catch (error) {
+      this.logger.error(
+        `Falha ao publicar o job OCR para o InvoiceDraft ${draft.id} — o rascunho ` +
+          `foi criado, mas fica sem processamento OCR agendado.`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new ServiceUnavailableException(
+        'O rascunho foi criado, mas não foi possível agendar o processamento OCR. Tente novamente mais tarde.',
+      );
+    }
+
+    return draft;
   }
 
   async findAll(

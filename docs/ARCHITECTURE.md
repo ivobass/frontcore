@@ -62,14 +62,26 @@ um provider concreto sobre BullMQ/Redis. Sem lógica de domínio — o nome
 da fila e o payload são sempre decisão do consumidor.
 
 ```
-apps/frontrest/workers → QueueConsumer (token) → BullMQQueueConsumer
+apps/frontrest/api      → QueueProducer (token) → BullMQQueueProducer
+apps/frontrest/workers  → QueueConsumer (token) → BullMQQueueConsumer
 ```
 
-Só `apps/frontrest/workers/src/queues/ocr-processing.module.ts` importa
-`BullMQQueueConsumer`/`@frontcore/queue` diretamente, sob um token de
-injeção (`QUEUE_CONSUMER`) — mesmo padrão do `OBJECT_STORAGE` em
-`uploads.module.ts`. Ver
+Só `apps/frontrest/api/src/queue/queue.module.ts` importa
+`BullMQQueueProducer` diretamente (token `QUEUE_PRODUCER`), e só
+`apps/frontrest/workers/src/queues/ocr-processing.module.ts` importa
+`BullMQQueueConsumer` diretamente (token `QUEUE_CONSUMER`) — mesmo
+padrão do `OBJECT_STORAGE` em `uploads.module.ts`. Ver
 `docs/phases/phase-6.1-ocr-worker-foundation.md`.
+
+**Exceção documentada** (Fase 6.4): o contrato da única fila real hoje
+(`OcrProcessingJob`/`OCR_PROCESSING_QUEUE`, em
+`packages/queue/src/jobs/`) inclui `invoiceDraftId`, um conceito de
+domínio FrontRest — normalmente proibido dentro de `packages/*`. Vive
+ali porque é o único ponto que `apps/frontrest/api` (produtor) e
+`apps/frontrest/workers` (consumidor) já partilham sem duplicar a
+interface nem criar uma dependência direta entre as duas apps.
+Justificação completa em
+`docs/phases/phase-6.4-ocr-draft-integration-foundation.md`.
 
 ## Base de dados partilhada entre apps NestJS
 
@@ -97,6 +109,14 @@ nova referencia as existentes, nunca o contrário. Promoção explícita
 `Invoice` + `InvoiceAttachment` reais e só depois elimina o draft. Ver
 `docs/phases/phase-6.3-invoice-draft-foundation.md` para a comparação
 arquitetural completa entre as duas abordagens.
+
+Desde a Fase 6.4, a criação de um `InvoiceDraft` publica automaticamente
+um job na fila `ocr-processing`; o Worker OCR lê o `StorageObject`
+associado e persiste texto bruto (`ocrText`) e confiança
+(`ocrConfidence`) de volta no mesmo `InvoiceDraft` — sem parsing fiscal,
+sem extração de campos estruturados (fornecedor, datas, totais
+continuam a ser preenchidos manualmente). Ver
+`docs/phases/phase-6.4-ocr-draft-integration-foundation.md`.
 
 ## Apps (FrontRest)
 

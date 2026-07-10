@@ -248,8 +248,11 @@ model InvoiceAttachment {
 /// real de um documento ainda por confirmar. A existência da linha já
 /// representa o estado "em rascunho" — sem enum de estado próprio.
 /// Promovido explicitamente a Invoice + InvoiceAttachment (ver
-/// InvoiceDraftsService.promote()); nunca lido nem escrito pelo Worker
-/// OCR nesta fase.
+/// InvoiceDraftsService.promote()). Desde a Fase 6.4, o Worker OCR
+/// (OcrProcessingProcessor) lê e escreve `ocrText`/`ocrConfidence` numa
+/// linha existente após um job publicado por InvoiceDraftsService.create()
+/// — nunca cria, elimina ou promove um InvoiceDraft; essas operações
+/// continuam exclusivas da API.
 model InvoiceDraft {
   id              String    @id @default(cuid())
   organizationId  String

@@ -4,10 +4,13 @@ import type { INestApplication } from '@nestjs/common';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '@frontcore/database';
 import { OBJECT_STORAGE } from '../../src/uploads/object-storage.token';
+import { QUEUE_PRODUCER } from '../../src/queue/queue-producer.token';
 import { createMockPrismaService } from './mock-prisma';
 import type { MockPrismaService } from './mock-prisma';
 import { createMockObjectStorage } from './mock-object-storage';
 import type { MockObjectStorage } from './mock-object-storage';
+import { createMockQueueProducer } from './mock-queue-producer';
+import type { MockQueueProducer } from './mock-queue-producer';
 
 /**
  * Arranca o `AppModule` real (guards globais incluídos) para os testes e2e,
@@ -21,9 +24,11 @@ export async function createTestApp(): Promise<{
   app: INestApplication;
   prisma: MockPrismaService;
   storage: MockObjectStorage;
+  queueProducer: MockQueueProducer;
 }> {
   const prisma = createMockPrismaService();
   const storage = createMockObjectStorage();
+  const queueProducer = createMockQueueProducer();
 
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -32,6 +37,8 @@ export async function createTestApp(): Promise<{
     .useValue(prisma)
     .overrideProvider(OBJECT_STORAGE)
     .useValue(storage)
+    .overrideProvider(QUEUE_PRODUCER)
+    .useValue(queueProducer)
     .compile();
 
   const app = moduleRef.createNestApplication();
@@ -45,5 +52,5 @@ export async function createTestApp(): Promise<{
   );
   await app.init();
 
-  return { app, prisma, storage };
+  return { app, prisma, storage, queueProducer };
 }

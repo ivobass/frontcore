@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { UploadsModule } from '../uploads/uploads.module';
+import { QueueModule } from '../queue/queue.module';
 import { InvoicesController } from './invoices.controller';
 import { InvoicesService } from './invoices.service';
 import { InvoiceAttachmentsController } from './attachments/invoice-attachments.controller';
@@ -8,7 +9,7 @@ import { InvoiceDraftsController } from './drafts/invoice-drafts.controller';
 import { InvoiceDraftsService } from './drafts/invoice-drafts.service';
 
 @Module({
-  imports: [UploadsModule],
+  imports: [UploadsModule, QueueModule],
   // InvoiceDraftsController regista `invoices/drafts` antes de
   // InvoicesController registar `invoices/:id` — ordem obrigatória, ver
   // comentário em invoice-drafts.controller.ts.
