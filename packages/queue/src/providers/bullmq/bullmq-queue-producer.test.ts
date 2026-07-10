@@ -45,6 +45,22 @@ describe('BullMQQueueProducer', () => {
       );
     });
 
+    it('aplica limites de retenção (removeOnComplete/removeOnFail) para não acumular jobs indefinidamente no Redis', async () => {
+      addMock.mockResolvedValue({ id: 'job-1' });
+      const producer = new BullMQQueueProducer(config);
+
+      await producer.add('ocr-processing', { storageObjectId: 'obj-1' });
+
+      expect(addMock).toHaveBeenCalledWith(
+        'ocr-processing',
+        { storageObjectId: 'obj-1' },
+        expect.objectContaining({
+          removeOnComplete: { count: 1000 },
+          removeOnFail: { count: 5000 },
+        }),
+      );
+    });
+
     it('reutiliza a mesma fila BullMQ entre chamadas com o mesmo queueName', async () => {
       addMock.mockResolvedValue({ id: 'job-1' });
       const producer = new BullMQQueueProducer(config);

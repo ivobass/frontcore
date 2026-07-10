@@ -4,7 +4,8 @@ import { OCR_PROCESSING_QUEUE } from '@frontcore/queue';
 import type { OcrProcessingJob } from '@frontcore/queue';
 import { PrismaService } from '@frontcore/database';
 import type { ObjectStorage } from '@frontcore/storage';
-import { OCRService } from '@frontcore/ocr';
+import { OCRService, loadOcrConfig } from '@frontcore/ocr';
+import type { ExtractOptions } from '@frontcore/ocr';
 import { OBJECT_STORAGE } from '../storage/object-storage.token';
 import { QUEUE_CONSUMER } from './queue-consumer.token';
 
@@ -28,6 +29,15 @@ import { QUEUE_CONSUMER } from './queue-consumer.token';
 @Injectable()
 export class OcrProcessingProcessor implements OnModuleInit {
   private readonly logger = new Logger(OcrProcessingProcessor.name);
+
+  // OCR_LANGUAGE/OCR_TIMEOUT_MS: mesma fonte (loadOcrConfig()) já usada em
+  // ocr-processing.module.ts para escolher o provider — antes desta
+  // correção eram lidas do ambiente mas nunca chegavam a extract(), que
+  // caía sempre nos valores por omissão do próprio @frontcore/ocr.
+  private readonly extractOptions: ExtractOptions = (() => {
+    const config = loadOcrConfig();
+    return { language: config.language, timeoutMs: config.timeoutMs };
+  })();
 
   constructor(
     @Inject(QUEUE_CONSUMER) private readonly consumer: QueueConsumer,
@@ -77,11 +87,14 @@ export class OcrProcessingProcessor implements OnModuleInit {
     }
 
     const buffer = await this.storage.get(storageObject.key);
-    const result = await this.ocrService.extract({
-      buffer,
-      contentType: storageObject.contentType,
-      filename: storageObject.filename,
-    });
+    const result = await this.ocrService.extract(
+      {
+        buffer,
+        contentType: storageObject.contentType,
+        filename: storageObject.filename,
+      },
+      this.extractOptions,
+    );
 
     // Revalida a mesma correspondência antes de escrever — cobre a corrida
     // em que o draft foi eliminado ou promovido enquanto o OCR corria.

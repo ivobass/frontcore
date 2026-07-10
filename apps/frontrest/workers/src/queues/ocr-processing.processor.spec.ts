@@ -108,11 +108,14 @@ describe('OcrProcessingProcessor', () => {
         where: { id: 'obj-1', organizationId: 'org-1', key: { not: null } },
       });
       expect(get).toHaveBeenCalledWith('organizations/org-1/uploads/obj-1');
-      expect(extract).toHaveBeenCalledWith({
-        buffer: Buffer.from('bytes'),
-        contentType: 'image/png',
-        filename: 'fatura.png',
-      });
+      expect(extract).toHaveBeenCalledWith(
+        {
+          buffer: Buffer.from('bytes'),
+          contentType: 'image/png',
+          filename: 'fatura.png',
+        },
+        { language: 'eng', timeoutMs: 30_000 },
+      );
       expect(updateMany).toHaveBeenCalledWith({
         where: {
           id: 'draft-1',
@@ -360,6 +363,46 @@ describe('OcrProcessingProcessor', () => {
       // O mock de PrismaService neste teste não expõe nenhum método
       // `create` para invoiceDraft/invoiceAttachment/invoice — não há
       // forma de o processor criar novas entidades mesmo que tentasse.
+    });
+  });
+
+  describe('12. configuração OCR (OCR_LANGUAGE/OCR_TIMEOUT_MS)', () => {
+    const originalLanguage = process.env.OCR_LANGUAGE;
+    const originalTimeout = process.env.OCR_TIMEOUT_MS;
+
+    afterEach(() => {
+      if (originalLanguage === undefined) delete process.env.OCR_LANGUAGE;
+      else process.env.OCR_LANGUAGE = originalLanguage;
+      if (originalTimeout === undefined) delete process.env.OCR_TIMEOUT_MS;
+      else process.env.OCR_TIMEOUT_MS = originalTimeout;
+    });
+
+    it('lê OCR_LANGUAGE/OCR_TIMEOUT_MS do ambiente e passa-os a OCRService.extract()', async () => {
+      process.env.OCR_LANGUAGE = 'por';
+      process.env.OCR_TIMEOUT_MS = '15000';
+
+      const draftFindFirst = jest.fn().mockResolvedValue(VALID_DRAFT);
+      const storageFindFirst = jest.fn().mockResolvedValue(VALID_STORAGE_OBJECT);
+      const get = jest.fn().mockResolvedValue(Buffer.from('bytes'));
+      const extract = jest.fn().mockResolvedValue(OCR_RESULT);
+      const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+
+      const { providers, getHandler } = buildProcessor({
+        draftFindFirst,
+        storageFindFirst,
+        get,
+        extract,
+        updateMany,
+      });
+      const moduleRef = await Test.createTestingModule({ providers }).compile();
+      moduleRef.get(OcrProcessingProcessor).onModuleInit();
+
+      await getHandler()!(PAYLOAD, 'job-1');
+
+      expect(extract).toHaveBeenCalledWith(expect.anything(), {
+        language: 'por',
+        timeoutMs: 15000,
+      });
     });
   });
 });

@@ -32,8 +32,11 @@ export class UploadsController {
           // skipMagicNumbersValidation: valida por `mimetype` reportado,
           // não por sniffing do conteúdo real (`file-type`) — decisão
           // desta fase, ver docs/phases/phase-5.2-upload-api-foundation.md.
+          // Regex ancorada (^...$): sem isso, um mimetype como
+          // "application/pdf-evil" também passava por conter a substring
+          // permitida.
           new FileTypeValidator({
-            fileType: new RegExp(ALLOWED_MIME_TYPES.join('|')),
+            fileType: new RegExp(`^(${ALLOWED_MIME_TYPES.join('|')})$`),
             skipMagicNumbersValidation: true,
           }),
         ],

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Inject, Module, OnModuleDestroy } from '@nestjs/common';
 import { BullMQQueueConsumer, loadQueueConfig } from '@frontcore/queue';
 import type { QueueConsumer } from '@frontcore/queue';
 import { S3ObjectStorage, loadStorageConfig } from '@frontcore/storage';
@@ -25,4 +25,14 @@ import { OcrProcessingProcessor } from './ocr-processing.processor';
     OcrProcessingProcessor,
   ],
 })
-export class OcrProcessingModule {}
+export class OcrProcessingModule implements OnModuleDestroy {
+  constructor(@Inject(QUEUE_CONSUMER) private readonly consumer: QueueConsumer) {}
+
+  // Mesmo padrão de apps/frontrest/api/src/queue/queue.module.ts para o
+  // produtor — sem isto, o Worker (`main.ts` já chama
+  // `app.enableShutdownHooks()`) nunca fechava a ligação Redis do
+  // consumidor num SIGTERM/SIGINT real.
+  async onModuleDestroy(): Promise<void> {
+    await this.consumer.close();
+  }
+}
