@@ -83,6 +83,21 @@ o ficheiro. `@nestjs/common`/`@nestjs/core` são `peerDependencies` de
 singleton `prisma` exportado do barrel raiz, reservado a scripts fora de
 qualquer container Nest, ex. seeds).
 
+## Staging de documentos vs. domínio financeiro
+
+`InvoiceDraft` (Fase 6.3) é uma entidade separada de `Invoice`, não um
+estado (`status = DRAFT`) do mesmo modelo. `Invoice` continua a
+representar sempre um documento financeiro válido e completo
+(`supplierId`/`issueDate`/`totalAmount` obrigatórios, sem alteração);
+`InvoiceDraft` referencia `StorageObject`/`Supplier`/`ExpenseCategory`
+de forma unidirecional, com todos os campos de domínio opcionais,
+mesmo padrão já usado por `InvoiceAttachment` (Fase 5.3) — uma entidade
+nova referencia as existentes, nunca o contrário. Promoção explícita
+(`InvoiceDraftsService.promote()`, transação Prisma única) cria a
+`Invoice` + `InvoiceAttachment` reais e só depois elimina o draft. Ver
+`docs/phases/phase-6.3-invoice-draft-foundation.md` para a comparação
+arquitetural completa entre as duas abordagens.
+
 ## Apps (FrontRest)
 
 | App                    | Stack       | Porta | Estado Fase 1            |

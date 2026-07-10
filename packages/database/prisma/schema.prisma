@@ -53,6 +53,7 @@ model Organization {
   invoices           Invoice[]
   storageObjects     StorageObject[]
   invoiceAttachments InvoiceAttachment[]
+  invoiceDrafts      InvoiceDraft[]
 
   @@index([slug])
 }
@@ -130,6 +131,7 @@ model Supplier {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   invoices     Invoice[]
+  invoiceDrafts InvoiceDraft[]
 
   @@index([organizationId])
 }
@@ -144,6 +146,7 @@ model ExpenseCategory {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   invoices     Invoice[]
+  invoiceDrafts InvoiceDraft[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -213,6 +216,7 @@ model StorageObject {
 
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   attachment   InvoiceAttachment?
+  draft        InvoiceDraft?
 
   @@index([organizationId])
 }
@@ -233,4 +237,43 @@ model InvoiceAttachment {
 
   @@index([organizationId])
   @@index([invoiceId])
+}
+
+/// Rascunho de fatura originado por upload/OCR — área de staging antes de
+/// existir uma Invoice real. Entidade deliberadamente separada de Invoice
+/// (Fase 6.3): Invoice continua a representar sempre um documento
+/// financeiro válido e completo (supplierId/issueDate/totalAmount
+/// obrigatórios, sem alteração nesta fase); um InvoiceDraft pode existir
+/// com qualquer subconjunto desses campos em falta, refletindo o estado
+/// real de um documento ainda por confirmar. A existência da linha já
+/// representa o estado "em rascunho" — sem enum de estado próprio.
+/// Promovido explicitamente a Invoice + InvoiceAttachment (ver
+/// InvoiceDraftsService.promote()); nunca lido nem escrito pelo Worker
+/// OCR nesta fase.
+model InvoiceDraft {
+  id              String    @id @default(cuid())
+  organizationId  String
+  storageObjectId String    @unique
+  supplierId      String?
+  categoryId      String?
+  number          String?
+  issueDate       DateTime?
+  dueDate         DateTime?
+  totalAmount     Decimal?  @db.Decimal(12, 2)
+  notes           String?
+  /// Texto bruto extraído por OCR (Fase 6.2) — área de staging; nunca
+  /// persistido no Invoice final (ver "Regras de domínio", ponto 12).
+  ocrText         String?
+  ocrConfidence   Float?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  storageObject StorageObject    @relation(fields: [storageObjectId], references: [id], onDelete: Restrict)
+  supplier      Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  category      ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([supplierId])
+  @@index([categoryId])
 }

@@ -58,7 +58,14 @@
   (leitura direta servidor→servidor, extensão de `@frontcore/storage`),
   Worker atualizado para o fluxo completo (obter ficheiro → extrair texto →
   registar resultado) — sem parsing de campos, sem extração fiscal, sem IA —
-  Fase 6.2 (`docs/phases/phase-6.2-ocr-pipeline-foundation.md`).
+  Fase 6.2 (`docs/phases/phase-6.2-ocr-pipeline-foundation.md`). Fundação de
+  faturas em rascunho — novo modelo `InvoiceDraft` (`packages/database`),
+  entidade deliberadamente separada de `Invoice` (sem `status = DRAFT`,
+  sem alterar a nullability/contrato de `Invoice` existente), CRUD próprio
+  em `apps/frontrest/api/src/invoices/drafts/` (`/invoices/drafts`) e
+  promoção transacional explícita a `Invoice` + `InvoiceAttachment` — sem
+  parsing fiscal, sem o Worker OCR a escrever no draft ainda — Fase 6.3
+  (`docs/phases/phase-6.3-invoice-draft-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.
