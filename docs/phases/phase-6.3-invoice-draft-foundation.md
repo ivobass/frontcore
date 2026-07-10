@@ -62,6 +62,11 @@ completa abaixo, em "Decisão: `InvoiceDraft` separado".
 - **Segue o padrão já aprovado com `StorageObject` + `InvoiceAttachment`
   (Fase 5.3)**: uma entidade nova referencia as existentes de forma
   unidirecional, sem alterar nenhuma delas.
+- **A promoção é irreversível** (ver "Regras de domínio", ponto 13) —
+  consequência direta de `InvoiceDraft`/`Invoice` serem entidades
+  separadas com ciclos de vida distintos, não dois estados do mesmo
+  registo: promover não é uma transição de estado reversível, é a
+  entidade de staging a dar lugar à entidade final.
 
 > **`InvoiceDraft` é deliberadamente específico do domínio `Invoice`.
 > Não foi criado um `DocumentDraft` genérico por ainda não existir um
@@ -76,9 +81,11 @@ completa abaixo, em "Decisão: `InvoiceDraft` separado".
 StorageObject
     ↓
 InvoiceDraft   (campos opcionais, completados manualmente por API)
-    ↓ promoção explícita (POST /invoices/drafts/:id/promote)
+    ↓ promoção explícita, de sentido único (POST /invoices/drafts/:id/promote)
 Invoice + InvoiceAttachment   (mesma transação; draft eliminado só depois)
 ```
+
+A seta de promoção não tem retorno — ver "Regras de domínio", ponto 13.
 
 ## Modelo e relações
 
@@ -163,6 +170,11 @@ já representa o estado de rascunho; a promoção elimina-a.
     dedicado (nº 20).
 12. `ocrText`/`ocrConfidence` só existem em `InvoiceDraft` — nunca
     persistidos em `Invoice`. `InvoiceDraft` é a área de staging.
+13. **A promoção de `InvoiceDraft` para `Invoice` é irreversível.**
+    Depois de promovido, o `InvoiceDraft` é eliminado e o ciclo de vida
+    passa a ser exclusivamente o da `Invoice`. Alterações posteriores
+    devem ocorrer através do CRUD normal de `Invoice`
+    (`PATCH /invoices/:id`), nunca recriando o `InvoiceDraft` original.
 
 ## Decisão de implementação: validação do `StorageObject` direta via Prisma
 
@@ -338,6 +350,10 @@ infraestrutura real concordam.
   `StorageObject` associado a um `InvoiceDraft` não pode ser eliminado
   diretamente via `DELETE /uploads/:id` (already-established behaviour,
   não uma lacuna nova desta fase).
+- **Sem reversão da promoção** — comportamento esperado, não uma
+  lacuna: não existe (nem está prevista) uma operação para recriar um
+  `InvoiceDraft` a partir de uma `Invoice` já promovida. Ver "Regras de
+  domínio", ponto 13.
 
 ## Trabalho fora do âmbito (fases futuras)
 
