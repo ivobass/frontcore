@@ -78,7 +78,16 @@
   no `InvoiceDraft` distinguindo falha temporária de falha permanente —
   sem Dead Letter Queue, sem endpoint de retry manual, sem novos
   providers OCR — Fase 6.5
-  (`docs/phases/phase-6.5-ocr-retry-recovery-foundation.md`).
+  (`docs/phases/phase-6.5-ocr-retry-recovery-foundation.md`). Fiscal
+  Parsing & Structured Extraction — novo módulo `fiscal-parsing` em
+  `apps/frontrest/api` (não um package — lógica de domínio), pipeline
+  de 9 extractors determinísticos (regex/heurísticas, sem IA/LLM) que
+  transforma `ocrText` num modelo normalizado
+  (`FiscalExtractionResult`: fornecedor, NIF, cliente, número/datas/
+  moeda da fatura, totais, IVA), cada campo com confiança e origem
+  próprias — sem integração com `InvoiceDraft`, sem endpoint, sem
+  regras por país implementadas (arquitetura preparada para ambos) —
+  Fase 6.6 (`docs/phases/phase-6.6-fiscal-parsing-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

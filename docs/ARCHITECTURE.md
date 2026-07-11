@@ -133,6 +133,19 @@ nativo do BullMQ; ao esgotar as tentativas configuradas, o draft fica
 `FAILED` em vez de silenciosamente `null`. Ver
 `docs/phases/phase-6.5-ocr-retry-recovery-foundation.md`.
 
+## Parsing fiscal
+
+`apps/frontrest/api/src/fiscal-parsing/` (Fase 6.6) transforma texto
+OCR em dados estruturados — determinístico (regex/heurísticas), sem
+IA/LLM. Vive em `apps/frontrest/api`, não em `packages/*`: interpreta
+conceitos de domínio (fornecedor, NIF, IVA) que, em todo o resto do
+repositório, ficam sempre fora de `packages/*` (`docs/CODING_STANDARDS.md`).
+Pipeline de extractors independentes (`FiscalExtractor<T>`, mesmo
+padrão de `OCRProvider`), orquestrados por `FiscalParsingService` —
+puro, sem `Prisma`/HTTP/fila. Sem consumidor ainda: nenhum controller,
+sem escrita em `InvoiceDraft`, módulo não importado por `AppModule`.
+Ver `docs/phases/phase-6.6-fiscal-parsing-foundation.md`.
+
 ## Apps (FrontRest)
 
 | App                    | Stack       | Porta | Estado Fase 1            |
