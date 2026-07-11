@@ -239,6 +239,20 @@ model InvoiceAttachment {
   @@index([invoiceId])
 }
 
+/// Estado do processamento OCR de um InvoiceDraft (Fase 6.5). Não é o
+/// estado do InvoiceDraft em si (que continua a ser "existe = rascunho",
+/// ver comentário do modelo) — é só o ciclo de vida do job OCR associado.
+/// PENDING cobre tanto "ainda não tentado" como "falha temporária,
+/// aguarda o próximo retry automático do BullMQ" — o retry em si nunca
+/// fica visível como estado próprio, é uma condição transitória entre
+/// tentativas, não um estado em repouso.
+enum OcrStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
 /// Rascunho de fatura originado por upload/OCR — área de staging antes de
 /// existir uma Invoice real. Entidade deliberadamente separada de Invoice
 /// (Fase 6.3): Invoice continua a representar sempre um documento
@@ -252,7 +266,9 @@ model InvoiceAttachment {
 /// (OcrProcessingProcessor) lê e escreve `ocrText`/`ocrConfidence` numa
 /// linha existente após um job publicado por InvoiceDraftsService.create()
 /// — nunca cria, elimina ou promove um InvoiceDraft; essas operações
-/// continuam exclusivas da API.
+/// continuam exclusivas da API. Desde a Fase 6.5, o mesmo Worker também
+/// mantém `ocrStatus`/`ocrError` ao longo de tentativas automáticas com
+/// backoff exponencial (ver `docs/phases/phase-6.5-ocr-retry-recovery-foundation.md`).
 model InvoiceDraft {
   id              String    @id @default(cuid())
   organizationId  String
@@ -268,6 +284,13 @@ model InvoiceDraft {
   /// persistido no Invoice final (ver "Regras de domínio", ponto 12).
   ocrText         String?
   ocrConfidence   Float?
+  /// Ciclo de vida do processamento OCR (Fase 6.5) — ver enum OcrStatus.
+  ocrStatus       OcrStatus @default(PENDING)
+  /// Mensagem sanitizada da última falha permanente (ocrStatus FAILED) —
+  /// nunca a mensagem bruta da exceção (evita expor detalhes internos de
+  /// storage/Redis/provider através de GET /invoices/drafts). Detalhe
+  /// técnico completo só nos logs do Worker.
+  ocrError        String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

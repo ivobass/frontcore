@@ -122,6 +122,7 @@ describe('Invoice Drafts (e2e)', () => {
         expect.objectContaining({
           jobId: 'invoice-draft-ocr-draft-ocr-1',
           attempts: 3,
+          backoff: { type: 'exponential', delayMs: 5000 },
         }),
       );
     });

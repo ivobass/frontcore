@@ -45,6 +45,9 @@ export class BullMQQueueProducer implements QueueProducer {
         jobId: options?.jobId,
         delay: options?.delayMs,
         attempts: options?.attempts,
+        backoff: options?.backoff
+          ? { type: options.backoff.type, delay: options.backoff.delayMs }
+          : undefined,
         removeOnComplete: REMOVE_ON_COMPLETE,
         removeOnFail: REMOVE_ON_FAIL,
       });

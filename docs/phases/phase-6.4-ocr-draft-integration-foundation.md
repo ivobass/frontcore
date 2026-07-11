@@ -208,6 +208,11 @@ que promova um draft — essas operações continuam exclusivas de
 `InvoiceDraftsService`. Repetir o processamento no máximo substitui o
 resultado OCR pelo mesmo (ou mais recente) valor.
 
+> Nota (Fase 6.5): esta garantia é dos efeitos persistidos, não da
+> execução do provider OCR em si — ver "7. Idempotência é dos efeitos
+> persistidos, não da execução do OCR" em
+> `docs/phases/phase-6.5-ocr-retry-recovery-foundation.md`.
+
 ### Erros técnicos continuam a propagar para retry
 
 Falhas de `ObjectStorage.get()`, `OCRService.extract()` ou

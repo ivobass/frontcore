@@ -61,6 +61,36 @@ describe('BullMQQueueProducer', () => {
       );
     });
 
+    it('traduz backoff exponencial para o formato nativo do BullMQ (type/delay)', async () => {
+      addMock.mockResolvedValue({ id: 'job-1' });
+      const producer = new BullMQQueueProducer(config);
+
+      await producer.add(
+        'ocr-processing',
+        { storageObjectId: 'obj-1' },
+        { attempts: 3, backoff: { type: 'exponential', delayMs: 5000 } },
+      );
+
+      expect(addMock).toHaveBeenCalledWith(
+        'ocr-processing',
+        { storageObjectId: 'obj-1' },
+        expect.objectContaining({ backoff: { type: 'exponential', delay: 5000 } }),
+      );
+    });
+
+    it('sem backoff configurado, não passa nenhuma política ao BullMQ (retry imediato, comportamento por omissão do broker)', async () => {
+      addMock.mockResolvedValue({ id: 'job-1' });
+      const producer = new BullMQQueueProducer(config);
+
+      await producer.add('ocr-processing', { storageObjectId: 'obj-1' }, { attempts: 3 });
+
+      expect(addMock).toHaveBeenCalledWith(
+        'ocr-processing',
+        { storageObjectId: 'obj-1' },
+        expect.objectContaining({ backoff: undefined }),
+      );
+    });
+
     it('reutiliza a mesma fila BullMQ entre chamadas com o mesmo queueName', async () => {
       addMock.mockResolvedValue({ id: 'job-1' });
       const producer = new BullMQQueueProducer(config);

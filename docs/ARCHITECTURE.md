@@ -83,6 +83,13 @@ interface nem criar uma dependência direta entre as duas apps.
 Justificação completa em
 `docs/phases/phase-6.4-ocr-draft-integration-foundation.md`.
 
+**Retry & Recovery** (Fase 6.5): `EnqueueOptions` ganhou `backoff`
+(mapeado 1:1 para o backoff nativo do BullMQ) e `JobHandler` passou a
+receber `JobAttemptInfo { attemptNumber; maxAttempts }`, derivado
+diretamente de `job.attemptsStarted`/`job.opts.attempts` — nenhuma
+contagem de tentativas paralela é mantida em código FrontCore. Ver
+`docs/phases/phase-6.5-ocr-retry-recovery-foundation.md`.
+
 ## Base de dados partilhada entre apps NestJS
 
 `PrismaModule`/`PrismaService` vivem em `@frontcore/database`
@@ -117,6 +124,14 @@ associado e persiste texto bruto (`ocrText`) e confiança
 sem extração de campos estruturados (fornecedor, datas, totais
 continuam a ser preenchidos manualmente). Ver
 `docs/phases/phase-6.4-ocr-draft-integration-foundation.md`.
+
+Desde a Fase 6.5, `InvoiceDraft` também tem `ocrStatus`
+(`PENDING`/`PROCESSING`/`COMPLETED`/`FAILED`) e `ocrError` (mensagem
+sanitizada, só preenchida em `FAILED`) — falhas técnicas transitórias
+(storage/OCR/Prisma) acionam retry automático com backoff exponencial
+nativo do BullMQ; ao esgotar as tentativas configuradas, o draft fica
+`FAILED` em vez de silenciosamente `null`. Ver
+`docs/phases/phase-6.5-ocr-retry-recovery-foundation.md`.
 
 ## Apps (FrontRest)
 

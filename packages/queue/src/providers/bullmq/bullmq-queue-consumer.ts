@@ -1,6 +1,6 @@
 import { Worker } from 'bullmq';
 import type { Redis } from 'ioredis';
-import type { JobHandler, QueueConfig, QueueConsumer } from '../../contracts';
+import type { JobAttemptInfo, JobHandler, QueueConfig, QueueConsumer } from '../../contracts';
 import { buildRedisConnection } from './build-redis-connection';
 
 /**
@@ -21,7 +21,14 @@ export class BullMQQueueConsumer implements QueueConsumer {
     const worker = new Worker(
       queueName,
       async (job) => {
-        await handler(job.data as T, job.id ?? '');
+        // `attemptsStarted` já é incrementado pelo BullMQ (script
+        // moveToActive) antes desta função correr — 1 na primeira
+        // execução, 2 no primeiro retry, etc. Nunca uma contagem paralela.
+        const attempt: JobAttemptInfo = {
+          attemptNumber: job.attemptsStarted,
+          maxAttempts: job.opts.attempts ?? 1,
+        };
+        await handler(job.data as T, job.id ?? '', attempt);
       },
       { connection: this.connection },
     );

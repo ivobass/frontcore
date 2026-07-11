@@ -233,6 +233,21 @@ describe('InvoiceDraftsService', () => {
       );
     });
 
+    it('5b. configura backoff exponencial (Fase 6.5) — nunca retry imediato em loop', async () => {
+      prisma.invoiceDraft.create.mockResolvedValue({
+        id: 'draft-1',
+        storageObjectId: 'obj-1',
+      });
+
+      await service.create('org-1', { storageObjectId: 'obj-1' });
+
+      expect(queueProducer.add).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.objectContaining({ backoff: { type: 'exponential', delayMs: 5000 } }),
+      );
+    });
+
     it('6. o job só é publicado depois de o draft ser criado (usa o id devolvido pelo create)', async () => {
       const callOrder: string[] = [];
       prisma.invoiceDraft.create.mockImplementation(async () => {

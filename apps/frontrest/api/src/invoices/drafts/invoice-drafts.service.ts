@@ -11,7 +11,7 @@ import { normalizePagination, type Paginated } from '@frontcore/shared';
 import { PrismaService } from '@frontcore/database';
 import type { Prisma } from '@frontcore/database';
 import { OCR_PROCESSING_QUEUE } from '@frontcore/queue';
-import type { OcrProcessingJob, QueueProducer } from '@frontcore/queue';
+import type { BackoffOptions, OcrProcessingJob, QueueProducer } from '@frontcore/queue';
 import { QUEUE_PRODUCER } from '../../queue/queue-producer.token';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
 import { UpdateInvoiceDraftDto } from './dto/update-invoice-draft.dto';
@@ -19,6 +19,19 @@ import { ListInvoiceDraftsDto } from './dto/list-invoice-drafts.dto';
 
 /** Tentativas do job OCR — mesma ordem de grandeza já usada noutras filas do FrontCore. */
 const OCR_JOB_ATTEMPTS = 3;
+
+/**
+ * Backoff exponencial nativo do BullMQ (Fase 6.5): com attempts: 3 só há
+ * 2 atrasos possíveis — 5s antes da tentativa 2, 10s antes da tentativa
+ * 3 (delayMs × 2^(tentativa−2); não existe tentativa 4, logo nunca há um
+ * 3º atraso) — suficiente para uma falha transitória de Redis/Storage/
+ * provider OCR se resolver sozinha, sem martelar o broker em loop
+ * imediato. Nenhuma lógica de retry/atraso é reimplementada aqui — só a
+ * política é configurada, o BullMQ é quem agenda e conta as tentativas.
+ * Confirmado experimentalmente (validação Docker, Fase 6.5): tentativa 2
+ * a +5s, tentativa 3 a +~10-11s.
+ */
+const OCR_JOB_BACKOFF: BackoffOptions = { type: 'exponential', delayMs: 5000 };
 
 /**
  * `jobId` determinístico — dois `add()` para o mesmo draft nunca duplicam
@@ -126,6 +139,7 @@ export class InvoiceDraftsService {
         {
           jobId: ocrJobId(draft.id),
           attempts: OCR_JOB_ATTEMPTS,
+          backoff: OCR_JOB_BACKOFF,
         },
       );
     } catch (error) {
