@@ -1,6 +1,6 @@
 # FrontCore Git Workflow
 
-Version: 1.2
+Version: 1.3
 
 ## Objetivo
 
@@ -81,8 +81,8 @@ para as duas versões não divergirem.
 
 ## Checklist antes de commit
 
-Checklist canónico definido em `docs/ai/AI_WORKFLOW.md`, secção
-"Validação" — não repetido aqui, para as duas versões não divergirem.
+Checklist canónico definido em `docs/ai/AI_RELEASE_CHECKLIST.md` — não
+repetido aqui, para as duas versões não divergirem.
 
 ## Checklist depois de push
 

@@ -6,8 +6,8 @@ Version: 1.0
 
 Definition of Done específica para qualquer componente novo do Design
 System. Complementar, não substitui, a Definition of Done de **fase**
-definida em `docs/ai/AI_WORKFLOW.md` — esta aplica-se a um componente
-individual, aquela ao fecho de uma fase inteira.
+definida em `docs/ai/AI_RELEASE_CHECKLIST.md` — esta aplica-se a um
+componente individual, aquela ao fecho de uma fase inteira.
 
 ## Critérios
 

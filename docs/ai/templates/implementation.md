@@ -26,6 +26,17 @@ pnpm typecheck
 pnpm build
 ```
 
+## Observações para fases futuras
+
+Só incluir esta secção quando aplicável — melhorias encontradas durante
+a implementação, fora do âmbito desta fase (ver
+`docs/ai/AI_BASE_PROMPT.md`, secção 16). Uma entrada por melhoria:
+
+- **Problema encontrado**: ...
+- **Impacto**: ...
+- **Sugestão**: ...
+- **Prioridade**: Alta / Média / Baixa
+
 ## Próximo passo
 
 ...

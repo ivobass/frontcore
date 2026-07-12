@@ -1,6 +1,6 @@
 # FrontCore AI Governance
 
-Version: 1.3
+Version: 1.4
 
 ## Objetivo
 
@@ -60,12 +60,16 @@ para não se repetirem em mais do que um sítio.
 
 ## Camadas da documentação de IA
 
-A documentação em `docs/ai/` organiza-se em três camadas conceptuais:
+A documentação em `docs/ai/` organiza-se em quatro camadas conceptuais:
 
 - **Filosofia** — explica *porquê* as regras existem.
 - **Processo** — explica *como* trabalhar dentro dessa filosofia.
 - **Especificações** — definem regras técnicas concretas e formatos
   (de resposta, de pedido, de documentação, de qualidade).
+- **Prompt Kit** — condensa Filosofia/Processo/Especificações em
+  documentos feitos para citar ou copiar diretamente para dentro de um
+  prompt (regras permanentes, formulário de fase, checklists de revisão
+  e de encerramento), em vez de só serem lidos e internalizados.
 
 Esta separação existe para que cada camada evolua de forma independente
 — alterar como um pedido é formulado não deve exigir alterar a filosofia
@@ -73,7 +77,7 @@ nem o formato de resposta, e vice-versa — e para preparar o FrontCore
 para um ecossistema com múltiplos agentes especializados (Backend,
 Frontend, DevOps, QA, Documentation, Security, ...), onde é esperado que
 todos partilhem a mesma Filosofia e o mesmo Processo, mas cada um possa
-vir a ter Especificações próprias.
+vir a ter Especificações (e um Prompt Kit) próprias.
 
 A classificação de qual documento pertence a qual camada vive em
 `docs/ai/README.md` — não repetida aqui, para não haver duas fontes da

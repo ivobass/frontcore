@@ -1,13 +1,15 @@
 # FrontCore AI Quality Review
 
-Version: 1.0
+Version: 1.1
 
 ## Objetivo
 
 Checklist que qualquer assistente de IA deve percorrer antes de propor ou
 implementar alterações em `packages/ui` — complementa
 `docs/ai/AI_WORKFLOW.md` (fluxo geral), não o substitui. Aplica-se
-especificamente a trabalho no Design System, não a backend/infra/produto.
+especificamente a trabalho no Design System, não a backend/infra/produto
+— para esse âmbito, ver a checklist irmã,
+`docs/ai/AI_REVIEW_CHECKLIST.md`.
 
 ## Antes de propor
 
@@ -47,3 +49,5 @@ pontos deve ficar por resolver silenciosamente.
   detalhe.
 - `docs/adr/0001` a `0005` — decisões estruturais que esta checklist
   aplica.
+- `docs/ai/AI_REVIEW_CHECKLIST.md` — checklist irmã, para revisão
+  arquitetural geral fora de `packages/ui`.

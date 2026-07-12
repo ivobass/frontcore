@@ -1,6 +1,6 @@
 # FrontCore AI Prompt Standard
 
-Version: 1.0
+Version: 1.1
 
 ## Objetivo
 
@@ -8,7 +8,11 @@ Normalizar a estrutura dos pedidos ("prompts") dirigidos a assistentes de
 IA no FrontCore, para que sejam consistentes independentemente de quem os
 escreve ou de qual assistente os recebe. Este documento define o formato
 do **pedido** (lado do utilizador); `docs/ai/AI_RESPONSE_FORMAT.md` define
-o formato da **resposta** (lado da IA).
+o formato da **resposta** (lado da IA). Para pedidos de fase de
+desenvolvimento especificamente, `docs/ai/AI_PHASE_TEMPLATE.md` é a
+instância concreta desta estrutura — preencher esse em vez de montar a
+estrutura abaixo do zero. Regras permanentes que um pedido já não
+precisa de repetir (workflow, aprovações, Git): `docs/ai/AI_BASE_PROMPT.md`.
 
 ## Estrutura obrigatória de um prompt
 

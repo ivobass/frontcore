@@ -21,5 +21,6 @@ IA antes de propor/implementar componentes vive em
   `component-guidelines.md` aplica.
 - `docs/adr/0005-ui-public-api-encapsulation.md` — regra de encapsulamento
   Radix que `component-guidelines.md` aplica.
-- `docs/ai/AI_WORKFLOW.md`, secção "Definition of Done (DoD)" — DoD de
-  **fase**, distinta da DoD de **componente** definida aqui.
+- `docs/ai/AI_RELEASE_CHECKLIST.md`, secção "Definition of Done —
+  critérios finais" — DoD de **fase**, distinta da DoD de
+  **componente** definida aqui.

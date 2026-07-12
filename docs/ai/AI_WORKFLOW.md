@@ -1,6 +1,6 @@
 # FrontCore AI Workflow
 
-Version: 1.7
+Version: 1.8
 
 ## Objetivo
 
@@ -160,7 +160,10 @@ Apresentar:
 - impacto esperado
 - comandos de validação
 
-Esperar aprovação explícita antes de implementar.
+Esperar aprovação explícita antes de implementar. Esta exigência é
+sobre o **plano/âmbito** da fase — depois de aprovado, as operações não
+destrutivas dentro desse âmbito não voltam a precisar de confirmação
+individual (lista completa em `docs/ai/AI_BASE_PROMPT.md`, secção 4).
 
 ### 3. Implementação
 
@@ -172,77 +175,16 @@ Não fazer refactors oportunistas.
 
 ### 4. Validação
 
-Executar apenas validações necessárias. Checklist canónico — `docs/GIT_WORKFLOW.md`
-e `docs/RELEASE_PROCESS.md` apontam para aqui em vez de manterem cópias
-próprias, para as três versões não divergirem:
+Checklist canónico: `docs/ai/AI_RELEASE_CHECKLIST.md` — comandos,
+validação Docker e critérios de conclusão, num único documento. Antes
+desta versão, esse conteúdo vivia aqui, com `docs/GIT_WORKFLOW.md` e
+`docs/RELEASE_PROCESS.md` a apontar para esta secção; os três agora
+apontam para `AI_RELEASE_CHECKLIST.md` diretamente, para não haver
+quatro versões potencialmente divergentes.
 
-```bash
-git status
-pnpm install
-pnpm typecheck
-pnpm build
-pnpm test
-```
-
-Notas:
-
-- `pnpm test` só corre onde existirem testes (hoje, `packages/ui` — ver
-  `docs/quality/quality-gates.md` — e os testes unitários de
-  `apps/frontrest/api`, Fase 4.4); não falhar a validação por ausência de
-  testes onde nunca existiram. Os testes e2e de `apps/frontrest/api`
-  (`pnpm --filter @frontrest/api test:e2e`) não fazem parte do `pnpm test`
-  por omissão — ver `docs/phases/phase-4.4-backend-tests.md`.
-- `lint` **não é** um gate ativo hoje em nenhuma parte do monorepo (ver
-  `docs/quality/quality-gates.md`, "Gates planeados, ainda não ativos") —
-  não o correr nem reportar como validação real; quando for ativado,
-  atualizar este checklist primeiro.
-- Confirmar sempre, independentemente de comandos: comportamento
-  inalterado fora do âmbito da tarefa.
-
-#### Validação Docker para fases full-stack
-
-Quando uma fase altera **backend e frontend**, ou quando há dúvida se as
-imagens Docker em execução refletem o código atual, a validação manual deve
-reconstruir e reiniciar pelo menos os serviços de aplicação afetados:
-
-```bash
-docker compose build api web
-docker compose up -d api web
-docker ps
-```
-
-Depois da reconstrução, validar explicitamente:
-
-```bash
-curl http://localhost:3001/api/health
-```
-
-E testar no browser:
-
-```text
-http://localhost:3000
-```
-
-Regra operacional:
-
-- se a fase alterou apenas frontend, reconstruir `web` pode ser suficiente;
-- se a fase alterou apenas backend, reconstruir `api` pode ser suficiente;
-- se a fase alterou backend e frontend, reconstruir sempre `api` e `web`;
-- nunca validar uma fase full-stack com `web` novo contra `api` antigo, ou
-  com `api` novo contra `web` antigo;
-- se aparecerem erros como `Cannot GET /api/...` ou rotas novas não
-  existirem em Docker, confirmar primeiro se a imagem do serviço relevante
-  foi reconstruída.
-
-Para validação completa de release ou encerramento de fase, preferir:
-
-```bash
-docker compose build
-docker compose up -d
-docker ps
-```
-
-Esta regra evita falsos bugs causados por containers desatualizados.
+Executar sempre apenas as validações necessárias ao âmbito da tarefa —
+confirmar, independentemente de quais comandos correram, que o
+comportamento fora do âmbito da tarefa ficou inalterado.
 
 ### 5. Encerramento
 
@@ -256,29 +198,13 @@ Apresentar:
 
 ## Definition of Done (DoD)
 
-Uma fase apenas pode ser considerada concluída quando cumprir todos os
-critérios seguintes:
+Critérios completos: `docs/ai/AI_RELEASE_CHECKLIST.md`, secção
+"Definition of Done — critérios finais". Nenhuma fase deve ser
+considerada concluída se algum desses critérios estiver em falta.
 
-- implementação concluída
-- arquitetura aprovada
-- ADRs respeitadas
-- documentação da fase criada
-- documentação geral atualizada (`INDEX.md`, `PHASES.md` e restantes
-  documentos relevantes)
-- roadmap atualizado (quando aplicável)
-- typecheck limpo
-- build limpa
-- testes executados (quando existirem)
-- validação Docker executada para os serviços afetados, especialmente
-  `api` e `web` em fases full-stack
-- revisão arquitetural concluída
-- Git limpo após commit
-- commit realizado
-- tag criada
-- push efetuado
-
-Nenhuma fase deverá ser considerada concluída se algum destes pontos
-estiver em falta.
+Distinta da Definition of Done por **componente** individual, específica
+de `packages/ui` — essa vive em
+`docs/quality/component-definition-of-done.md`.
 
 ## Âmbito da tarefa
 
@@ -355,9 +281,9 @@ aprovado da fase atual**, perguntar:
 > "Esta alteração é realmente necessária para concluir as próximas 2 ou
 > 3 fases?"
 
-- **Não** → não aumentar o âmbito da fase atual. Registar a ideia (ex.
-  em "Trabalho fora do âmbito" ou "Limitações conhecidas" do documento
-  da fase) e continuar a implementação.
+- **Não** → não aumentar o âmbito da fase atual. Registar a ideia em
+  "Observações para fases futuras" (`docs/ai/AI_BASE_PROMPT.md`,
+  secção 16) e continuar a implementação.
 - **Sim** → discutir antes de implementar, seguindo o "Fluxo
   obrigatório" normal (Análise → Planeamento → esperar aprovação
   explícita).

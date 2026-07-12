@@ -1,6 +1,6 @@
 # FrontCore AI Response Format
 
-Version: 1.1
+Version: 1.2
 
 ## Objetivo
 
@@ -52,6 +52,9 @@ trabalho feito.
 - Ficheiros alterados
 - Resumo
 - Validação
+- Observações para fases futuras — só quando aplicável; melhorias
+  encontradas fora do âmbito da tarefa atual, formato definido em
+  `docs/ai/AI_BASE_PROMPT.md`, secção 16
 - Próximo passo
 
 ## Escolha de modo

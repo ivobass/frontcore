@@ -72,12 +72,17 @@ completo e a ordem de leitura. Lista individual dos documentos na secção
 
 | Documento | Localização | Objetivo | Categoria | Estado | Relação com outros documentos |
 |---|---|---|---|---|---|
+| AI Base Prompt | `docs/ai/AI_BASE_PROMPT.md` | Síntese acionável das regras permanentes — citável em qualquer prompt de fase | IA | Ativo | Condensa `AI_GOVERNANCE.md`, `AI_WORKFLOW.md`, `CODING_STANDARDS.md`, `GIT_WORKFLOW.md`, `AI_DOCUMENTATION.md` |
 | AI Governance | `docs/ai/AI_GOVERNANCE.md` | Filosofia, princípios, Source of Truth, estrutura da equipa | IA | Ativo | Base para os restantes documentos de `docs/ai/` |
-| AI Workflow | `docs/ai/AI_WORKFLOW.md` | Fluxo operacional obrigatório para qualquer IA | IA | Ativo | Aplica os princípios de `AI_GOVERNANCE.md` |
+| AI Workflow | `docs/ai/AI_WORKFLOW.md` | Fluxo operacional obrigatório para qualquer IA | IA | Ativo | Aplica os princípios de `AI_GOVERNANCE.md`; checklist de validação vive em `AI_RELEASE_CHECKLIST.md` |
 | AI Response Format | `docs/ai/AI_RESPONSE_FORMAT.md` | Formato normalizado de resposta (Trabalho/Arquitetura/Revisão/Implementação) | IA | Ativo | Usado por `AI_WORKFLOW.md`; esqueletos em `docs/ai/templates/` |
-| AI Prompt Standard | `docs/ai/AI_PROMPT_STANDARD.md` | Formato normalizado de pedido (lado do utilizador) | IA | Ativo | Espelha `AI_RESPONSE_FORMAT.md` |
+| AI Prompt Standard | `docs/ai/AI_PROMPT_STANDARD.md` | Formato normalizado de pedido (lado do utilizador) | IA | Ativo | Espelha `AI_RESPONSE_FORMAT.md`; instância para fases em `AI_PHASE_TEMPLATE.md` |
+| AI Phase Template | `docs/ai/AI_PHASE_TEMPLATE.md` | Formulário reutilizável para pedir uma fase nova | IA | Ativo | Instância de `AI_PROMPT_STANDARD.md`; irmão de `docs/ai/templates/phase-closure.md` |
+| AI Review Checklist | `docs/ai/AI_REVIEW_CHECKLIST.md` | Checklist arquitetural geral para revisão (arquitetura, SOLID, acoplamento, testes, ...) | IA | Ativo | Irmã de `AI_QUALITY_REVIEW.md` (essa é específica de `packages/ui`) |
+| AI Release Checklist | `docs/ai/AI_RELEASE_CHECKLIST.md` | Checklist canónica de validação e encerramento de fase | IA | Ativo | Substitui o conteúdo antes disperso em `AI_WORKFLOW.md`/`GIT_WORKFLOW.md`/`RELEASE_PROCESS.md` |
+| AI Prompt Guide | `docs/ai/AI_PROMPT_GUIDE.md` | Como usar o framework de prompts (Base Prompt/Phase Template/Review/Release Checklist), com exemplos | IA | Ativo | Referencia todos os documentos da camada "Prompt Kit" |
 | AI Documentation | `docs/ai/AI_DOCUMENTATION.md` | Regras de como escrever e localizar documentação | IA | Ativo | Consolida regras antes em `AI_GOVERNANCE.md`/`AI_WORKFLOW.md` |
-| AI Quality Review | `docs/ai/AI_QUALITY_REVIEW.md` | Checklist de revisão de IA específico de `packages/ui` | IA | Ativo | Complementa `AI_WORKFLOW.md`; referencia `docs/quality/` |
+| AI Quality Review | `docs/ai/AI_QUALITY_REVIEW.md` | Checklist de revisão de IA específico de `packages/ui` | IA | Ativo | Complementa `AI_WORKFLOW.md`; referencia `docs/quality/`; irmã de `AI_REVIEW_CHECKLIST.md` |
 
 ## ADRs
 
@@ -143,7 +148,7 @@ completo e a ordem de leitura. Lista individual dos documentos na secção
 | Accessibility Guidelines | `docs/quality/accessibility.md` | Semântica HTML, teclado, foco, `aria-*`, responsive | Qualidade | Ativo | Referenciado por `docs/ai/AI_QUALITY_REVIEW.md` |
 | Quality Checklist | `docs/quality/quality-checklist.md` | Checklist condensado antes de considerar um componente pronto | Qualidade | Ativo | Referencia os restantes documentos de `docs/quality/` |
 | Quality Gates | `docs/quality/quality-gates.md` | Processo de validação obrigatório (typecheck/build/test/lint) | Qualidade | Ativo | Usado antes de qualquer commit em `packages/ui` |
-| Component Definition of Done | `docs/quality/component-definition-of-done.md` | Definition of Done por componente individual | Qualidade | Ativo | Complementa a DoD de fase em `docs/ai/AI_WORKFLOW.md` |
+| Component Definition of Done | `docs/quality/component-definition-of-done.md` | Definition of Done por componente individual | Qualidade | Ativo | Complementa a DoD de fase em `docs/ai/AI_RELEASE_CHECKLIST.md` |
 
 ## Release
 

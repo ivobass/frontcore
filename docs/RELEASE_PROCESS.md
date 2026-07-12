@@ -1,6 +1,6 @@
 # FrontCore Release Process
 
-Version: 1.1
+Version: 1.2
 
 ## Objetivo
 
@@ -8,13 +8,14 @@ Este documento define como fechar fases, criar pontos estáveis e preparar conti
 
 ## O que é uma fase fechada
 
-Critérios definidos em `docs/ai/AI_WORKFLOW.md`, secção "Definition of
-Done (DoD)" — não repetidos aqui, para as duas versões não divergirem.
+Critérios definidos em `docs/ai/AI_RELEASE_CHECKLIST.md`, secção
+"Definition of Done — critérios finais" — não repetidos aqui, para as
+duas versões não divergirem.
 
 ## Checklist de encerramento
 
-Checklist canónico definido em `docs/ai/AI_WORKFLOW.md`, secção
-"Validação" — não repetido aqui, para as duas versões não divergirem.
+Checklist canónico definido em `docs/ai/AI_RELEASE_CHECKLIST.md` — não
+repetido aqui, para as duas versões não divergirem.
 
 ## Documentação obrigatória
 

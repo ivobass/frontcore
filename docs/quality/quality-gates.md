@@ -28,7 +28,7 @@ usado hoje manualmente e preparado para ser automatizado em CI.
 
 - Antes de qualquer commit que toque `packages/ui`.
 - Antes de fechar qualquer fase (ver a Definition of Done de fase em
-  `docs/ai/AI_WORKFLOW.md`).
+  `docs/ai/AI_RELEASE_CHECKLIST.md`).
 
 ## Comandos
 
