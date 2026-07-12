@@ -94,6 +94,16 @@
   `FiscalExtractionResult`, síncrono, sem persistência automática, sem
   tocar no Worker/filas/schema/promoção — Fase 6.7
   (`docs/phases/phase-6.7-fiscal-parsing-draft-integration-foundation.md`).
+  Invoice Draft Review UI — primeiro consumidor frontend completo de
+  `InvoiceDraft` (`apps/frontrest/web`, rota `/invoice-drafts`): upload →
+  criação do rascunho → acompanhamento do OCR (polling local) → consulta
+  do parsing fiscal (automática, nunca aplicada/persistida sem ação
+  explícita) → revisão/correção humana → gravação (`PATCH` só com
+  campos alterados) → promoção explícita a `Invoice`; correção do
+  contrato `PATCH` do rascunho para distinguir campo ausente de campo
+  `null`; `MEMBER` em modo de leitura, `MANAGER+` com formulário
+  completo — Fase 6.8
+  (`docs/phases/phase-6.8-invoice-draft-review-ui-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

@@ -19,6 +19,11 @@ export function getNavItems(pathname: string): NavItem[] {
       href: '/invoices',
       active: pathname === '/invoices',
     },
+    {
+      label: 'Rascunhos de Fatura',
+      href: '/invoice-drafts',
+      active: pathname === '/invoice-drafts',
+    },
     { label: 'Definições', href: '/settings', active: pathname === '/settings' },
   ];
 }

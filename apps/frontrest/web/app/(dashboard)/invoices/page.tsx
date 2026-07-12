@@ -14,6 +14,7 @@ import { listExpenseCategories } from '../../../lib/expense-categories';
 import type { ExpenseCategory } from '../../../lib/expense-categories';
 import { listInvoices, deleteInvoice } from '../../../lib/invoices';
 import type { Invoice, InvoiceStatus, Paginated } from '../../../lib/invoices';
+import { formatCurrency, formatDate } from '../../../lib/format';
 import { InvoiceFormSheet } from './invoice-form-sheet';
 import { InvoiceAttachmentsPanel } from './invoice-attachments-panel';
 import { STATUS_LABELS, selectClassName } from './constants';
@@ -28,15 +29,6 @@ const STATUS_BADGE_VARIANT: Record<InvoiceStatus, 'secondary' | 'success' | 'des
   OVERDUE: 'destructive',
   CANCELLED: 'outline',
 };
-
-function formatCurrency(value: string): string {
-  return Number(value).toLocaleString('pt-PT', { style: 'currency', currency: 'EUR' });
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return '—';
-  return new Date(value).toLocaleDateString('pt-PT');
-}
 
 export default function InvoicesPage() {
   const { session, me } = useSession();

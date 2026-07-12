@@ -191,6 +191,60 @@ describe('Invoice Drafts (e2e)', () => {
       expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
     });
 
+    it('PATCH :id com null limpa campos nullable; campo ausente não é tocado (Fase 6.8)', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
+      prisma.invoiceDraft.update.mockImplementation(
+        ({ data }: { data: Record<string, unknown> }) =>
+          Promise.resolve({ id: 'draft-1', ...data }),
+      );
+
+      const response = await request(app.getHttpServer())
+        .patch('/api/invoices/drafts/draft-1')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+        .send({
+          supplierId: null,
+          categoryId: null,
+          number: null,
+          issueDate: null,
+          dueDate: null,
+          totalAmount: null,
+          notes: null,
+        })
+        .expect(200);
+
+      expect(prisma.invoiceDraft.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            supplierId: null,
+            categoryId: null,
+            number: null,
+            issueDate: null,
+            dueDate: null,
+            totalAmount: null,
+            notes: null,
+          }),
+        }),
+      );
+      expect(response.body.issueDate).toBeNull();
+      expect(response.body.dueDate).toBeNull();
+    });
+
+    it('PATCH :id só com um campo não inclui os restantes no update (campo ausente não é alterado)', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
+      prisma.invoiceDraft.update.mockResolvedValue({ id: 'draft-1', notes: 'só isto' });
+
+      await request(app.getHttpServer())
+        .patch('/api/invoices/drafts/draft-1')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+        .send({ notes: 'só isto' })
+        .expect(200);
+
+      const data = prisma.invoiceDraft.update.mock.calls[0][0].data;
+      expect(data.supplierId).toBeUndefined();
+      expect(data.issueDate).toBeUndefined();
+      expect(data.dueDate).toBeUndefined();
+    });
+
     it('DELETE :id como MANAGER → 200', async () => {
       prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
 

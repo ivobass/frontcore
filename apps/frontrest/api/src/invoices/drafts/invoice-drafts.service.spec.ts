@@ -410,6 +410,62 @@ describe('InvoiceDraftsService', () => {
         }),
       );
     });
+
+    describe('distinção ausente / null / valor (Fase 6.8)', () => {
+      beforeEach(() => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
+        prisma.invoiceDraft.update.mockResolvedValue({ id: 'draft-1' });
+      });
+
+      it('campo ausente não é incluído no update (undefined — Prisma não altera)', async () => {
+        await service.update('org-1', 'draft-1', { totalAmount: 42 });
+
+        const data = prisma.invoiceDraft.update.mock.calls[0][0].data;
+        expect(data.supplierId).toBeUndefined();
+        expect(data.notes).toBeUndefined();
+      });
+
+      it.each([
+        ['supplierId', 'supplierId'],
+        ['categoryId', 'categoryId'],
+        ['number', 'number'],
+        ['totalAmount', 'totalAmount'],
+        ['notes', 'notes'],
+      ])('%s: null limpa o campo (passagem direta para o Prisma)', async (field) => {
+        await service.update('org-1', 'draft-1', { [field]: null });
+
+        const data = prisma.invoiceDraft.update.mock.calls[0][0].data;
+        expect(data[field]).toBeNull();
+      });
+
+      it('issueDate: null limpa a data (bug real corrigido — antes colapsava para undefined)', async () => {
+        await service.update('org-1', 'draft-1', { issueDate: null });
+
+        const data = prisma.invoiceDraft.update.mock.calls[0][0].data;
+        expect(data.issueDate).toBeNull();
+      });
+
+      it('dueDate: null limpa a data (bug real corrigido — antes colapsava para undefined)', async () => {
+        await service.update('org-1', 'draft-1', { dueDate: null });
+
+        const data = prisma.invoiceDraft.update.mock.calls[0][0].data;
+        expect(data.dueDate).toBeNull();
+      });
+
+      it('issueDate: valor válido continua a ser convertido para Date', async () => {
+        await service.update('org-1', 'draft-1', { issueDate: '2026-07-01' });
+
+        const data = prisma.invoiceDraft.update.mock.calls[0][0].data;
+        expect(data.issueDate).toEqual(new Date('2026-07-01'));
+      });
+
+      it('dueDate ausente não é incluído no update', async () => {
+        await service.update('org-1', 'draft-1', { issueDate: '2026-07-01' });
+
+        const data = prisma.invoiceDraft.update.mock.calls[0][0].data;
+        expect(data.dueDate).toBeUndefined();
+      });
+    });
   });
 
   describe('remove', () => {

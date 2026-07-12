@@ -155,6 +155,16 @@ automática no `InvoiceDraft`, nenhuma alteração ao Worker/filas/schema
 Prisma/promoção para `Invoice`. Ver
 `docs/phases/phase-6.7-fiscal-parsing-draft-integration-foundation.md`.
 
+Desde a Fase 6.8, `apps/frontrest/web` (rota `/invoice-drafts`) é o
+primeiro consumidor frontend: upload → criação do rascunho →
+acompanhamento do estado OCR por polling local → consulta automática
+do parsing fiscal quando `ocrStatus` chega a `COMPLETED` → revisão
+humana → `PATCH` só com os campos alterados → promoção explícita.
+Sugestões do parsing nunca são aplicadas nem persistidas
+automaticamente — só uma ação explícita ("Aplicar sugestões") as copia
+para o formulário, e só "Guardar alterações" grava no draft. Ver
+`docs/phases/phase-6.8-invoice-draft-review-ui-foundation.md`.
+
 ## Apps (FrontRest)
 
 | App                    | Stack       | Porta | Estado Fase 1            |

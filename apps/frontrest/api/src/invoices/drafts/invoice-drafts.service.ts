@@ -248,8 +248,24 @@ export class InvoiceDraftsService {
         supplierId: dto.supplierId,
         categoryId: dto.categoryId,
         number: dto.number,
-        issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
-        dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+        // Comparação explícita com null/undefined — nunca truthiness.
+        // `dto.issueDate` pode ser `null` (limpar), `undefined` (não
+        // enviado, não alterar) ou uma string ISO (atualizar). Um
+        // ternário por truthiness (`dto.issueDate ? ... : undefined`)
+        // colapsava `null` para `undefined`, impedindo limpar a data —
+        // bug real corrigido nesta fase.
+        issueDate:
+          dto.issueDate === undefined
+            ? undefined
+            : dto.issueDate === null
+              ? null
+              : new Date(dto.issueDate),
+        dueDate:
+          dto.dueDate === undefined
+            ? undefined
+            : dto.dueDate === null
+              ? null
+              : new Date(dto.dueDate),
         totalAmount: dto.totalAmount,
         notes: dto.notes,
       },
