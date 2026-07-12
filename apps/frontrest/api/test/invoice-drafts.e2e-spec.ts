@@ -224,6 +224,110 @@ describe('Invoice Drafts (e2e)', () => {
     });
   });
 
+  describe('GET :id/fiscal-parsing (Fase 6.7)', () => {
+    it('sem token → 401', async () => {
+      await request(app.getHttpServer())
+        .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+        .expect(401);
+    });
+
+    it('draft inexistente → 404', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(null);
+
+      await request(app.getHttpServer())
+        .get('/api/invoices/drafts/draft-x/fiscal-parsing')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .expect(404);
+    });
+
+    it('draft de outra organização → 404 (isolamento)', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(null);
+
+      await request(app.getHttpServer())
+        .get('/api/invoices/drafts/draft-de-outra-org/fiscal-parsing')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .expect(404);
+    });
+
+    it('draft sem ocrText → 400', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: null,
+      });
+
+      await request(app.getHttpServer())
+        .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .expect(400);
+    });
+
+    it('draft com ocrText vazio (só espaços) → 400', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: '   ',
+      });
+
+      await request(app.getHttpServer())
+        .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .expect(400);
+    });
+
+    it('MEMBER consegue consultar (sem restrição de role, mesmo alcance de GET :id)', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: 'Fornecedor: ACME Lda\nNIF: 123456789\nTotal a Pagar: 100,00€',
+      });
+
+      const response = await request(app.getHttpServer())
+        .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+        .set('Authorization', authHeader({ role: 'MEMBER', organizationId: 'org-1' }))
+        .expect(200);
+
+      expect(response.body.supplier.value.name).toBe('ACME Lda');
+      expect(response.body.supplierTaxId.value).toBe('123456789');
+      expect(response.body.confidence).toBeGreaterThan(0);
+    });
+
+    it('não persiste nada — resultado transitório, sem escrita no InvoiceDraft', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: 'Fornecedor: ACME Lda',
+      });
+
+      await request(app.getHttpServer())
+        .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .expect(200);
+
+      expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
+    });
+
+    it('chamadas repetidas são idempotentes — mesmo resultado', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: 'Fornecedor: ACME Lda\nTotal a Pagar: 50,00€',
+      });
+
+      const first = await request(app.getHttpServer())
+        .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .expect(200);
+      const second = await request(app.getHttpServer())
+        .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .expect(200);
+
+      expect(second.body.supplier).toEqual(first.body.supplier);
+      expect(second.body.totals).toEqual(first.body.totals);
+    });
+  });
+
   describe('promoção', () => {
     it('promoção com campos obrigatórios em falta → 400', async () => {
       prisma.invoiceDraft.findFirst.mockResolvedValue({

@@ -13,6 +13,8 @@ import type { Prisma } from '@frontcore/database';
 import { OCR_PROCESSING_QUEUE } from '@frontcore/queue';
 import type { BackoffOptions, OcrProcessingJob, QueueProducer } from '@frontcore/queue';
 import { QUEUE_PRODUCER } from '../../queue/queue-producer.token';
+import { FiscalParsingService } from '../../fiscal-parsing/fiscal-parsing.service';
+import type { FiscalExtractionResult } from '../../fiscal-parsing/types';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
 import { UpdateInvoiceDraftDto } from './dto/update-invoice-draft.dto';
 import { ListInvoiceDraftsDto } from './dto/list-invoice-drafts.dto';
@@ -88,6 +90,7 @@ export class InvoiceDraftsService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(QUEUE_PRODUCER) private readonly queueProducer: QueueProducer,
+    private readonly fiscalParsingService: FiscalParsingService,
   ) {}
 
   /**
@@ -202,6 +205,27 @@ export class InvoiceDraftsService {
       throw new NotFoundException('Rascunho de fatura não encontrado.');
     }
     return draft;
+  }
+
+  /**
+   * Primeiro consumidor real de `FiscalParsingService` (Fase 6.7):
+   * executa o pipeline de parsing fiscal sobre o `ocrText` já persistido
+   * no draft e devolve o resultado — sem o persistir. `parse()` é puro e
+   * síncrono, por isso repetir a chamada com o mesmo `ocrText` devolve
+   * sempre o mesmo resultado (idempotente por construção, sem estado
+   * criado ou alterado).
+   */
+  async parseFiscalData(
+    organizationId: string,
+    id: string,
+  ): Promise<FiscalExtractionResult> {
+    const draft = await this.findOne(organizationId, id);
+    if (!draft.ocrText || draft.ocrText.trim().length === 0) {
+      throw new BadRequestException(
+        'Este rascunho ainda não tem texto OCR disponível para processamento fiscal.',
+      );
+    }
+    return this.fiscalParsingService.parse(draft.ocrText);
   }
 
   async update(

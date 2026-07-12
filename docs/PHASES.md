@@ -87,7 +87,13 @@
   moeda da fatura, totais, IVA), cada campo com confiança e origem
   próprias — sem integração com `InvoiceDraft`, sem endpoint, sem
   regras por país implementadas (arquitetura preparada para ambos) —
-  Fase 6.6 (`docs/phases/phase-6.6-fiscal-parsing-foundation.md`).
+  Fase 6.6 (`docs/phases/phase-6.6-fiscal-parsing-foundation.md`). Draft
+  Integration Foundation — primeiro consumidor real de
+  `FiscalParsingService`: `GET /invoices/drafts/:id/fiscal-parsing`
+  executa o pipeline sobre o `ocrText` já persistido e devolve o
+  `FiscalExtractionResult`, síncrono, sem persistência automática, sem
+  tocar no Worker/filas/schema/promoção — Fase 6.7
+  (`docs/phases/phase-6.7-fiscal-parsing-draft-integration-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

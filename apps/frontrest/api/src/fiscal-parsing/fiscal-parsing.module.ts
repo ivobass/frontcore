@@ -45,10 +45,10 @@ const EXTRACTOR_CLASSES = [
  * é: acrescentá-lo a `EXTRACTOR_CLASSES` — `providers`, `inject` e
  * `FiscalParsingService` não mudam.
  *
- * Sem consumidor nesta fase — nenhum controller, nenhuma escrita em
- * `InvoiceDraft`, este módulo não é importado por `AppModule` nem por
- * `InvoicesModule`. Ver "Próxima fase" em
- * `docs/phases/phase-6.6-fiscal-parsing-foundation.md`.
+ * Importado por `InvoicesModule` desde a Fase 6.7 — primeiro consumidor
+ * real é `InvoiceDraftsService.parseFiscalData()`, um endpoint síncrono
+ * sob pedido, sem persistência. Ver
+ * `docs/phases/phase-6.7-fiscal-parsing-draft-integration-foundation.md`.
  */
 @Module({
   providers: [

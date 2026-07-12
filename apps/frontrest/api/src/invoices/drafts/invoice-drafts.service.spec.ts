@@ -6,8 +6,37 @@ import {
 } from '@nestjs/common';
 import { OCR_PROCESSING_QUEUE } from '@frontcore/queue';
 import { InvoiceDraftsService } from './invoice-drafts.service';
+import { FiscalParsingService } from '../../fiscal-parsing/fiscal-parsing.service';
+import {
+  SupplierExtractor,
+  CustomerExtractor,
+  InvoiceNumberExtractor,
+  InvoiceDateExtractor,
+  DueDateExtractor,
+  CurrencyExtractor,
+  TotalsExtractor,
+  VatExtractor,
+  TaxNumberExtractor,
+} from '../../fiscal-parsing/extractors';
 import { createMockPrismaService } from '../../../test/utils/mock-prisma';
 import type { MockPrismaService } from '../../../test/utils/mock-prisma';
+
+// Instância real (não mock) — FiscalParsingService é puro/síncrono, sem
+// dependências de infraestrutura; instanciar os extractors reais é mais
+// simples e mais fiel do que mockar o pipeline inteiro.
+function createRealFiscalParsingService(): FiscalParsingService {
+  return new FiscalParsingService([
+    new SupplierExtractor(),
+    new CustomerExtractor(),
+    new InvoiceNumberExtractor(),
+    new InvoiceDateExtractor(),
+    new DueDateExtractor(),
+    new CurrencyExtractor(),
+    new TotalsExtractor(),
+    new VatExtractor(),
+    new TaxNumberExtractor(),
+  ]);
+}
 
 function createMockQueueProducer() {
   return {
@@ -25,7 +54,11 @@ describe('InvoiceDraftsService', () => {
   beforeEach(() => {
     prisma = createMockPrismaService();
     queueProducer = createMockQueueProducer();
-    service = new InvoiceDraftsService(prisma as never, queueProducer as never);
+    service = new InvoiceDraftsService(
+      prisma as never,
+      queueProducer as never,
+      createRealFiscalParsingService(),
+    );
     // Por omissão, o StorageObject existe, pertence à organização e está
     // livre — os testes que querem o caso contrário sobrescrevem.
     prisma.storageObject.findFirst.mockResolvedValue({ id: 'obj-1', organizationId: 'org-1' });
@@ -499,6 +532,100 @@ describe('InvoiceDraftsService', () => {
 
       await expect(service.promote('org-1', 'draft-1')).rejects.toThrow('falha ao criar anexo');
       expect(prisma.invoiceDraft.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('parseFiscalData (Fase 6.7)', () => {
+    it('21. rejeita draft inexistente com NotFoundException (delega em findOne)', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(null);
+
+      await expect(service.parseFiscalData('org-1', 'draft-x')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('22. rejeita draft de outra organização com NotFoundException', async () => {
+      // O filtro organizationId já faz parte da query de findOne — para
+      // outra organização, o Prisma real devolveria null.
+      prisma.invoiceDraft.findFirst.mockResolvedValue(null);
+
+      await expect(service.parseFiscalData('org-1', 'draft-de-outra-org')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.invoiceDraft.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'draft-de-outra-org', organizationId: 'org-1' },
+        }),
+      );
+    });
+
+    it('23. rejeita ocrText null com BadRequestException', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: null,
+      });
+
+      await expect(service.parseFiscalData('org-1', 'draft-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('24. rejeita ocrText vazio/só espaços com BadRequestException', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: '   ',
+      });
+
+      await expect(service.parseFiscalData('org-1', 'draft-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('25. com ocrText válido, devolve o FiscalExtractionResult do pipeline real', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: 'Fornecedor: ACME Lda\nNIF: 123456789\nTotal a Pagar: 100,00€',
+      });
+
+      const result = await service.parseFiscalData('org-1', 'draft-1');
+
+      expect(result.supplier?.value.name).toBe('ACME Lda');
+      expect(result.supplierTaxId?.value).toBe('123456789');
+      expect(result.totals?.value.totalAmount).toBe(100);
+    });
+
+    it('26. é idempotente — duas chamadas com o mesmo ocrText devolvem o mesmo resultado', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: 'Fornecedor: ACME Lda\nTotal a Pagar: 100,00€',
+      });
+
+      const first = await service.parseFiscalData('org-1', 'draft-1');
+      const second = await service.parseFiscalData('org-1', 'draft-1');
+
+      // Exclui metadata.processingTimeMs — único campo não determinístico
+      // (medição de tempo), sem relação com o resultado do parsing em si.
+      const { metadata: firstMetadata, ...firstResult } = first;
+      const { metadata: secondMetadata, ...secondResult } = second;
+      expect(secondResult).toEqual(firstResult);
+      expect(secondMetadata.fieldsFound).toEqual(firstMetadata.fieldsFound);
+    });
+
+    it('27. não escreve nada — sem persistência automática do resultado', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        ocrText: 'Fornecedor: ACME Lda',
+      });
+
+      await service.parseFiscalData('org-1', 'draft-1');
+
+      expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
+      expect(prisma.invoiceDraft.create).not.toHaveBeenCalled();
     });
   });
 });

@@ -137,14 +137,23 @@ nativo do BullMQ; ao esgotar as tentativas configuradas, o draft fica
 
 `apps/frontrest/api/src/fiscal-parsing/` (Fase 6.6) transforma texto
 OCR em dados estruturados — determinístico (regex/heurísticas), sem
-IA/LLM. Vive em `apps/frontrest/api`, não em `packages/*`: interpreta
-conceitos de domínio (fornecedor, NIF, IVA) que, em todo o resto do
-repositório, ficam sempre fora de `packages/*` (`docs/CODING_STANDARDS.md`).
-Pipeline de extractors independentes (`FiscalExtractor<T>`, mesmo
-padrão de `OCRProvider`), orquestrados por `FiscalParsingService` —
-puro, sem `Prisma`/HTTP/fila. Sem consumidor ainda: nenhum controller,
-sem escrita em `InvoiceDraft`, módulo não importado por `AppModule`.
-Ver `docs/phases/phase-6.6-fiscal-parsing-foundation.md`.
+IA/LLM. Vive em `apps/frontrest/api`, não em `packages/*`, por YAGNI —
+sem segundo consumidor real fora de FrontRest hoje (não porque a lógica
+interna seja específica de restaurante — não é; ver "Decisão de
+localização" em `docs/phases/phase-6.6-fiscal-parsing-foundation.md`
+para a justificação completa, incluindo a revisão da justificação
+original). Pipeline de extractors independentes (`FiscalExtractor<T>`,
+mesmo padrão de `OCRProvider`), orquestrados por `FiscalParsingService`
+— puro, sem `Prisma`/HTTP/fila.
+
+Desde a Fase 6.7, `InvoicesModule` importa `FiscalParsingModule`:
+`GET /invoices/drafts/:id/fiscal-parsing` (`InvoiceDraftsService.parseFiscalData()`)
+é o primeiro consumidor real — executa `FiscalParsingService.parse()`
+sobre o `ocrText` já persistido no `InvoiceDraft` e devolve o
+`FiscalExtractionResult` diretamente, sem o persistir. Nenhuma escrita
+automática no `InvoiceDraft`, nenhuma alteração ao Worker/filas/schema
+Prisma/promoção para `Invoice`. Ver
+`docs/phases/phase-6.7-fiscal-parsing-draft-integration-foundation.md`.
 
 ## Apps (FrontRest)
 

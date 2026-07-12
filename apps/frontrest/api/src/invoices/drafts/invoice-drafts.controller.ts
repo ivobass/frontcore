@@ -50,6 +50,19 @@ export class InvoiceDraftsController {
     return this.invoiceDraftsService.findOne(identity.organizationId, id);
   }
 
+  /**
+   * Fase 6.7 — parsing fiscal síncrono sob pedido, sem persistência.
+   * Rota com um segmento extra face a `GET :id`, sem colisão de rota
+   * possível (Express só despacha `:id` para caminhos de um segmento).
+   */
+  @Get(':id/fiscal-parsing')
+  parseFiscalData(
+    @CurrentUser() identity: AuthenticatedIdentity,
+    @Param('id') id: string,
+  ) {
+    return this.invoiceDraftsService.parseFiscalData(identity.organizationId, id);
+  }
+
   @Roles('MANAGER')
   @Patch(':id')
   update(
