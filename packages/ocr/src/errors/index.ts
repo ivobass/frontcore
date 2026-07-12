@@ -2,3 +2,8 @@ export * from './ocr-provider-error';
 export * from './ocr-extraction-error';
 export * from './ocr-timeout-error';
 export * from './ocr-unsupported-format-error';
+export * from './pdf-invalid-error';
+export * from './pdf-protected-error';
+export * from './pdf-page-limit-exceeded-error';
+export * from './pdf-rasterization-timeout-error';
+export * from './pdf-rasterizer-error';

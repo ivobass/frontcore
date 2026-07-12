@@ -7,9 +7,10 @@ import { OCRExtractionError, OCRProviderError } from '../../errors';
  * `tesseract.js` — WASM puro, sem dependência de sistema (ao contrário
  * do binário nativo `tesseract-ocr`), por isso "implementação simples"
  * (Fase 6.2) não exige nada extra na imagem Docker. Só imagens
- * rasterizadas — `application/pdf` fica de fora nesta fase porque
- * requer renderização de PDF para imagem primeiro, explicitamente fora
- * do âmbito ("PDF rendering avançado").
+ * rasterizadas — `application/pdf` continua deliberadamente fora desta
+ * lista: desde a Fase 6.9, PDF é rasterizado para `image/png` por
+ * `PdfRasterizer` (Poppler) antes de chegar a este provider, inteiramente
+ * dentro de `OCRService`. Este provider nunca sabe que PDF existe.
  */
 const SUPPORTED_CONTENT_TYPES = ['image/jpeg', 'image/png'];
 

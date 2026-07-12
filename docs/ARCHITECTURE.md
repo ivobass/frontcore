@@ -90,6 +90,26 @@ diretamente de `job.attemptsStarted`/`job.opts.attempts` — nenhuma
 contagem de tentativas paralela é mantida em código FrontCore. Ver
 `docs/phases/phase-6.5-ocr-retry-recovery-foundation.md`.
 
+## Rasterização PDF (`@frontcore/ocr`)
+
+Desde a Fase 6.9, `OCRService` (`packages/ocr/src/services/ocr.service.ts`)
+reconhece `application/pdf` e trata-o inteiramente antes de qualquer
+`OCRProvider` — `TesseractProvider` continua a declarar suporte só a
+`image/jpeg`/`image/png`, nunca soube que PDF existe. Um `PdfRasterizer`
+(contrato genérico, `packages/ocr/src/contracts/pdf-rasterizer.ts`),
+implementado sobre o binário de sistema Poppler
+(`pdfinfo`/`pdftoppm`, `packages/ocr/src/rasterizers/poppler/`),
+converte cada página a PNG sequencialmente (`AsyncIterable`, nunca
+todas as páginas em memória simultaneamente), e cada página passa pelo
+`TesseractProvider` já existente como se fosse uma imagem normal. Se
+uma página falhar, o documento inteiro falha — sem texto parcial, sem
+`COMPLETED`. `poppler-utils` só é instalado na imagem Docker do Worker
+(`docker/workers.Dockerfile`) — `apps/frontrest/api`/`apps/frontrest/web`
+inalterados. Ver `docs/phases/phase-6.9-pdf-rasterization-foundation.md`
+para os limites configuráveis (páginas/DPI/dimensão/timeout) e a
+comparação de alternativas (Poppler vs. PDF.js+Canvas vs. MuPDF vs.
+Ghostscript/ImageMagick).
+
 ## Base de dados partilhada entre apps NestJS
 
 `PrismaModule`/`PrismaService` vivem em `@frontcore/database`

@@ -104,6 +104,16 @@
   `null`; `MEMBER` em modo de leitura, `MANAGER+` com formulário
   completo — Fase 6.8
   (`docs/phases/phase-6.8-invoice-draft-review-ui-foundation.md`).
+  PDF Rasterization — `PdfRasterizer` (Poppler, `pdfinfo`/`pdftoppm`)
+  novo em `@frontcore/ocr`: PDF (incluindo multipágina) rasterizado
+  para PNG e processado pelo `TesseractProvider` existente, página a
+  página, sem paralelismo; `TesseractProvider` continua só com
+  JPEG/PNG, o Worker continua a só conhecer `OCRService`; `poppler-utils`
+  só na imagem Docker do Worker; limites de páginas/DPI/dimensão/timeout
+  configuráveis; validado ponta-a-ponta com Docker real (PDF de 1
+  página, multipágina, acima do limite, corrompido, protegido,
+  concorrência) — Fase 6.9
+  (`docs/phases/phase-6.9-pdf-rasterization-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

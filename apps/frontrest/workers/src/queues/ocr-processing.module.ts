@@ -3,7 +3,7 @@ import { BullMQQueueConsumer, loadQueueConfig } from '@frontcore/queue';
 import type { QueueConsumer } from '@frontcore/queue';
 import { S3ObjectStorage, loadStorageConfig } from '@frontcore/storage';
 import type { ObjectStorage } from '@frontcore/storage';
-import { OCRService, createOcrProvider, loadOcrConfig } from '@frontcore/ocr';
+import { OCRService, createOcrProvider, createPdfRasterizer, loadOcrConfig } from '@frontcore/ocr';
 import { OBJECT_STORAGE } from '../storage/object-storage.token';
 import { QUEUE_CONSUMER } from './queue-consumer.token';
 import { OcrProcessingProcessor } from './ocr-processing.processor';
@@ -20,7 +20,15 @@ import { OcrProcessingProcessor } from './ocr-processing.processor';
     },
     {
       provide: OCRService,
-      useFactory: (): OCRService => new OCRService(createOcrProvider(loadOcrConfig())),
+      useFactory: (): OCRService => {
+        const config = loadOcrConfig();
+        return new OCRService(createOcrProvider(config), createPdfRasterizer(), {
+          maxPages: config.pdfMaxPages,
+          dpi: config.pdfDpi,
+          maxDimensionPx: config.pdfMaxDimensionPx,
+          timeoutMs: config.pdfRasterTimeoutMs,
+        });
+      },
     },
     OcrProcessingProcessor,
   ],

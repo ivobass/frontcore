@@ -1,6 +1,10 @@
 # ---------- Base ----------
 FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat openssl
+# poppler-utils (pdfinfo/pdftoppm) — rasterização PDF→PNG antes do OCR
+# (Fase 6.9). Confirmado empiricamente compatível com esta base Alpine:
+# ~568 KiB + libpoppler partilhada, sem dependências problemáticas — ver
+# docs/phases/phase-6.9-pdf-rasterization-foundation.md.
+RUN apk add --no-cache libc6-compat openssl poppler-utils
 RUN corepack enable
 WORKDIR /app
 

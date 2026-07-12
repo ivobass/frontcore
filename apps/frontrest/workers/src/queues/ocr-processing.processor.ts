@@ -12,6 +12,11 @@ import {
   OCRProviderError,
   OCRTimeoutError,
   OCRUnsupportedFormatError,
+  PdfInvalidError,
+  PdfProtectedError,
+  PdfPageLimitExceededError,
+  PdfRasterizationTimeoutError,
+  PdfRasterizerError,
 } from '@frontcore/ocr';
 import type { ExtractOptions } from '@frontcore/ocr';
 import { OBJECT_STORAGE } from '../storage/object-storage.token';
@@ -32,6 +37,21 @@ function sanitizeOcrError(error: unknown): string {
   }
   if (error instanceof OCRUnsupportedFormatError) {
     return 'Formato de ficheiro não suportado pelo motor de OCR.';
+  }
+  // PDF (Fase 6.9) — nunca a mensagem bruta do Poppler (stderr/path/comando),
+  // só as 4 mensagens fixas abaixo. Ver PopplerPdfRasterizer para a
+  // classificação de erro correspondente.
+  if (error instanceof PdfInvalidError || error instanceof PdfProtectedError) {
+    return 'Documento PDF inválido, corrompido ou protegido.';
+  }
+  if (error instanceof PdfPageLimitExceededError) {
+    return 'Documento PDF excede os limites de processamento.';
+  }
+  if (error instanceof PdfRasterizationTimeoutError) {
+    return 'Tempo limite excedido durante a preparação do documento.';
+  }
+  if (error instanceof PdfRasterizerError) {
+    return 'Falha ao preparar o documento para OCR.';
   }
   if (error instanceof OCRProviderError || error instanceof OCRExtractionError) {
     return 'Falha no motor de OCR.';

@@ -124,6 +124,10 @@ services:
       S3_ACCESS_KEY: ${MINIO_ROOT_USER}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       OCR_PROVIDER: ${OCR_PROVIDER}
+      OCR_PDF_MAX_PAGES: ${OCR_PDF_MAX_PAGES}
+      OCR_PDF_DPI: ${OCR_PDF_DPI}
+      OCR_PDF_MAX_DIMENSION_PX: ${OCR_PDF_MAX_DIMENSION_PX}
+      OCR_PDF_RASTER_TIMEOUT_MS: ${OCR_PDF_RASTER_TIMEOUT_MS}
     depends_on:
       postgres:
         condition: service_healthy

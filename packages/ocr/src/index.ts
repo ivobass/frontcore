@@ -8,6 +8,7 @@
 export * from './contracts';
 export * from './types';
 export * from './providers';
+export * from './rasterizers';
 export * from './services';
 export * from './errors';
 export * from './utils';

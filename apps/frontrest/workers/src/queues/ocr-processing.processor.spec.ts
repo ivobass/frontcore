@@ -4,7 +4,16 @@ import type { JobAttemptInfo, JobHandler, OcrProcessingJob } from '@frontcore/qu
 import type { QueueConsumer } from '@frontcore/queue';
 import { OCR_PROCESSING_QUEUE } from '@frontcore/queue';
 import { PrismaService } from '@frontcore/database';
-import { OCRProviderError, OCRService, OCRTimeoutError } from '@frontcore/ocr';
+import {
+  OCRProviderError,
+  OCRService,
+  OCRTimeoutError,
+  PdfInvalidError,
+  PdfProtectedError,
+  PdfPageLimitExceededError,
+  PdfRasterizationTimeoutError,
+  PdfRasterizerError,
+} from '@frontcore/ocr';
 import type { OCRResult } from '@frontcore/ocr';
 import { OcrProcessingProcessor } from './ocr-processing.processor';
 import { QUEUE_CONSUMER } from './queue-consumer.token';
@@ -528,6 +537,58 @@ describe('OcrProcessingProcessor', () => {
         where: DRAFT_WHERE,
         data: { ocrStatus: 'FAILED', ocrError: 'Falha no motor de OCR.' },
       });
+    });
+
+    it.each([
+      [
+        'PdfInvalidError',
+        PdfInvalidError,
+        new PdfInvalidError('detalhe interno do poppler'),
+        'Documento PDF inválido, corrompido ou protegido.',
+      ],
+      [
+        'PdfProtectedError',
+        PdfProtectedError,
+        new PdfProtectedError('Incorrect password: /tmp/xyz/input.pdf'),
+        'Documento PDF inválido, corrompido ou protegido.',
+      ],
+      [
+        'PdfPageLimitExceededError',
+        PdfPageLimitExceededError,
+        new PdfPageLimitExceededError('15 páginas, acima do limite de 10'),
+        'Documento PDF excede os limites de processamento.',
+      ],
+      [
+        'PdfRasterizationTimeoutError',
+        PdfRasterizationTimeoutError,
+        new PdfRasterizationTimeoutError('pdftoppm excedeu 30000ms'),
+        'Tempo limite excedido durante a preparação do documento.',
+      ],
+      [
+        'PdfRasterizerError',
+        PdfRasterizerError,
+        new PdfRasterizerError('spawn pdfinfo ENOENT: /tmp/xyz/input.pdf'),
+        'Falha ao preparar o documento para OCR.',
+      ],
+    ])('classifica %s como mensagem sanitizada em ocrError — nunca a mensagem bruta', async (_name, errorClass, error, expectedMessage) => {
+      const draftFindFirst = jest.fn().mockResolvedValue(VALID_DRAFT);
+      const storageFindFirst = jest.fn().mockResolvedValue(VALID_STORAGE_OBJECT);
+      const get = jest.fn().mockResolvedValue(Buffer.from('bytes'));
+      const extract = jest.fn().mockRejectedValue(error);
+      const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+
+      const { handlerPromise } = await run(
+        { draftFindFirst, storageFindFirst, get, extract, updateMany },
+        LAST_ATTEMPT,
+      );
+
+      await expect(handlerPromise).rejects.toThrow(errorClass);
+      expect(updateMany).toHaveBeenNthCalledWith(2, {
+        where: DRAFT_WHERE,
+        data: { ocrStatus: 'FAILED', ocrError: expectedMessage },
+      });
+      // Nunca o path/comando/stderr que a mensagem original podia conter.
+      expect(updateMany.mock.calls[1][0].data.ocrError).not.toMatch(/tmp|poppler|ENOENT|password:/i);
     });
 
     it('falha permanente é registada em log claro (nível error) com o número máximo de tentativas', async () => {
