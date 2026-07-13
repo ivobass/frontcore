@@ -329,6 +329,48 @@ exigiria capturar exceções ao nível do processo ou isolar a chamada ao
 worker thread), uma alteração arquitetural a `@frontcore/ocr`, fora do
 âmbito aprovado desta fase.
 
+## Revalidação real pós-Fase 6.9 (2026-07-13)
+
+Auditoria dedicada ao estado real da Fase 6.8, depois de `main` já ter
+`v0.6.9-pdf-rasterization-foundation` integrada. Documentação completa
+relida (`docs/INDEX.md` → `docs/ai/README.md` → `AI_BASE_PROMPT.md`/
+`AI_WORKFLOW.md`/`AI_GOVERNANCE.md`/`AI_RELEASE_CHECKLIST.md` →
+`ARCHITECTURE.md`/`PHASES.md` → fases 5.4 e 6.3–6.9), código frontend e
+backend revisto por inteiro (página, diálogo de criação, sheet de
+revisão, `lib/`, controller, service, DTOs). **Nenhuma divergência entre
+documentação e código encontrada; nenhum bug reproduzível encontrado;
+nenhuma alteração de código foi necessária.**
+
+Validações repetidas do zero: `pnpm typecheck` (23/23), `pnpm build`
+(14/14, rota `/invoice-drafts` presente), `pnpm test` (16/16 tarefas,
+incluindo os 6 testes de `apps/frontrest/web`), `pnpm --filter
+@frontrest/api test:e2e` (74/74). Imagens `api`/`web`/`workers`
+reconstruídas a partir do working tree atual (`docker compose build` —
+confirmado por cache-hit de contexto idêntico no caso do `workers`,
+cujo código não mudou desde a última reconstrução); os 6 serviços
+saudáveis.
+
+Fluxo real repetido ponta-a-ponta contra Postgres/Redis/MinIO/Tesseract/
+Poppler reais, organização própria registada: upload de imagem real →
+OCR `COMPLETED` (confiança 88%, texto genuíno); parsing fiscal (2
+chamadas idênticas, sem persistência automática confirmada por reload);
+`PATCH` isolado, `PATCH` de todos os campos, `PATCH` a limpar `notes`
+via `null`, persistência confirmada por reload; promoção → `201`,
+draft eliminado (`404` a seguir), `Invoice` visível em `GET /invoices`,
+`InvoiceAttachment` associado ao `storageObjectId` original; segunda
+organização real confirma isolamento (`404` cruzado, listagem vazia,
+`storageObjectId` de outra organização rejeitado). Adicionalmente,
+fluxo PDF (Fase 6.9) repetido através dos mesmos endpoints desta fase —
+`ocrText`/`supplier.value.name` corretos, sem o marcador de página
+(confirma que a correção de regressão da Fase 6.9 se mantém válida
+também pelo caminho de consumo da Fase 6.8).
+
+Continua por fazer apenas o já registado em "Limitações conhecidas" —
+validação manual interativa no browser (sem acesso a browser neste
+ambiente de execução) e `MEMBER` real via Docker (sem endpoint de
+convite). Nada nesta revalidação altera essas limitações nem os
+critérios de conclusão já assinalados.
+
 ## Limitações conhecidas
 
 - **Validação manual interativa no browser não executada nesta
