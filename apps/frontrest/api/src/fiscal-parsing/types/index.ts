@@ -1,5 +1,5 @@
 export * from './fiscal-field';
-export * from './extraction-match';
+export type { ExtractionMatch } from '../../document-extraction';
 export * from './supplier-extraction';
 export * from './customer-extraction';
 export * from './invoice-extraction';

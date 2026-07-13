@@ -110,6 +110,36 @@ para os limites configuráveis (páginas/DPI/dimensão/timeout) e a
 comparação de alternativas (Poppler vs. PDF.js+Canvas vs. MuPDF vs.
 Ghostscript/ImageMagick).
 
+## Document Extraction (motor genérico de extração de campos)
+
+Desde a Fase 6.10, `apps/frontrest/api/src/document-extraction/`
+(novo módulo, não um package — ver `docs/adr/0007-document-extraction-foundation.md`)
+hospeda o motor genérico de extração de campos de um documento:
+`DocumentExtractor<TField extends string, TValue>` (contrato
+assíncrono) e `runDocumentExtractors()` (corre N extractors em
+paralelo, resolve conflitos pelo campo — maior confiança vence, empate
+→ ordem de registo — e agrega metadata de execução). Sem qualquer
+noção de fatura, fornecedor, OCR ou IA — genérico o suficiente para
+qualquer especialização futura de documento (recibo, guia, encomenda,
+nota de crédito).
+
+`fiscal-parsing/` (Fase 6.6) é hoje o único consumidor real: um
+consumidor fino que especializa o motor em `FiscalField`/
+`FiscalExtractionResult` — `FiscalExtractor<T>` é
+`DocumentExtractor<FiscalField, T>`, `FiscalExtractionMetadata` é
+`DocumentExtractionMetadata<FiscalField>`, nenhum dos dois duplicado.
+`FiscalParsingService.parse()` passou a `async` só por causa da
+assinatura de `DocumentExtractor.extract()` (assíncrona, para cobrir um
+futuro extractor de IA/modelo local/modelo cloud com I/O real) — o
+comportamento observável (`GET /invoices/drafts/:id/fiscal-parsing`,
+`FiscalExtractionResult`) é bit-a-bit idêntico ao anterior; os 9
+extractors regex continuam determinísticos, sem IA. Sem novo package
+(YAGNI — sem segundo consumidor real hoje, mesmo raciocínio já usado
+para `fiscal-parsing/` em si, Fase 6.6, e para rejeitar `DocumentDraft`
+genérico, Fase 6.3); sem alteração a `packages/ai` (contrato de
+provider de IA já existente desde a Fase 1, ainda sem implementação
+concreta nem consumidores).
+
 ## Base de dados partilhada entre apps NestJS
 
 `PrismaModule`/`PrismaService` vivem em `@frontcore/database`

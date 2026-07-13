@@ -16,7 +16,7 @@ const CUSTOMER_LABEL =
 export class CustomerExtractor implements FiscalExtractor<CustomerExtraction> {
   readonly field = FiscalField.CUSTOMER;
 
-  extract(ocrText: string): ExtractionMatch<CustomerExtraction> | null {
+  async extract(ocrText: string): Promise<ExtractionMatch<CustomerExtraction> | null> {
     const match = ocrText.match(CUSTOMER_LABEL);
     if (!match) {
       return null;

@@ -16,7 +16,7 @@ const SUPPLIER_LABEL = /(?:fornecedor|emitente|supplier|vendor|issued\s*by)\s*[:
 export class SupplierExtractor implements FiscalExtractor<SupplierExtraction> {
   readonly field = FiscalField.SUPPLIER;
 
-  extract(ocrText: string): ExtractionMatch<SupplierExtraction> | null {
+  async extract(ocrText: string): Promise<ExtractionMatch<SupplierExtraction> | null> {
     const labelMatch = ocrText.match(SUPPLIER_LABEL);
     if (labelMatch) {
       const name = labelMatch[1].trim();

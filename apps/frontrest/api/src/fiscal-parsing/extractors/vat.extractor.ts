@@ -24,7 +24,7 @@ const AMOUNT_ONLY = /\b(?:iva|vat)\s*[:.\-]?\s*([\d][\d.,]*\s?[€$£]|[€$£]\
 export class VatExtractor implements FiscalExtractor<VatExtraction> {
   readonly field = FiscalField.VAT;
 
-  extract(ocrText: string): ExtractionMatch<VatExtraction> | null {
+  async extract(ocrText: string): Promise<ExtractionMatch<VatExtraction> | null> {
     const both = ocrText.match(RATE_AND_AMOUNT);
     if (both) {
       const rate = parseAmount(both[1]);

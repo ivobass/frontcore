@@ -17,7 +17,7 @@ const TOTALS_LABEL =
 export class TotalsExtractor implements FiscalExtractor<TotalsExtraction> {
   readonly field = FiscalField.TOTALS;
 
-  extract(ocrText: string): ExtractionMatch<TotalsExtraction> | null {
+  async extract(ocrText: string): Promise<ExtractionMatch<TotalsExtraction> | null> {
     const match = ocrText.match(TOTALS_LABEL);
     if (!match) {
       return null;

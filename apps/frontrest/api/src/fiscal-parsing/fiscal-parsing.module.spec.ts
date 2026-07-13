@@ -15,7 +15,7 @@ describe('FiscalParsingModule', () => {
     const moduleRef = await Test.createTestingModule({ imports: [FiscalParsingModule] }).compile();
     const service = moduleRef.get(FiscalParsingService);
 
-    const result = service.parse(
+    const result = await service.parse(
       'Fornecedor: Acme\nNIF: 123456789\nCliente: X\nFatura N.º: FA1\nData de Emissão: 12/07/2026\nData de Vencimento: 30/07/2026\nIVA (23%): 2,30€\nTotal: 10,00€',
     );
 

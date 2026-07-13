@@ -16,7 +16,7 @@ const INVOICE_DATE_LABEL =
 export class InvoiceDateExtractor implements FiscalExtractor<Date> {
   readonly field = FiscalField.INVOICE_DATE;
 
-  extract(ocrText: string): ExtractionMatch<Date> | null {
+  async extract(ocrText: string): Promise<ExtractionMatch<Date> | null> {
     const match = ocrText.match(INVOICE_DATE_LABEL);
     if (!match) {
       return null;

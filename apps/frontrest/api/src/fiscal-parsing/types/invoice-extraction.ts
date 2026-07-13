@@ -1,4 +1,4 @@
-import type { ExtractionMatch } from './extraction-match';
+import type { ExtractionMatch } from '../../document-extraction';
 
 /**
  * Metadados de identificação da fatura — cada campo é populado por um

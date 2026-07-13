@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { runDocumentExtractors } from '../document-extraction';
 import type { FiscalExtractor } from './contracts';
 import { FISCAL_EXTRACTORS } from './fiscal-extractors.token';
 import type {
@@ -16,21 +17,19 @@ import { aggregateConfidence } from './utils';
 type AssembledResult = Omit<FiscalExtractionResult, 'metadata'>;
 
 /**
- * Orquestra o pipeline de parsing fiscal: corre cada `FiscalExtractor`
- * de forma independente sobre o mesmo texto OCR e monta o resultado
- * normalizado. Puramente determinístico — sem IA, sem I/O (nenhuma
- * dependência de Prisma/HTTP/fila); a mesma entrada produz sempre a
- * mesma saída. Depende só do contrato `FiscalExtractor<T>` de cada
- * extractor injetado (via `FISCAL_EXTRACTORS`), nunca de uma
- * implementação concreta — trocar um extractor por uma versão melhor
- * (ou por país) não obriga a tocar nesta classe.
- *
- * Se mais do que um extractor devolver um match para o mesmo campo (ex.
- * dois candidatos por país a competir por `SUPPLIER_TAX_ID`), vence o de
- * maior confiança — nunca "o último a correr". Em empate exato de
- * confiança, vence o primeiro a ser registado em `FISCAL_EXTRACTORS`
- * (regra determinística, coberta por teste — não pretende ser "melhor"
- * do que a alternativa, só previsível).
+ * Orquestra o pipeline de parsing fiscal: especialização de
+ * `runDocumentExtractors()` (motor genérico, `document-extraction/`,
+ * Fase 6.10) para `FiscalField`/`FiscalExtractionResult` — a resolução
+ * de conflitos entre extractors (maior confiança vence; empate → ordem
+ * de registo) e a agregação de metadata vivem no motor, não aqui; esta
+ * classe só monta a forma final `FiscalExtractionResult` a partir do
+ * `Map` genérico devolvido. Puramente determinístico hoje — sem IA, sem
+ * I/O próprio (nenhuma dependência de Prisma/HTTP/fila); a mesma entrada
+ * produz sempre a mesma saída, porque os 9 extractors injetados são
+ * síncronos na lógica. Depende só do contrato `FiscalExtractor<T>` de
+ * cada extractor injetado (via `FISCAL_EXTRACTORS`), nunca de uma
+ * implementação concreta — trocar um extractor por uma versão melhor,
+ * por país, ou por um extractor de IA, não obriga a tocar nesta classe.
  */
 @Injectable()
 export class FiscalParsingService {
@@ -39,34 +38,16 @@ export class FiscalParsingService {
   constructor(@Inject(FISCAL_EXTRACTORS) private readonly extractors: FiscalExtractor<unknown>[]) {}
 
   /** Corre o pipeline completo sobre `ocrText` — nunca lança, campos não encontrados ficam `null`. */
-  parse(ocrText: string): FiscalExtractionResult {
-    const startedAt = Date.now();
-    const matches = new Map<FiscalField, ExtractionMatch<unknown>>();
+  async parse(ocrText: string): Promise<FiscalExtractionResult> {
+    const { matches, metadata } = await runDocumentExtractors<FiscalField>(this.extractors, ocrText);
 
-    for (const extractor of this.extractors) {
-      const match = extractor.extract(ocrText);
-      if (!match) {
-        continue;
-      }
-      const existing = matches.get(extractor.field);
-      if (!existing || match.confidence > existing.confidence) {
-        matches.set(extractor.field, match);
-      }
-    }
-
-    const processingTimeMs = Date.now() - startedAt;
     this.logger.debug(
-      `Parsing fiscal concluído: ${matches.size}/${this.extractors.length} campos encontrados em ${processingTimeMs}ms.`,
+      `Parsing fiscal concluído: ${matches.size}/${this.extractors.length} campos encontrados em ${metadata.processingTimeMs}ms.`,
     );
 
     return {
       ...this.assemble(matches),
-      metadata: {
-        extractorsRun: this.extractors.map((extractor) => extractor.field),
-        fieldsFound: [...matches.keys()],
-        processingTimeMs,
-        textLength: ocrText.length,
-      },
+      metadata,
     };
   }
 

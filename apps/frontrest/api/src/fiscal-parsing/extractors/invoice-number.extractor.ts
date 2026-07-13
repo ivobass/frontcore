@@ -18,7 +18,7 @@ const INVOICE_NUMBER_PATTERN =
 export class InvoiceNumberExtractor implements FiscalExtractor<string> {
   readonly field = FiscalField.INVOICE_NUMBER;
 
-  extract(ocrText: string): ExtractionMatch<string> | null {
+  async extract(ocrText: string): Promise<ExtractionMatch<string> | null> {
     const match = ocrText.match(INVOICE_NUMBER_PATTERN);
     if (!match) {
       return null;

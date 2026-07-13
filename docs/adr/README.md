@@ -23,3 +23,4 @@ consideradas e as consequências aceites — para que produtos futuros
 | [0004](./0004-theme-engine-distribution.md) | Distribuição do Theme Engine entre produtos | Aceite |
 | [0005](./0005-ui-public-api-encapsulation.md) | `@frontcore/ui` como única API pública — encapsulamento do Radix UI | Aceite |
 | [0006](./0006-documentation-architecture.md) | Arquitetura da documentação do FrontCore — `docs/ai/`, `docs/quality/`, critério para novas subpastas | Aceite |
+| [0007](./0007-document-extraction-foundation.md) | Motor genérico de extração de documentos (`document-extraction/`) — separado de `fiscal-parsing/`, contrato assíncrono, sem novo package | Aceite |

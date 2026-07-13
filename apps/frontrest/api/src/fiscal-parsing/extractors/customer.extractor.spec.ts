@@ -4,12 +4,12 @@ import { FiscalField } from '../types';
 describe('CustomerExtractor', () => {
   const extractor = new CustomerExtractor();
 
-  it('declara o campo CUSTOMER', () => {
+  it('declara o campo CUSTOMER', async () => {
     expect(extractor.field).toBe(FiscalField.CUSTOMER);
   });
 
-  it('extrai o nome com rótulo "Cliente:"', () => {
-    const result = extractor.extract('Cliente: Restaurante Sabor Único, Lda');
+  it('extrai o nome com rótulo "Cliente:"', async () => {
+    const result = await extractor.extract('Cliente: Restaurante Sabor Único, Lda');
     expect(result).toEqual({
       value: { name: 'Restaurante Sabor Único, Lda' },
       confidence: 85,
@@ -17,27 +17,27 @@ describe('CustomerExtractor', () => {
     });
   });
 
-  it('extrai o nome com rótulo "Bill To:"', () => {
-    const result = extractor.extract('Bill To: Acme Corp');
+  it('extrai o nome com rótulo "Bill To:"', async () => {
+    const result = await extractor.extract('Bill To: Acme Corp');
     expect(result?.value).toEqual({ name: 'Acme Corp' });
   });
 
-  it('extrai o nome com rótulo "Customer:"', () => {
-    const result = extractor.extract('Customer: Acme Corp');
+  it('extrai o nome com rótulo "Customer:"', async () => {
+    const result = await extractor.extract('Customer: Acme Corp');
     expect(result?.value).toEqual({ name: 'Acme Corp' });
   });
 
-  it('extrai o nome com rótulo "Sold To:"', () => {
-    const result = extractor.extract('Sold To: Acme Corp');
+  it('extrai o nome com rótulo "Sold To:"', async () => {
+    const result = await extractor.extract('Sold To: Acme Corp');
     expect(result?.value).toEqual({ name: 'Acme Corp' });
   });
 
-  it('extrai o nome com a saudação formal PT "Exmo(s). Sr(s):"', () => {
-    const result = extractor.extract('Exmo(s). Sr(s): Restaurante Sabor Único, Lda');
+  it('extrai o nome com a saudação formal PT "Exmo(s). Sr(s):"', async () => {
+    const result = await extractor.extract('Exmo(s). Sr(s): Restaurante Sabor Único, Lda');
     expect(result?.value).toEqual({ name: 'Restaurante Sabor Único, Lda' });
   });
 
-  it('não tem fallback — devolve null sem rótulo, mesmo com texto presente', () => {
-    expect(extractor.extract('Restaurante Sabor Único, Lda\nRua Principal, 123')).toBeNull();
+  it('não tem fallback — devolve null sem rótulo, mesmo com texto presente', async () => {
+    expect(await extractor.extract('Restaurante Sabor Único, Lda\nRua Principal, 123')).toBeNull();
   });
 });

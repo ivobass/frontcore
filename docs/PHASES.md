@@ -114,6 +114,17 @@
   página, multipágina, acima do limite, corrompido, protegido,
   concorrência) — Fase 6.9
   (`docs/phases/phase-6.9-pdf-rasterization-foundation.md`).
+  Document Extraction Foundation — motor genérico
+  `runDocumentExtractors()`/`DocumentExtractor<TField,TValue>`
+  extraído do parsing fiscal para `apps/frontrest/api/src/document-extraction/`
+  (novo módulo, não um package), preparando — sem implementar — a
+  coexistência futura de extractors regex/IA/modelo local/modelo cloud;
+  `fiscal-parsing/` passa a consumidor fino desse motor, sem nenhuma
+  alteração de comportamento observável (`FiscalExtractionResult`,
+  `GET .../fiscal-parsing` inalterados); nenhum fornecedor de IA
+  implementado — Fase 6.10
+  (`docs/phases/phase-6.10-document-extraction-foundation.md`;
+  `docs/adr/0007-document-extraction-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

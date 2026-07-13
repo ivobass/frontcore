@@ -1,4 +1,4 @@
-import type { ExtractionMatch } from './extraction-match';
+import type { DocumentExtractionMetadata, ExtractionMatch } from '../../document-extraction';
 import type { SupplierExtraction } from './supplier-extraction';
 import type { CustomerExtraction } from './customer-extraction';
 import type { InvoiceExtraction } from './invoice-extraction';
@@ -7,24 +7,13 @@ import type { VatExtraction } from './vat-extraction';
 import type { FiscalField } from './fiscal-field';
 
 /**
- * Diagnóstico do processamento — nunca duplica confiança/fonte por
- * campo (já vive em cada `ExtractionMatch` do resultado); só informação
- * sobre a execução do pipeline em si.
+ * Diagnóstico do processamento — especialização de
+ * `DocumentExtractionMetadata` (motor genérico, `document-extraction/`)
+ * para `FiscalField`. Nunca duplica confiança/fonte por campo (já vive
+ * em cada `ExtractionMatch` do resultado); só informação sobre a
+ * execução do pipeline em si.
  */
-export interface FiscalExtractionMetadata {
-  /**
-   * Um elemento por extractor corrido (`this.extractors.map(e => e.field)`),
-   * não por campo único — se dois extractors partilharem `field` (ex.
-   * dois candidatos por país), o mesmo `FiscalField` aparece duas vezes
-   * aqui. Para os campos únicos efetivamente encontrados, ver `fieldsFound`.
-   */
-  extractorsRun: FiscalField[];
-  /** Campos únicos com pelo menos um match — nunca duplica, mesmo que vários extractors partilhem o campo. */
-  fieldsFound: FiscalField[];
-  processingTimeMs: number;
-  /** Comprimento do texto OCR de entrada — diagnóstico de qualidade do input. */
-  textLength: number;
-}
+export type FiscalExtractionMetadata = DocumentExtractionMetadata<FiscalField>;
 
 /**
  * Resultado normalizado de uma execução do pipeline de parsing fiscal.

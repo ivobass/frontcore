@@ -12,7 +12,7 @@ const DUE_DATE_LABEL =
 export class DueDateExtractor implements FiscalExtractor<Date> {
   readonly field = FiscalField.DUE_DATE;
 
-  extract(ocrText: string): ExtractionMatch<Date> | null {
+  async extract(ocrText: string): Promise<ExtractionMatch<Date> | null> {
     const match = ocrText.match(DUE_DATE_LABEL);
     if (!match) {
       return null;

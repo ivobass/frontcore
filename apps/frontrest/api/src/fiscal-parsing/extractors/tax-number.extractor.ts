@@ -15,7 +15,7 @@ const TAX_ID_LABEL =
 export class TaxNumberExtractor implements FiscalExtractor<string> {
   readonly field = FiscalField.SUPPLIER_TAX_ID;
 
-  extract(ocrText: string): ExtractionMatch<string> | null {
+  async extract(ocrText: string): Promise<ExtractionMatch<string> | null> {
     const match = ocrText.match(TAX_ID_LABEL);
     if (!match) {
       return null;

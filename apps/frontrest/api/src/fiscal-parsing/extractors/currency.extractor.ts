@@ -16,7 +16,7 @@ const SYMBOL_TO_ISO: Record<string, string> = { '€': 'EUR', $: 'USD', '£': 'G
 export class CurrencyExtractor implements FiscalExtractor<string> {
   readonly field = FiscalField.CURRENCY;
 
-  extract(ocrText: string): ExtractionMatch<string> | null {
+  async extract(ocrText: string): Promise<ExtractionMatch<string> | null> {
     const labelMatch = ocrText.match(CURRENCY_LABEL);
     if (labelMatch) {
       return { value: labelMatch[1].toUpperCase(), confidence: 85, source: labelMatch[0].trim() };
