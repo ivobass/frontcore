@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { PageHeader, EmptyState, Spinner, Button, Badge } from '@frontcore/ui';
 import { useSession } from '../../../lib/session-context';
 import { canManage } from '../../../lib/roles';
@@ -116,9 +117,16 @@ export default function InvoiceDraftsPage() {
                       {formatDate(draft.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-end">
-                      <Button variant="ghost" size="sm" onClick={() => setReviewingId(draft.id)}>
-                        Rever
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => setReviewingId(draft.id)}>
+                          Rever
+                        </Button>
+                        <Link href={`/invoice-drafts/debug?id=${draft.id}`}>
+                          <Button variant="ghost" size="sm">
+                            Diagnóstico
+                          </Button>
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}

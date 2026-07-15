@@ -125,6 +125,21 @@
   implementado — Fase 6.10
   (`docs/phases/phase-6.10-document-extraction-foundation.md`;
   `docs/adr/0007-document-extraction-foundation.md`).
+  AI Provider Foundation — `@frontcore/ai` (existia só como contrato de
+  um ficheiro, zero consumidores) transformado em package operacional:
+  `AiCompletionProvider`/`AiConfig`/`AiMessage` normalizados,
+  `loadAiConfig()`, `createAiProvider()` (mesma fábrica de
+  `createOcrProvider()`), `MockAiProvider` (sem credenciais) e
+  `OllamaAiProvider` — primeiro provider real, local (sem custo por
+  pedido, sem API key cloud, sem internet obrigatória), sobre a API
+  HTTP nativa do Ollama (`POST /api/chat`, confirmado contra um
+  servidor real, não o endpoint OpenAI-compatible) via `fetch` nativo
+  (sem SDK, sem dependência nova) — timeout real via `AbortController`,
+  erros sanitizados via `AiProviderError`; nenhum extractor de IA
+  criado, nenhuma alteração ao parsing fiscal, OCR, Worker,
+  `InvoiceDraft` ou frontend; OpenAI/Anthropic ficam para uma fase
+  futura sobre o mesmo contrato — Fase 6.11
+  (`docs/phases/phase-6.11-ai-provider-foundation.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

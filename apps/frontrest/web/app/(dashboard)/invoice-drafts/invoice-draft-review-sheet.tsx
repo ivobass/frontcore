@@ -70,6 +70,102 @@ function draftToFormValues(draft: InvoiceDraft): DraftFormValues {
   };
 }
 
+/**
+ * Normaliza um nome de fornecedor para comparação — ignora maiúsculas/
+ * minúsculas, hífens (incluindo variantes en/em dash), pontuação
+ * simples e espaços múltiplos. Nunca ignora acentos — não pedido, e
+ * fundir "Café"/"Cafe" arrisca juntar fornecedores genuinamente
+ * distintos.
+ */
+function normalizeSupplierName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[-–—]/g, ' ')
+    .replace(/[.,;:!?'"()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Normaliza um NIF para comparação — ignora espaços/hífens e maiúsculas/minúsculas (ex. prefixo "PT"). */
+function normalizeTaxId(value: string): string {
+  return value.replace(/[\s-]/g, '').toUpperCase();
+}
+
+/**
+ * Resultado da resolução de fornecedor — nunca um simples `string | null`,
+ * porque "não encontrado" e "encontrado mas em conflito" exigem avisos
+ * diferentes ao utilizador (ver `resolveSupplierMatch`).
+ */
+type SupplierMatch =
+  | { status: 'matched'; supplierId: string }
+  | { status: 'conflicting_tax_id'; matchedSupplierName: string }
+  | { status: 'not_found' };
+
+/**
+ * Resolve um fornecedor já existente a partir das sugestões do parsing
+ * fiscal — nunca cria um fornecedor novo. Regra pensada para dois casos
+ * reais em tensão:
+ *
+ * 1. **Caso comum, seguro**: um fornecedor criado manualmente sem
+ *    preencher o campo NIF (opcional no formulário de fornecedores, ver
+ *    `supplier-form-dialog.tsx`) tem `taxId: null`. O parsing quase
+ *    sempre sugere um NIF quando o documento o contém — desistir assim
+ *    que o NIF sugerido não bate certo faria a maioria dos fornecedores
+ *    reais nunca corresponder por nome, mesmo com o nome idêntico
+ *    (achado real, validação manual: "Farmacia Monumental"/NIF
+ *    511234740). Por isso, quando a procura por NIF falha, tenta-se o
+ *    nome a seguir — mas só quando o fornecedor homónimo **não tem
+ *    nenhum NIF registado**: nesse caso, a ausência de NIF local é
+ *    consistente com "ainda não preenchido", não com "é outro
+ *    fornecedor".
+ * 2. **Caso perigoso, a evitar**: se o fornecedor homónimo **já tem** um
+ *    NIF registado — que, pela definição deste ramo, é necessariamente
+ *    diferente do sugerido, porque a procura por NIF já falhou —, isso
+ *    já não é "NIF por preencher": é um sinal real de que existem dois
+ *    fornecedores distintos com o mesmo nome (ex. duas filiais, franchise,
+ *    homónimos genuínos), cada um com o seu NIF próprio. Selecionar
+ *    automaticamente aqui arriscaria associar o rascunho ao fornecedor
+ *    errado sem o utilizador reparar — por isso este caso nunca recua
+ *    para nome; fica como `conflicting_tax_id`, com aviso explícito, e o
+ *    utilizador decide.
+ *
+ * Sem NIF sugerido (`suggestions.supplierTaxId` ausente), o único sinal
+ * disponível é o nome — comportamento inalterado desde a correção
+ * anterior.
+ */
+function resolveSupplierMatch(suggestions: DraftFiscalSuggestions, suppliers: Supplier[]): SupplierMatch {
+  if (suggestions.supplierTaxId) {
+    const suggestedTaxId = normalizeTaxId(suggestions.supplierTaxId.value);
+    const byTaxId = suppliers.find(
+      (supplier) => supplier.taxId && normalizeTaxId(supplier.taxId) === suggestedTaxId,
+    );
+    if (byTaxId) return { status: 'matched', supplierId: byTaxId.id };
+
+    if (suggestions.supplier) {
+      const suggestedName = normalizeSupplierName(suggestions.supplier.value.name);
+      const byName = suppliers.find((supplier) => normalizeSupplierName(supplier.name) === suggestedName);
+      if (byName) {
+        // Fornecedor homónimo já tem um NIF (diferente do sugerido,
+        // porque a procura acima falhou) — não é "por preencher", é um
+        // conflito real. Nunca decidir isto sozinho.
+        if (byName.taxId) {
+          return { status: 'conflicting_tax_id', matchedSupplierName: byName.name };
+        }
+        return { status: 'matched', supplierId: byName.id };
+      }
+    }
+    return { status: 'not_found' };
+  }
+
+  if (suggestions.supplier) {
+    const suggestedName = normalizeSupplierName(suggestions.supplier.value.name);
+    const byName = suppliers.find((supplier) => normalizeSupplierName(supplier.name) === suggestedName);
+    if (byName) return { status: 'matched', supplierId: byName.id };
+  }
+
+  return { status: 'not_found' };
+}
+
 /** Só as chaves com valor diferente do guardado entram no payload — campo inalterado fica ausente (Fase 6.8: "não alterar"). */
 function buildPatch(current: DraftFormValues, saved: DraftFormValues): UpdateInvoiceDraftInput {
   const patch: UpdateInvoiceDraftInput = {};
@@ -131,6 +227,7 @@ export function InvoiceDraftReviewSheet({
   const [suggestions, setSuggestions] = useState<DraftFiscalSuggestions | null>(null);
   const [parsingLoading, setParsingLoading] = useState(false);
   const [parsingError, setParsingError] = useState<string | null>(null);
+  const [supplierWarning, setSupplierWarning] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -158,6 +255,7 @@ export function InvoiceDraftReviewSheet({
     setError(null);
     setSuggestions(null);
     setParsingError(null);
+    setSupplierWarning(null);
     setSaveError(null);
     setPromoteError(null);
     getInvoiceDraft(accessToken, draftId)
@@ -233,10 +331,52 @@ export function InvoiceDraftReviewSheet({
       });
   }, [draftId, draft, accessToken, suggestions, parsingLoading]);
 
-  function applySuggestions() {
+  async function applySuggestions() {
     if (!suggestions) return;
+
+    // A lista de fornecedores só é carregada uma vez, quando a folha
+    // abre (efeito acima) — se o utilizador criar um fornecedor
+    // entretanto (ex. noutro separador, sem fechar esta folha) e voltar
+    // a clicar aqui, `suppliers` fica desatualizada: nem o Select nem
+    // resolveSupplierMatch() veem o fornecedor novo, mesmo que já
+    // exista na base de dados (achado real, validação manual —
+    // "Farmacia Esperanca"). Por isso recarrega-se aqui, no momento em
+    // que a resolução é realmente feita — nunca polling, só a fonte de
+    // dados correta no momento certo. Falha pontual a recarregar usa o
+    // que já estava carregado, em vez de bloquear a ação.
+    let currentSuppliers = suppliers;
+    try {
+      const fresh = await listSuppliers(accessToken, { pageSize: PICKER_PAGE_SIZE });
+      currentSuppliers = fresh.items;
+      setSuppliers(fresh.items);
+    } catch {
+      /* mantém a lista já carregada — melhor resolver com dados possivelmente desatualizados do que falhar a ação inteira */
+    }
+
+    // Resolve o fornecedor sugerido contra a lista recarregada — nunca
+    // cria um fornecedor novo. Sem correspondência (ou em conflito), o
+    // Select mantém o valor atual (nunca limpa uma escolha manual já
+    // feita) e um aviso explica porquê, em vez de falhar silenciosamente.
+    let warning: string | null = null;
+    let supplierId = formValues.supplierId;
+    if (suggestions.supplierTaxId || suggestions.supplier) {
+      const match = resolveSupplierMatch(suggestions, currentSuppliers);
+      if (match.status === 'matched') {
+        supplierId = match.supplierId;
+      } else if (match.status === 'conflicting_tax_id') {
+        warning = `Fornecedor sugerido "${match.matchedSupplierName}" existe na lista, mas com um NIF diferente do sugerido (${suggestions.supplierTaxId?.value}). Verifique e associe manualmente.`;
+      } else {
+        const suggestedName = suggestions.supplier?.value.name;
+        warning = suggestedName
+          ? `Fornecedor sugerido "${suggestedName}" não existe na lista de fornecedores. Crie ou associe o fornecedor manualmente.`
+          : 'Fornecedor sugerido não existe na lista de fornecedores. Crie ou associe o fornecedor manualmente.';
+      }
+    }
+    setSupplierWarning(warning);
+
     setFormValues((prev) => ({
       ...prev,
+      supplierId,
       number: suggestions.invoice.number?.value ?? prev.number,
       issueDate: suggestions.invoice.issueDate?.value
         ? suggestions.invoice.issueDate.value.slice(0, 10)
@@ -414,9 +554,10 @@ export function InvoiceDraftReviewSheet({
                     <select
                       className={fullWidthSelectClassName}
                       value={formValues.supplierId}
-                      onChange={(event) =>
-                        setFormValues((prev) => ({ ...prev, supplierId: event.target.value }))
-                      }
+                      onChange={(event) => {
+                        setSupplierWarning(null);
+                        setFormValues((prev) => ({ ...prev, supplierId: event.target.value }));
+                      }}
                     >
                       <option value="">Por atribuir</option>
                       {suppliers.map((supplier) => (
@@ -425,6 +566,11 @@ export function InvoiceDraftReviewSheet({
                         </option>
                       ))}
                     </select>
+                    {supplierWarning ? (
+                      <Alert variant="warning" className="mt-2">
+                        <AlertDescription>{supplierWarning}</AlertDescription>
+                      </Alert>
+                    ) : null}
                   </FormField>
 
                   <FormField>

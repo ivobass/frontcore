@@ -1,10 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { runDocumentExtractors } from '../document-extraction';
 import type { FiscalExtractor } from './contracts';
+import { explainsRejection } from './contracts';
 import { FISCAL_EXTRACTORS } from './fiscal-extractors.token';
 import type {
   ExtractionMatch,
   FiscalExtractionResult,
+  RejectedCandidate,
   SupplierExtraction,
   CustomerExtraction,
   InvoiceExtraction,
@@ -47,8 +49,38 @@ export class FiscalParsingService {
 
     return {
       ...this.assemble(matches),
-      metadata,
+      metadata: {
+        ...metadata,
+        rejectedCandidates: this.collectRejectedCandidates(ocrText, matches),
+      },
     };
+  }
+
+  /**
+   * Diagnóstico puro (Fase 6.8+, "false positive hardening") — nunca
+   * afeta `matches`/o resultado final. Só pergunta a um extractor
+   * "porque rejeitaste?" quando esse campo já ficou `null` (nunca
+   * quando já foi encontrado, mesmo que outro extractor concorrente
+   * pelo mesmo campo tenha rejeitado algo — sem consumidor real para
+   * esse caso mais fino ainda, YAGNI). Duck-typing (`explainsRejection`)
+   * em vez de alargar `FiscalExtractor<T>` — só dois dos nove
+   * extractors implementam isto hoje.
+   */
+  private collectRejectedCandidates(
+    ocrText: string,
+    matches: Map<FiscalField, ExtractionMatch<unknown>>,
+  ): RejectedCandidate[] {
+    const rejected: RejectedCandidate[] = [];
+    for (const extractor of this.extractors) {
+      if (matches.has(extractor.field) || !explainsRejection(extractor)) {
+        continue;
+      }
+      const explanation = extractor.explainRejection(ocrText);
+      if (explanation) {
+        rejected.push({ field: extractor.field, ...explanation });
+      }
+    }
+    return rejected;
   }
 
   private assemble(matches: Map<FiscalField, ExtractionMatch<unknown>>): AssembledResult {

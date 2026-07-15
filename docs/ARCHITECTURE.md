@@ -26,7 +26,7 @@ alterações**.
 | `@frontcore/auth`        | Contratos de auth (JWT/refresh)                      | contrato      |
 | `@frontcore/storage`     | Storage de objetos S3-compatível (MinIO/S3)          | ativo         |
 | `@frontcore/queue`       | Filas assíncronas sobre BullMQ/Redis                 | ativo         |
-| `@frontcore/ai`          | Contrato de provider de IA                           | contrato      |
+| `@frontcore/ai`          | Provider de IA para completions (mock + Ollama)      | ativo         |
 | `@frontcore/notifications` | Contrato de notificações                           | contrato      |
 | `@frontcore/monitoring`  | Helpers de health/observabilidade                    | ativo         |
 | `@frontcore/ui`          | Design system base (tokens + cn)                     | ativo         |
@@ -139,6 +139,53 @@ para `fiscal-parsing/` em si, Fase 6.6, e para rejeitar `DocumentDraft`
 genérico, Fase 6.3); sem alteração a `packages/ai` (contrato de
 provider de IA já existente desde a Fase 1, ainda sem implementação
 concreta nem consumidores).
+
+## Provider de IA (`@frontcore/ai`)
+
+`@frontcore/ai` existia desde a Fase 1 só como contrato ("implementação
+real" nunca chegou a acontecer nas fases originalmente previstas). Desde
+a Fase 6.11, é um package operacional: `AiCompletionProvider`
+(`complete(request): Promise<AiCompletionResponse>`), `AiConfig` (união
+discriminada por `AiProviderName = 'mock' | 'ollama'` — nunca um
+`string` solto), `loadAiConfig()` (convenção `load<X>Config()`) e
+`createAiProvider(config)` (mesma fábrica de `createOcrProvider()`,
+`@frontcore/ocr` — um `case` por provider, nada nos consumidores muda).
+
+Dois providers: `MockAiProvider` (determinístico, sem I/O, sem
+credenciais — testes e desenvolvimento local) e `OllamaAiProvider`,
+sobre a **API HTTP nativa do Ollama** (`POST /api/chat`, confirmado
+empiricamente contra um servidor local real — não o endpoint
+OpenAI-compatible, `/v1/chat/completions`, que obrigaria a montar um
+pedido no formato OpenAI só para o Ollama o traduzir de volta ao nativo
+internamente). Primeiro provider real escolhido por rodar localmente:
+sem custo por pedido, sem API key cloud, sem dependência de internet,
+maior privacidade dos documentos. `AiMessage[]` do contrato genérico é
+enviado quase sem tradução (`{role, content}`, o mesmo shape da API
+nativa); a resposta normalizada a partir de `message.content`
+(`message.thinking`, presente em modelos de raciocínio como `qwen3`,
+nunca é lido). Transporte: `fetch` nativo do Node (sem SDK, sem
+dependência nova — `packages/ai` tem hoje menos dependências do que
+antes desta fase). Timeout via `AbortController` real (cancela o
+pedido HTTP subjacente, nunca um `Promise.race` que só deixaria de
+esperar) — sem retries automáticos (`fetch` nunca reintenta sozinho) e
+sem streaming (`stream: false` sempre). Erros classificados numa única
+`AiProviderError` com `code` tipado
+(`timeout`/`invalid_response`/`provider_unavailable`/`model_not_found`/`unknown`
+— sem `authentication`/`rate_limit`: conceitos de fronteira cloud que
+um provider local não tem, a reintroduzir só quando um provider cloud
+real os exigir) — nunca a mensagem bruta do Ollama, nunca o nome do
+modelo pedido, só texto fixo sanitizado por `code`.
+
+Zero consumidor real ainda — nenhum extractor de IA foi implementado.
+Um futuro extractor fiscal de IA (ver `docs/adr/0007-document-extraction-foundation.md`)
+implementaria `DocumentExtractor<FiscalField, T>`
+(`apps/frontrest/api/src/document-extraction/`) chamando
+`AiCompletionProvider` no seu próprio `extract()` — `packages/ai`
+continua sem qualquer conhecimento de faturas, OCR ou `FiscalField`. Um
+segundo provider cloud (OpenAI, Anthropic, Azure OpenAI, OpenRouter)
+fica para uma fase futura, sobre o mesmo `AiCompletionProvider`. Ver
+`docs/phases/phase-6.11-ai-provider-foundation.md` para o contrato
+completo e a comparação API nativa vs. OpenAI-compatible do Ollama.
 
 ## Base de dados partilhada entre apps NestJS
 

@@ -35,4 +35,27 @@ describe('TaxNumberExtractor', () => {
   it('devolve null sem rótulo, mesmo com uma sequência de 9 dígitos no texto', async () => {
     expect(await extractor.extract('Referência 123456789 sem contexto fiscal')).toBeNull();
   });
+
+  describe('normalização de confusões de OCR (achado real, "Farmácia Esperança")', () => {
+    it('reconhece "NTF" como confusão de OCR de "NIF" (I↔T)', async () => {
+      const result = await extractor.extract('609978142 NTF 509978142');
+      expect(result?.value).toBe('509978142');
+    });
+
+    it('recupera um NIF com "O" no lugar de "0"', async () => {
+      const result = await extractor.extract('NIF: 5O9978142');
+      expect(result?.value).toBe('509978142');
+    });
+
+    it('recupera um NIF com "I"/"l" no lugar de "1"', async () => {
+      const result = await extractor.extract('NIF: 5Il978142');
+      expect(result?.value).toBe('511978142');
+    });
+
+    it('devolve null quando a normalização não produz um número totalmente válido', async () => {
+      // "X" não está no conjunto de letras confundíveis com dígitos —
+      // nunca inventa um valor a partir de ruído não reconhecido.
+      expect(await extractor.extract('NIF: 5X9978142')).toBeNull();
+    });
+  });
 });

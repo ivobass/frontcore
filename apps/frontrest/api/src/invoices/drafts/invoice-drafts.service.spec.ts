@@ -176,6 +176,39 @@ describe('InvoiceDraftsService', () => {
       ).rejects.toThrow(NotFoundException);
       expect(prisma.invoiceDraft.create).not.toHaveBeenCalled();
     });
+
+    describe('plausibilidade da data (achado real: PATCH direto podia gravar issueDate: "2096-...")', () => {
+      it('rejeita issueDate com ano implausível, sem criar o draft', async () => {
+        await expect(
+          service.create('org-1', { storageObjectId: 'obj-1', issueDate: '2096-07-13' }),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.invoiceDraft.create).not.toHaveBeenCalled();
+      });
+
+      it('rejeita issueDate estritamente futura, sem criar o draft', async () => {
+        const nextYear = new Date().getUTCFullYear() + 1;
+        await expect(
+          service.create('org-1', { storageObjectId: 'obj-1', issueDate: `${nextYear}-01-01` }),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.invoiceDraft.create).not.toHaveBeenCalled();
+      });
+
+      it('rejeita dueDate com ano implausível, sem criar o draft', async () => {
+        await expect(
+          service.create('org-1', { storageObjectId: 'obj-1', dueDate: '2096-07-13' }),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.invoiceDraft.create).not.toHaveBeenCalled();
+      });
+
+      it('aceita dueDate futura razoável (vencimento futuro é o caso normal)', async () => {
+        prisma.invoiceDraft.create.mockResolvedValue({ id: 'draft-1' });
+        const nextYear = new Date().getUTCFullYear() + 1;
+
+        await service.create('org-1', { storageObjectId: 'obj-1', dueDate: `${nextYear}-01-01` });
+
+        expect(prisma.invoiceDraft.create).toHaveBeenCalled();
+      });
+    });
   });
 
   describe('create — publicação do job OCR (Fase 6.4)', () => {
@@ -464,6 +497,36 @@ describe('InvoiceDraftsService', () => {
 
         const data = prisma.invoiceDraft.update.mock.calls[0][0].data;
         expect(data.dueDate).toBeUndefined();
+      });
+
+      describe('plausibilidade da data (achado real: PATCH direto podia gravar issueDate: "2096-...")', () => {
+        it('rejeita issueDate com ano implausível, sem atualizar', async () => {
+          await expect(
+            service.update('org-1', 'draft-1', { issueDate: '2096-07-13' }),
+          ).rejects.toThrow(BadRequestException);
+          expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
+        });
+
+        it('rejeita issueDate estritamente futura, sem atualizar', async () => {
+          const nextYear = new Date().getUTCFullYear() + 1;
+          await expect(
+            service.update('org-1', 'draft-1', { issueDate: `${nextYear}-01-01` }),
+          ).rejects.toThrow(BadRequestException);
+          expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
+        });
+
+        it('rejeita dueDate com ano implausível, sem atualizar', async () => {
+          await expect(
+            service.update('org-1', 'draft-1', { dueDate: '2096-07-13' }),
+          ).rejects.toThrow(BadRequestException);
+          expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
+        });
+
+        it('issueDate: null nunca é validado (é para limpar, não um valor a verificar)', async () => {
+          await service.update('org-1', 'draft-1', { issueDate: null });
+
+          expect(prisma.invoiceDraft.update).toHaveBeenCalled();
+        });
       });
     });
   });

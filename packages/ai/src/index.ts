@@ -1,36 +1,12 @@
 /**
  * @frontcore/ai
- * Contrato genérico de provider de IA para FrontCore.
- * A implementação concreta (OCR, extração, chat) entra nas Fases 6/8.
- * O contrato é agnóstico ao fornecedor (Anthropic, OpenAI, etc.).
+ * Contrato genérico de provider de IA para completions — agnóstico de
+ * fornecedor (mock, Ollama, e futuros — ex. OpenAI, Anthropic, Azure
+ * OpenAI, OpenRouter, numa fase própria). Zero lógica de domínio: nenhum
+ * prompt de fatura, nenhum conhecimento de OCR/InvoiceDraft/FiscalField.
+ * Ver docs/phases/phase-6.11-ai-provider-foundation.md.
  */
-
-export type AiProvider = 'anthropic' | 'openai' | 'mock';
-
-/** Mensagem genérica de uma conversa. */
-export interface AiMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
-
-/** Pedido genérico de completion. */
-export interface AiCompletionRequest {
-  messages: AiMessage[];
-  maxTokens?: number;
-}
-
-/** Resposta genérica de completion. */
-export interface AiCompletionResponse {
-  content: string;
-}
-
-/** Configuração genérica de um provider de IA. */
-export interface AiConfig {
-  provider: AiProvider;
-  apiKey: string;
-}
-
-/** Contrato de provider de IA (implementado nas Fases 6/8). */
-export interface AiCompletionProvider {
-  complete(request: AiCompletionRequest): Promise<AiCompletionResponse>;
-}
+export * from './contracts';
+export * from './config';
+export * from './providers';
+export * from './errors';

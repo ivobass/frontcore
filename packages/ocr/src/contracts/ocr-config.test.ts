@@ -28,10 +28,10 @@ describe('loadOcrConfig', () => {
     }
   });
 
-  it('usa valores por omissão quando nada está definido', () => {
+  it('usa valores por omissão quando nada está definido — "por" (mercado português, ver ocr-config.ts)', () => {
     expect(loadOcrConfig()).toEqual({
       provider: 'tesseract',
-      language: 'eng',
+      language: 'por',
       timeoutMs: 30_000,
       pdfMaxPages: 10,
       pdfDpi: 200,
@@ -42,12 +42,12 @@ describe('loadOcrConfig', () => {
 
   it('lê OCR_PROVIDER/OCR_LANGUAGE/OCR_TIMEOUT_MS quando definidos', () => {
     process.env.OCR_PROVIDER = 'paddle';
-    process.env.OCR_LANGUAGE = 'por';
+    process.env.OCR_LANGUAGE = 'eng';
     process.env.OCR_TIMEOUT_MS = '5000';
 
     const config = loadOcrConfig();
     expect(config.provider).toBe('paddle');
-    expect(config.language).toBe('por');
+    expect(config.language).toBe('eng');
     expect(config.timeoutMs).toBe(5000);
   });
 
@@ -59,7 +59,7 @@ describe('loadOcrConfig', () => {
 
     expect(loadOcrConfig()).toEqual({
       provider: 'tesseract',
-      language: 'eng',
+      language: 'por',
       timeoutMs: 30_000,
       pdfMaxPages: 5,
       pdfDpi: 150,

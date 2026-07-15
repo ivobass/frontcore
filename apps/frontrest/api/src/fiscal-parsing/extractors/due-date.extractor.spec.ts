@@ -36,4 +36,23 @@ describe('DueDateExtractor', () => {
   it('devolve null quando não há data de vencimento', async () => {
     expect(await extractor.extract('Documento sem vencimento')).toBeNull();
   });
+
+  it('rejeita um ano implausível (partilha a validação de `parseFlexibleDate` com a data de emissão)', async () => {
+    expect(await extractor.extract('Vencimento: 30/07/2096')).toBeNull();
+  });
+
+  it('aceita uma data de vencimento futura razoável — vencimento futuro é o caso normal', async () => {
+    const nextMonth = new Date();
+    nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+    const dd = String(nextMonth.getUTCDate()).padStart(2, '0');
+    const mm = String(nextMonth.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = nextMonth.getUTCFullYear();
+    const result = await extractor.extract(`Vencimento: ${dd}/${mm}/${yyyy}`);
+    expect(result).not.toBeNull();
+  });
+
+  it('recupera uma data com letra confundível com dígito através do próprio rótulo do extractor', async () => {
+    const result = await extractor.extract('Data de Vencimento: 3O/07/2026');
+    expect(result?.value.toISOString()).toBe('2026-07-30T00:00:00.000Z');
+  });
 });

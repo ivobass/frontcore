@@ -214,10 +214,23 @@ importers:
         version: 5.9.3
 
   packages/ai:
+    dependencies:
+      '@frontcore/config':
+        specifier: workspace:*
+        version: link:../config
     devDependencies:
+      '@types/node':
+        specifier: ^20.16.11
+        version: 20.19.43
+      '@vitest/coverage-v8':
+        specifier: ^2.1.8
+        version: 2.1.9(vitest@2.1.9(@types/node@20.19.43)(jsdom@25.0.1)(terser@5.48.0))
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1)(terser@5.48.0)
 
   packages/auth:
     dependencies:
@@ -323,6 +336,9 @@ importers:
       '@frontcore/config':
         specifier: workspace:*
         version: link:../config
+      sharp:
+        specifier: ^0.33.5
+        version: 0.33.5
       tesseract.js:
         specifier: ^7.0.0
         version: 7.0.0
@@ -7314,13 +7330,11 @@ snapshots:
     dependencies:
       color-name: 1.1.4
       simple-swizzle: 0.2.4
-    optional: true
 
   color@4.2.3:
     dependencies:
       color-convert: 2.0.1
       color-string: 1.9.1
-    optional: true
 
   combined-stream@1.0.8:
     dependencies:
@@ -7460,8 +7474,7 @@ snapshots:
 
   destroy@1.2.0: {}
 
-  detect-libc@2.1.2:
-    optional: true
+  detect-libc@2.1.2: {}
 
   detect-newline@3.1.0: {}
 
@@ -8026,8 +8039,7 @@ snapshots:
 
   is-arrayish@0.2.1: {}
 
-  is-arrayish@0.3.4:
-    optional: true
+  is-arrayish@0.3.4: {}
 
   is-binary-path@2.1.0:
     dependencies:
@@ -9195,7 +9207,6 @@ snapshots:
       '@img/sharp-wasm32': 0.33.5
       '@img/sharp-win32-ia32': 0.33.5
       '@img/sharp-win32-x64': 0.33.5
-    optional: true
 
   shebang-command@2.0.0:
     dependencies:
@@ -9240,7 +9251,6 @@ snapshots:
   simple-swizzle@0.2.4:
     dependencies:
       is-arrayish: 0.3.4
-    optional: true
 
   sisteransi@1.0.5: {}
 

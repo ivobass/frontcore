@@ -15,6 +15,7 @@ import type { BackoffOptions, OcrProcessingJob, QueueProducer } from '@frontcore
 import { QUEUE_PRODUCER } from '../../queue/queue-producer.token';
 import { FiscalParsingService } from '../../fiscal-parsing/fiscal-parsing.service';
 import type { FiscalExtractionResult } from '../../fiscal-parsing/types';
+import { isFutureDate, isPlausibleYear } from '../../fiscal-parsing/utils';
 import { CreateInvoiceDraftDto } from './dto/create-invoice-draft.dto';
 import { UpdateInvoiceDraftDto } from './dto/update-invoice-draft.dto';
 import { ListInvoiceDraftsDto } from './dto/list-invoice-drafts.dto';
@@ -114,6 +115,12 @@ export class InvoiceDraftsService {
     }
     if (dto.categoryId) {
       await this.assertCategoryBelongsToOrg(organizationId, dto.categoryId);
+    }
+    if (dto.issueDate) {
+      this.assertPlausibleDate('Data de emissão', dto.issueDate, true);
+    }
+    if (dto.dueDate) {
+      this.assertPlausibleDate('Data de vencimento', dto.dueDate, false);
     }
 
     const draft = await this.prisma.invoiceDraft.create({
@@ -240,6 +247,15 @@ export class InvoiceDraftsService {
     }
     if (dto.categoryId) {
       await this.assertCategoryBelongsToOrg(organizationId, dto.categoryId);
+    }
+    // `typeof === 'string'` — nunca truthiness: `dto.issueDate` pode ser
+    // `null` (limpar, nada a validar) ou `undefined` (não enviado); só
+    // uma string precisa de passar pela validação de plausibilidade.
+    if (typeof dto.issueDate === 'string') {
+      this.assertPlausibleDate('Data de emissão', dto.issueDate, true);
+    }
+    if (typeof dto.dueDate === 'string') {
+      this.assertPlausibleDate('Data de vencimento', dto.dueDate, false);
     }
 
     return this.prisma.invoiceDraft.update({
@@ -389,6 +405,28 @@ export class InvoiceDraftsService {
     });
     if (!supplier) {
       throw new NotFoundException('Fornecedor não encontrado.');
+    }
+  }
+
+  /**
+   * Fecha uma lacuna estrutural real (validação manual, Fase 6.8+):
+   * `@IsDateString()` só valida o formato ISO-8601, nunca a
+   * plausibilidade — um `PATCH`/`POST` direto podia gravar `issueDate:
+   * "2096-07-13"` sem qualquer erro, mesmo depois de
+   * `InvoiceDateExtractor` já rejeitar esse mesmo valor no caminho de
+   * extração. As duas camadas são independentes (extração nunca
+   * persiste sozinha; persistência não passa pelos extractors) — sem
+   * esta validação aqui, a persistência ficava sem nenhuma das duas
+   * regras. Reutiliza `isPlausibleYear`/`isFutureDate` de
+   * `fiscal-parsing/utils` — nunca duplica os limiares.
+   */
+  private assertPlausibleDate(label: string, isoDate: string, rejectFuture: boolean): void {
+    const date = new Date(isoDate);
+    if (!isPlausibleYear(date)) {
+      throw new BadRequestException(`${label} tem um ano implausível.`);
+    }
+    if (rejectFuture && isFutureDate(date)) {
+      throw new BadRequestException(`${label} não pode ser uma data futura.`);
     }
   }
 

@@ -31,6 +31,36 @@ describe('SuppliersService', () => {
       });
       expect(result).toEqual({ id: 's1', name: 'Acme' });
     });
+
+    it('sem taxId, nunca verifica duplicados (nem chama findFirst)', async () => {
+      prisma.supplier.create.mockResolvedValue({ id: 's1', name: 'Acme' });
+
+      await service.create('org-1', { name: 'Acme' });
+
+      expect(prisma.supplier.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('com taxId livre na organização, cria normalmente', async () => {
+      prisma.supplier.findFirst.mockResolvedValue(null);
+      prisma.supplier.create.mockResolvedValue({ id: 's1', name: 'Acme', taxId: '123456789' });
+
+      const result = await service.create('org-1', { name: 'Acme', taxId: '123456789' });
+
+      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
+        where: { organizationId: 'org-1', taxId: '123456789' },
+        select: { id: true },
+      });
+      expect(result.taxId).toBe('123456789');
+    });
+
+    it('com taxId já usado por outro fornecedor da mesma organização, lança ConflictException sem criar', async () => {
+      prisma.supplier.findFirst.mockResolvedValue({ id: 'outro-fornecedor' });
+
+      await expect(
+        service.create('org-1', { name: 'Acme Filial', taxId: '123456789' }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.supplier.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('findAll', () => {
@@ -127,6 +157,43 @@ describe('SuppliersService', () => {
         NotFoundException,
       );
       expect(prisma.supplier.update).not.toHaveBeenCalled();
+    });
+
+    it('com taxId livre na organização, atualiza normalmente', async () => {
+      prisma.supplier.findFirst
+        .mockResolvedValueOnce({ id: 's1', organizationId: 'org-1' }) // findOne()
+        .mockResolvedValueOnce(null); // assertTaxIdAvailable()
+      prisma.supplier.update.mockResolvedValue({ id: 's1', taxId: '123456789' });
+
+      const result = await service.update('org-1', 's1', { taxId: '123456789' });
+
+      expect(prisma.supplier.findFirst).toHaveBeenNthCalledWith(2, {
+        where: { organizationId: 'org-1', taxId: '123456789', id: { not: 's1' } },
+        select: { id: true },
+      });
+      expect(result.taxId).toBe('123456789');
+    });
+
+    it('com taxId já usado por OUTRO fornecedor da mesma organização, lança ConflictException sem atualizar', async () => {
+      prisma.supplier.findFirst
+        .mockResolvedValueOnce({ id: 's1', organizationId: 'org-1' }) // findOne()
+        .mockResolvedValueOnce({ id: 's2' }); // assertTaxIdAvailable() — outro fornecedor já tem este NIF
+
+      await expect(service.update('org-1', 's1', { taxId: '123456789' })).rejects.toThrow(
+        ConflictException,
+      );
+      expect(prisma.supplier.update).not.toHaveBeenCalled();
+    });
+
+    it('reenviar o próprio taxId do fornecedor (sem alteração real) nunca conflitua consigo mesmo', async () => {
+      prisma.supplier.findFirst
+        .mockResolvedValueOnce({ id: 's1', organizationId: 'org-1', taxId: '123456789' })
+        .mockResolvedValueOnce(null); // exclui o próprio id da procura — nunca se encontra a si próprio
+      prisma.supplier.update.mockResolvedValue({ id: 's1', taxId: '123456789' });
+
+      await expect(service.update('org-1', 's1', { taxId: '123456789' })).resolves.toMatchObject({
+        taxId: '123456789',
+      });
     });
   });
 

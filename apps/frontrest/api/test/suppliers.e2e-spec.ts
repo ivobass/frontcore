@@ -140,5 +140,63 @@ describe('Suppliers (e2e)', () => {
         .send({ name: 'Acme', hackField: true })
         .expect(400);
     });
+
+    it('POST /api/suppliers com taxId com menos de 9 dígitos → 400', async () => {
+      await request(app.getHttpServer())
+        .post('/api/suppliers')
+        .set('Authorization', authHeader({ role: 'MANAGER' }))
+        .send({ name: 'Acme', taxId: '12345' })
+        .expect(400);
+      expect(prisma.supplier.create).not.toHaveBeenCalled();
+    });
+
+    it('POST /api/suppliers com taxId com 10 dígitos (achado real: OCR devolveu um dígito a mais) → 400', async () => {
+      await request(app.getHttpServer())
+        .post('/api/suppliers')
+        .set('Authorization', authHeader({ role: 'MANAGER' }))
+        .send({ name: 'Acme', taxId: '1600976142' })
+        .expect(400);
+    });
+
+    it('POST /api/suppliers com taxId não numérico → 400', async () => {
+      await request(app.getHttpServer())
+        .post('/api/suppliers')
+        .set('Authorization', authHeader({ role: 'MANAGER' }))
+        .send({ name: 'Acme', taxId: 'PT123456789' })
+        .expect(400);
+    });
+
+    it('POST /api/suppliers com taxId de exatamente 9 dígitos → 201', async () => {
+      prisma.supplier.findFirst.mockResolvedValue(null);
+      prisma.supplier.create.mockResolvedValue({ id: 's1', name: 'Acme', taxId: '509978142' });
+
+      await request(app.getHttpServer())
+        .post('/api/suppliers')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+        .send({ name: 'Acme', taxId: '509978142' })
+        .expect(201);
+    });
+
+    it('POST /api/suppliers com taxId já usado por outro fornecedor da mesma organização → 409', async () => {
+      prisma.supplier.findFirst.mockResolvedValue({ id: 'outro' });
+
+      await request(app.getHttpServer())
+        .post('/api/suppliers')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+        .send({ name: 'Acme Filial', taxId: '509978142' })
+        .expect(409);
+      expect(prisma.supplier.create).not.toHaveBeenCalled();
+    });
+
+    it('PATCH /api/suppliers/:id com taxId com formato inválido → 400', async () => {
+      prisma.supplier.findFirst.mockResolvedValue({ id: 's1', organizationId: 'org-1' });
+
+      await request(app.getHttpServer())
+        .patch('/api/suppliers/s1')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+        .send({ taxId: 'abc' })
+        .expect(400);
+      expect(prisma.supplier.update).not.toHaveBeenCalled();
+    });
   });
 });

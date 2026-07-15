@@ -160,6 +160,55 @@ export async function getInvoiceDraftFiscalSuggestions(
   return parseJsonOrThrow(response);
 }
 
+/**
+ * Forma completa de `FiscalExtractionResult` (`apps/frontrest/api`,
+ * `fiscal-parsing/types`) — ao contrário de `DraftFiscalSuggestions`
+ * (subconjunto para o formulário de revisão), inclui `customer`/`vat`/
+ * `currency`/`metadata`, necessários para a ferramenta de diagnóstico
+ * do pipeline (Fase 6.8+): ver todos os campos que o parser encontrou
+ * — não só os que têm campo correspondente no formulário.
+ */
+export interface FiscalExtractionResult {
+  supplier: FiscalMatch<{ name: string }> | null;
+  supplierTaxId: FiscalMatch<string> | null;
+  customer: FiscalMatch<{ name: string }> | null;
+  invoice: {
+    number: FiscalMatch<string> | null;
+    issueDate: FiscalMatch<string> | null;
+    dueDate: FiscalMatch<string> | null;
+    currency: FiscalMatch<string> | null;
+  };
+  totals: FiscalMatch<{ totalAmount: number }> | null;
+  vat: FiscalMatch<{ rate?: number; amount?: number }> | null;
+  confidence: number;
+  metadata: {
+    extractorsRun: string[];
+    fieldsFound: string[];
+    processingTimeMs: number;
+    textLength: number;
+    /** Candidatos rejeitados com motivo (Fase 6.8+, "false positive hardening") — diagnóstico puro, nunca afeta os campos acima. */
+    rejectedCandidates: Array<{ field: string; candidate: string; reason: string }>;
+  };
+}
+
+/**
+ * Mesmo endpoint de `getInvoiceDraftFiscalSuggestions()` — a API já
+ * devolve o `FiscalExtractionResult` completo, `DraftFiscalSuggestions`
+ * é só um subconjunto tipado do lado do frontend. Uma segunda função
+ * (em vez de alargar o tipo de retorno da existente) para nunca alterar
+ * o que a folha de revisão já consome — só a ferramenta de diagnóstico
+ * usa esta.
+ */
+export async function getFiscalExtractionDebug(
+  accessToken: string,
+  id: string,
+): Promise<FiscalExtractionResult> {
+  const response = await fetch(`${API_URL}/invoices/drafts/${id}/fiscal-parsing`, {
+    headers: authHeaders(accessToken),
+  });
+  return parseJsonOrThrow(response);
+}
+
 /** Devolve a `Invoice` promovida — mesma forma de `getInvoice`/`listInvoices` (`lib/invoices.ts`), reutilizada em vez de duplicada. */
 export async function promoteInvoiceDraft(
   accessToken: string,

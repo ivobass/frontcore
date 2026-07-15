@@ -10,7 +10,10 @@ import { ListSuppliersDto } from './dto/list-suppliers.dto';
 export class SuppliersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  create(organizationId: string, dto: CreateSupplierDto): Promise<Supplier> {
+  async create(organizationId: string, dto: CreateSupplierDto): Promise<Supplier> {
+    if (dto.taxId) {
+      await this.assertTaxIdAvailable(organizationId, dto.taxId);
+    }
     return this.prisma.supplier.create({
       data: { ...dto, organizationId },
     });
@@ -67,6 +70,9 @@ export class SuppliersService {
     dto: UpdateSupplierDto,
   ): Promise<Supplier> {
     await this.findOne(organizationId, id);
+    if (dto.taxId) {
+      await this.assertTaxIdAvailable(organizationId, dto.taxId, id);
+    }
     return this.prisma.supplier.update({ where: { id }, data: dto });
   }
 
@@ -84,6 +90,32 @@ export class SuppliersService {
         );
       }
       throw error;
+    }
+  }
+
+  /**
+   * Impede dois fornecedores com o mesmo NIF na mesma organização.
+   * Verificação ao nível da aplicação (não uma constraint `@@unique` no
+   * schema): dados reais já existentes no ambiente de desenvolvimento
+   * tinham duplicados antes desta alteração — uma migration com
+   * constraint rígida falharia contra esses dados. Justificação: a
+   * lógica de correspondência automática de fornecedor por NIF
+   * (`resolveSupplierMatch()`, `apps/frontrest/web`) assume no máximo um
+   * fornecedor por NIF dentro da organização; duplicados tornam essa
+   * correspondência ambígua/arbitrária (o primeiro encontrado, sem
+   * critério).
+   */
+  private async assertTaxIdAvailable(
+    organizationId: string,
+    taxId: string,
+    excludeId?: string,
+  ): Promise<void> {
+    const existing = await this.prisma.supplier.findFirst({
+      where: { organizationId, taxId, ...(excludeId ? { id: { not: excludeId } } : {}) },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new ConflictException('Já existe um fornecedor com este NIF nesta organização.');
     }
   }
 }

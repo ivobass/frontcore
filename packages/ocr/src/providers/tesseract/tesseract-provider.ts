@@ -2,6 +2,7 @@ import Tesseract from 'tesseract.js';
 import type { OCRProvider } from '../../contracts';
 import type { ExtractOptions, OCRInput, OCRResult } from '../../types';
 import { OCRExtractionError, OCRProviderError } from '../../errors';
+import { preprocessImageForOcr } from './preprocess-image';
 
 /**
  * `tesseract.js` — WASM puro, sem dependência de sistema (ao contrário
@@ -49,7 +50,8 @@ export class TesseractProvider implements OCRProvider {
     }
 
     try {
-      const { data } = await worker.recognize(input.buffer);
+      const preprocessed = await preprocessImageForOcr(input.buffer);
+      const { data } = await worker.recognize(preprocessed);
       return {
         provider: this.name,
         language,

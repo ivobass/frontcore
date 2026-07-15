@@ -16,7 +16,15 @@ export interface OcrConfig {
   pdfRasterTimeoutMs: number;
 }
 
-const DEFAULT_LANGUAGE = 'eng';
+// FrontRest é um produto para o mercado português — faturas reais
+// contêm nomes/moradas/rótulos em português, com acentuação e cedilha
+// (ex. "Ç", "Ã", "Õ"). Confirmado empiricamente (comparação direta
+// `tesseract.js` com o mesmo documento sintético, `eng` vs. `por`):
+// `eng` lê "ESPERANÇA" como "ESPERANCA" (perde o "Ç" — o modelo inglês
+// não o reconhece); `por` lê-o corretamente. `OCR_LANGUAGE` continua
+// configurável por ambiente para qualquer produto futuro não-português
+// sobre o mesmo `@frontcore/ocr`.
+const DEFAULT_LANGUAGE = 'por';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_PDF_MAX_PAGES = 10;
 const DEFAULT_PDF_DPI = 200;

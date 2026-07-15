@@ -140,7 +140,7 @@ describe('OcrProcessingProcessor', () => {
           contentType: 'image/png',
           filename: 'fatura.png',
         },
-        { language: 'eng', timeoutMs: 30_000 },
+        { language: 'por', timeoutMs: 30_000 },
       );
       expect(updateMany).toHaveBeenNthCalledWith(2, {
         where: DRAFT_WHERE,
