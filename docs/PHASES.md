@@ -154,6 +154,14 @@
   organização, tratamento de estados incompletos); nenhum consumidor
   de IA criado, nenhum package novo — Fase 6.12
   (`docs/phases/phase-6.12-ocr-fiscal-parsing-stabilization.md`).
+  Document Regression Test Suite — `fiscal-parsing.regression.spec.ts`,
+  Jest nativo (`describe.each`), protege `ocrText → FiscalExtractionResult`
+  contra regressões usando 13 documentos reais + 2 sintéticos, cada um
+  num ficheiro `.txt` isolado com uma razão documentada
+  (`apps/frontrest/api/src/fiscal-parsing/__fixtures__/`); `expected`
+  é sempre a baseline atual confirmada, nunca o ideal; nenhum extractor,
+  contrato ou teste existente alterado — Fase 6.13
+  (`docs/phases/phase-6.13-document-regression-test-suite.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

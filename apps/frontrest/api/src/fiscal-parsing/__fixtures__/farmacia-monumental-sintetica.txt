@@ -1,0 +1,7 @@
+Fornecedor: Farmacia Monumental
+NIF: 511234740
+
+Fatura N.o: FM-2026-42
+
+Data de Emissao: 10/07/2026
+Total a Pagar: 35,40EUR
