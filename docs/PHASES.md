@@ -140,6 +140,20 @@
   `InvoiceDraft` ou frontend; OpenAI/Anthropic ficam para uma fase
   futura sobre o mesmo contrato — Fase 6.11
   (`docs/phases/phase-6.11-ai-provider-foundation.md`).
+  OCR & Fiscal Parsing Stabilization — auditoria e correção do trabalho
+  de estabilização acumulado fora do âmbito declarado da Fase 6.11
+  (pré-processamento de imagem OCR, normalização de texto, hardening
+  de extractors): `TaxNumberExtractor` deixa de confundir o NIF do
+  cliente com o do fornecedor (rótulo "Contribuinte" reconhecido,
+  dígito de controlo do NIF português validado, `matchAll` em vez de
+  só a 1ª ocorrência); nova verificação de coerência entre campos
+  (`dueDate >= issueDate`, a primeira deste tipo — impossível dentro
+  de um único extractor por desenho); `SuppliersService` impede NIF
+  duplicado na mesma organização; ferramenta de diagnóstico
+  `/invoice-drafts/debug` auditada (autenticação, isolamento por
+  organização, tratamento de estados incompletos); nenhum consumidor
+  de IA criado, nenhum package novo — Fase 6.12
+  (`docs/phases/phase-6.12-ocr-fiscal-parsing-stabilization.md`).
 - **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.

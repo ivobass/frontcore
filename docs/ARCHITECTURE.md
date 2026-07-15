@@ -262,6 +262,20 @@ automaticamente — só uma ação explícita ("Aplicar sugestões") as copia
 para o formulário, e só "Guardar alterações" grava no draft. Ver
 `docs/phases/phase-6.8-invoice-draft-review-ui-foundation.md`.
 
+Desde a Fase 6.12, `FiscalParsingService` também aplica uma verificação
+de **coerência entre campos** (`applyCoherenceChecks()`) depois de
+todos os extractors terem corrido — deliberadamente uma verificação
+única e pequena (`dueDate` anterior a `issueDate` nunca é válido, o
+`dueDate` é descartado), não um motor de regras genérico. Existe aqui,
+e não dentro de um extractor, porque nenhum extractor pode ver o
+resultado de outro por desenho (`runDocumentExtractors()` corre-os em
+paralelo — ver "Document Extraction", acima). `TaxNumberExtractor`
+também deixou de aceitar só a primeira ocorrência de um rótulo
+("NIF"/"NIPC"/"Contribuinte") — considera todas e valida o dígito de
+controlo do NIF português (módulo 11) antes de escolher, para nunca
+devolver um número estruturalmente inválido. Ver
+`docs/phases/phase-6.12-ocr-fiscal-parsing-stabilization.md`.
+
 ## Apps (FrontRest)
 
 | App                    | Stack       | Porta | Estado Fase 1            |

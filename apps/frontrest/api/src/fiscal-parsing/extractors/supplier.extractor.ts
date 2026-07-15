@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { FiscalExtractor } from '../contracts';
 import type { ExtractionMatch, SupplierExtraction } from '../types';
 import { FiscalField } from '../types';
+import { CUSTOMER_SECTION } from '../utils';
 
 const SUPPLIER_LABEL = /(?:fornecedor|emitente|supplier|vendor|issued\s*by)\s*[:.\-]\s*([^\n]{2,80})/i;
 
@@ -31,14 +32,6 @@ const PHONE_LABEL = /\b(?:TEL\.?|TELEFONE|TLM)\b/i;
 const ADDRESS_LABEL = /\b(?:MORADA|RUA|SEDE|AV\.|AVENIDA|ESTRADA|QTA\.?|QUINTA)\b/i;
 /** Código postal português (####-###) — sinal de morada mais fiável do que só palavras-chave, nem sempre presentes (achado real: "Pingo Doce"). */
 const POSTAL_CODE = /\b\d{4}-\d{3}\b/;
-/**
- * Indica que a linha pertence à secção do CLIENTE, não do fornecedor —
- * penaliza candidatos vizinhos. Inclui "LOCAL DE ENTREGA" (achado real,
- * "JMV": secção de morada de entrega duplicada, com o nome do cliente
- * repetido, que sem isto competiria com o fornecedor real via o sinal
- * de repetição abaixo).
- */
-const CUSTOMER_SECTION = /\b(?:CLIENTE|CUSTOMER|EXMO|BILL\s*TO|SOLD\s*TO|MORADA\s*DE\s*ENVIO|LOCAL\s*DE\s*ENTREGA)\b/i;
 /** Nunca um nome de fornecedor válido, mesmo que sobreviva aos outros filtros — código ATCUD ou uma data solta no início da linha. */
 const DISQUALIFY_LINE = /^atcud\b|^\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}\b/i;
 

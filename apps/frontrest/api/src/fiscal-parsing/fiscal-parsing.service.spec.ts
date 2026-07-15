@@ -382,6 +382,37 @@ describe('FiscalParsingService', () => {
     });
   });
 
+  describe('coerência entre campos (Fase 6.12) — verificação só possível depois de todos os campos montados', () => {
+    it('descarta dueDate quando fica antes de issueDate, sem afetar issueDate', async () => {
+      const result = await service.parse(
+        'Data de Emissão: 10/07/2026\nData de Vencimento: 01/07/2026',
+      );
+      expect(result.invoice.issueDate?.value.toISOString()).toBe('2026-07-10T00:00:00.000Z');
+      expect(result.invoice.dueDate).toBeNull();
+    });
+
+    it('mantém dueDate quando é igual ou posterior a issueDate', async () => {
+      const result = await service.parse(
+        'Data de Emissão: 01/07/2026\nData de Vencimento: 30/07/2026',
+      );
+      expect(result.invoice.dueDate?.value.toISOString()).toBe('2026-07-30T00:00:00.000Z');
+    });
+
+    it('um dueDate descartado por incoerência deixa de contar em fieldsFound e na confiança agregada', async () => {
+      const incoherent = await service.parse(
+        'Fornecedor: Acme Lda\nData de Emissão: 10/07/2026\nData de Vencimento: 01/07/2026',
+      );
+      const withoutDueDateAttempt = await service.parse('Fornecedor: Acme Lda\nData de Emissão: 10/07/2026');
+      expect(incoherent.metadata.fieldsFound).not.toContain(FiscalField.DUE_DATE);
+      expect(incoherent.confidence).toBe(withoutDueDateAttempt.confidence);
+    });
+
+    it('não afeta dueDate quando issueDate não foi encontrado', async () => {
+      const result = await service.parse('Data de Vencimento: 10/07/2026');
+      expect(result.invoice.dueDate?.value.toISOString()).toBe('2026-07-10T00:00:00.000Z');
+    });
+  });
+
   describe('documentos reais adicionais — estrutura documental, nunca por nome de fornecedor (Fase 6.8+)', () => {
     it('fatura A4 B2B com número puramente numérico sem "N.º" (achado real, "JMV")', async () => {
       const text =

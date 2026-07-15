@@ -19,8 +19,18 @@ describe('TaxNumberExtractor', () => {
   });
 
   it('extrai com rótulo "NIPC"', async () => {
-    const result = await extractor.extract('NIPC 987654321');
-    expect(result?.value).toBe('987654321');
+    const result = await extractor.extract('NIPC 987654322');
+    expect(result?.value).toBe('987654322');
+  });
+
+  it('extrai com rótulo "Contribuinte Nº" (achado real, "Ilha Pan")', async () => {
+    const result = await extractor.extract('Contribuinte Nº 511132557');
+    expect(result?.value).toBe('511132557');
+  });
+
+  it('extrai com rótulo "Contribuinte N.º:" (achado real, "Ovos Girão")', async () => {
+    const result = await extractor.extract('Contribuinte N.º: 511022220');
+    expect(result?.value).toBe('511022220');
   });
 
   it('extrai com rótulo "Tax ID"', async () => {
@@ -48,14 +58,42 @@ describe('TaxNumberExtractor', () => {
     });
 
     it('recupera um NIF com "I"/"l" no lugar de "1"', async () => {
-      const result = await extractor.extract('NIF: 5Il978142');
-      expect(result?.value).toBe('511978142');
+      const result = await extractor.extract('NIF: 5Il978146');
+      expect(result?.value).toBe('511978146');
     });
 
     it('devolve null quando a normalização não produz um número totalmente válido', async () => {
       // "X" não está no conjunto de letras confundíveis com dígitos —
       // nunca inventa um valor a partir de ruído não reconhecido.
       expect(await extractor.extract('NIF: 5X9978142')).toBeNull();
+    });
+  });
+
+  describe('dígito de controlo do NIF português (achado real, Fase 6.12 — "Ilha Pan")', () => {
+    it('aceita um NIF com dígito de controlo válido', async () => {
+      // 511132557 é o NIF real do fornecedor no documento "Ilha Pan".
+      expect(await extractor.extract('NIF: 511132557')).not.toBeNull();
+    });
+
+    it('rejeita um NIF com o formato certo (9 dígitos) mas dígito de controlo inválido', async () => {
+      // 511004949 é o NIF do CLIENTE, indevidamente rotulado "NIF" no
+      // mesmo documento "Ilha Pan" — falha o módulo 11 real, prova de
+      // que não é preciso detetar "é do cliente" para o descartar: o
+      // próprio número já não é um NIF português válido.
+      expect(await extractor.extract('NIF: 511004949')).toBeNull();
+    });
+
+    it('não aplica o dígito de controlo a um VAT de 10-12 dígitos (não é NIF português)', async () => {
+      const result = await extractor.extract('VAT Number: PT1234567890');
+      expect(result?.value).toBe('PT1234567890');
+    });
+  });
+
+  describe('vários candidatos no mesmo documento — vence o primeiro estruturalmente válido', () => {
+    it('escolhe o candidato com checksum válido quando o primeiro rotulado "NIF" pertence ao cliente e falha o checksum (achado real, "Ilha Pan")', async () => {
+      const text = 'Contribuinte Nº 511132557\ntexto de enchimento\nCliente\nNIF 511004949';
+      const result = await extractor.extract(text);
+      expect(result?.value).toBe('511132557');
     });
   });
 });

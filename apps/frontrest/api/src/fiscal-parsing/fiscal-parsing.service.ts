@@ -47,13 +47,46 @@ export class FiscalParsingService {
       `Parsing fiscal concluído: ${matches.size}/${this.extractors.length} campos encontrados em ${metadata.processingTimeMs}ms.`,
     );
 
+    // Coerência entre campos (Fase 6.12, `applyCoherenceChecks`) corre
+    // sobre o `Map` bruto, antes de `assemble()` e de `fieldsFound` —
+    // um campo descartado por incoerência (ex. `dueDate` antes de
+    // `issueDate`) tem de deixar de contar como "encontrado" em
+    // `metadata`/`confidence` também, nunca só desaparecer do resultado
+    // final enquanto a metadata continua a alegar tê-lo encontrado.
+    this.applyCoherenceChecks(matches);
+    const fieldsFound = [...matches.keys()];
+
     return {
       ...this.assemble(matches),
       metadata: {
         ...metadata,
+        fieldsFound,
         rejectedCandidates: this.collectRejectedCandidates(ocrText, matches),
       },
     };
+  }
+
+  /**
+   * Verificações de coerência entre campos já extraídos — deliberadamente
+   * uma lista fixa e pequena, não um motor de regras genérico: nenhum
+   * extractor pode fazer isto sozinho por desenho (`runDocumentExtractors()`
+   * corre-os em paralelo, cada um só vê `ocrText`, nunca o resultado de
+   * outro — ver `document-extraction.engine.ts`) — só pode existir aqui,
+   * depois de todos os campos já resolvidos. Muta `matches` (remove a
+   * entrada incoerente) em vez de devolver um novo mapa, para que
+   * `assemble()` e o cálculo de `fieldsFound`/confiança usem sempre a
+   * mesma fonte, sem risco de os dois divergirem.
+   */
+  private applyCoherenceChecks(matches: Map<FiscalField, ExtractionMatch<unknown>>): void {
+    const dueDate = matches.get(FiscalField.DUE_DATE) as ExtractionMatch<Date> | undefined;
+    const issueDate = matches.get(FiscalField.INVOICE_DATE) as ExtractionMatch<Date> | undefined;
+    // `dueDate` antes de `issueDate` nunca é válido numa fatura real —
+    // descarta-se `dueDate`, não `issueDate`: `InvoiceDateExtractor` já
+    // tem validação própria mais forte (`isPlausibleYear`/`isFutureDate`),
+    // por isso é o campo mais fiável dos dois quando entram em conflito.
+    if (dueDate && issueDate && dueDate.value.getTime() < issueDate.value.getTime()) {
+      matches.delete(FiscalField.DUE_DATE);
+    }
   }
 
   /**

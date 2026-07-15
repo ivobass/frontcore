@@ -42,7 +42,7 @@ describe('FiscalParsingService — por tipo de documento (estrutura, não fornec
   describe('supermercado — fatura simplificada com discriminação de IVA', () => {
     const text = [
       'Fornecedor: Mercearia Central Lda',
-      'NIF: 501234567',
+      'NIF: 501234560',
       '',
       'Fatura Simplificada N.º FS A/12345',
       'Data: 05/07/2026',
@@ -59,7 +59,7 @@ describe('FiscalParsingService — por tipo de documento (estrutura, não fornec
       const result = await service.parse(text);
 
       expect(result.supplier?.value).toEqual({ name: 'Mercearia Central Lda' });
-      expect(result.supplierTaxId?.value).toBe('501234567');
+      expect(result.supplierTaxId?.value).toBe('501234560');
       expect(result.invoice.number?.value).toBe('FS A/12345');
       expect(result.invoice.issueDate?.value.toISOString()).toBe('2026-07-05T00:00:00.000Z');
       expect(result.totals?.value).toEqual({ totalAmount: 12.3 });
@@ -91,7 +91,7 @@ describe('FiscalParsingService — por tipo de documento (estrutura, não fornec
   describe('combustível — talão de posto de abastecimento (layout compacto)', () => {
     const text = [
       'Posto Estrada Nacional, Unipessoal Lda',
-      'Contribuinte: 503456789',
+      'Contribuinte: 503456780',
       '',
       'Fatura N.º FT 2026/45213',
       'Data: 09/07/2026',
@@ -107,9 +107,9 @@ describe('FiscalParsingService — por tipo de documento (estrutura, não fornec
       expect(result.invoice.number?.value).toBe('FT 2026/45213');
     });
 
-    it('não extrai o NIF quando o rótulo é só "Contribuinte" (sem "NIF"/"NIPC"/"VAT") — limitação conhecida', async () => {
+    it('extrai o NIF pelo rótulo "Contribuinte" (Fase 6.12 — antes era uma limitação conhecida, achado real "Ilha Pan"/"Ovos Girão")', async () => {
       const result = await service.parse(text);
-      expect(result.supplierTaxId).toBeNull();
+      expect(result.supplierTaxId?.value).toBe('503456780');
     });
   });
 
@@ -223,6 +223,27 @@ describe('FiscalParsingService — por tipo de documento (estrutura, não fornec
       expect(result.invoice.number).toBeNull();
       expect(result.invoice.issueDate).toBeNull();
       expect(result.supplierTaxId).toBeNull();
+    });
+  });
+
+  describe('nota de crédito — total com sinal negativo (Fase 6.12, categoria de fixture em falta)', () => {
+    const text = [
+      'Fornecedor: Acme Distribuição Lda',
+      'Nota de Crédito N.º NC2026/12',
+      'Data: 09/07/2026',
+      'Total a Pagar: -45,90€',
+    ].join('\n');
+
+    it('devolve null para o total em vez de um valor negativo inventado — limitação conhecida, sem evidência real de suporte a sinal negativo', async () => {
+      const result = await service.parse(text);
+
+      expect(result.supplier?.value).toEqual({ name: 'Acme Distribuição Lda' });
+      expect(result.invoice.issueDate?.value.toISOString()).toBe('2026-07-09T00:00:00.000Z');
+      // O sinal negativo não é reconhecido pelo padrão de montante —
+      // devolve null (seguro) em vez de "45,90" (positivo, errado) ou de
+      // inventar suporte a negativos sem evidência real de um documento
+      // que precise disso.
+      expect(result.totals).toBeNull();
     });
   });
 });
