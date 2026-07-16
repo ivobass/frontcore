@@ -89,6 +89,17 @@ services:
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_ACCESS_TTL: ${JWT_ACCESS_TTL}
       JWT_REFRESH_TTL: ${JWT_REFRESH_TTL}
+      # Fase 8 — primeiro consumidor real de @frontcore/ai. Omissos →
+      # AI_PROVIDER=mock (loadAiConfig()), sem custo nem dependência
+      # externa. ${VAR:-default} para não quebrar um .env já existente
+      # sem estas chaves.
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_BASE_URL: ${AI_BASE_URL:-http://localhost:11434}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-30000}
+      AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-1024}
+      AI_CHAT_HISTORY_LIMIT: ${AI_CHAT_HISTORY_LIMIT:-20}
+      AI_CHAT_MAX_MESSAGE_LENGTH: ${AI_CHAT_MAX_MESSAGE_LENGTH:-4000}
     ports:
       - "3001:3001"
     depends_on:

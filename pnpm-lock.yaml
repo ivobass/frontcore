@@ -17,6 +17,9 @@ importers:
 
   apps/frontrest/api:
     dependencies:
+      '@frontcore/ai':
+        specifier: workspace:*
+        version: link:../../../packages/ai
       '@frontcore/auth':
         specifier: workspace:*
         version: link:../../../packages/auth

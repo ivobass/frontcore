@@ -10,6 +10,7 @@ import { ExpenseCategoriesModule } from './expense-categories/expense-categories
 import { InvoicesModule } from './invoices/invoices.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     InvoicesModule,
     UploadsModule,
     DashboardModule,
+    AiModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

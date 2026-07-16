@@ -13,6 +13,7 @@
     "test:e2e": "jest --config test/jest-e2e.json"
   },
   "dependencies": {
+    "@frontcore/ai": "workspace:*",
     "@frontcore/auth": "workspace:*",
     "@frontcore/config": "workspace:*",
     "@frontcore/database": "workspace:*",

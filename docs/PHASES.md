@@ -177,8 +177,30 @@
   formatador novo); sem package novo, sem migration, sem alteração ao
   fluxo Upload→Draft→OCR→Parsing→Review→Promote — Fase 7
   (`docs/phases/phase-7-financial-dashboard-foundation.md`).
-- **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
-  tenant, segurança anti-fuga.
+- **Fase 8 — AI Chat Foundation**: primeiro consumidor real de
+  `@frontcore/ai` — fundação de chat (persistência, histórico,
+  isolamento por tenant e por utilizador, providers atrás de injeção),
+  não um assistente financeiro especializado. Modelos
+  `AiConversation`/`AiMessage` (sempre organização E utilizador, nunca só
+  um dos dois; sem `title`, sem eliminação nesta fase), `POST /ai/chat`
+  (`apps/frontrest/api/src/ai/`) que cria/continua conversa, persiste
+  `USER`, chama `AiCompletionProvider` atrás de injeção
+  (`AI_COMPLETION_PROVIDER`, nunca `OllamaAiProvider` diretamente),
+  persiste `ASSISTANT` (`provider`/`model`/`usage` quando disponíveis);
+  `AiTenantContextService` reutiliza `DashboardService` (Fase 7)
+  diretamente em processo — sem pedido HTTP interno, sem duplicar
+  queries — como mecanismo arquitetural de contexto por tenant, pequeno,
+  read-only, reconstruído em cada pedido, limitado ao mês atual, sem
+  expandir o âmbito funcional da fase; histórico limitado
+  (`AI_CHAT_HISTORY_LIMIT`) e reordenado cronologicamente antes do
+  provider; falhas do provider mapeadas para HTTP sanitizado (nunca a
+  mensagem bruta do Ollama), mensagem do utilizador sempre preservada,
+  nunca uma resposta falsa; `GET /ai/conversations` isolado por
+  organização e utilizador (conversa de outro tenant/utilizador tratada
+  como inexistente); `/ai/chat` no frontend (lista + thread); validado
+  com `AI_PROVIDER=mock` e com Ollama real — sem streaming, tools, RAG,
+  embeddings, provider cloud, eliminação de conversa ou package novo
+  (`docs/phases/phase-8-ai-chat-foundation.md`).
 - **Fase 9 — Relatórios**: mensal, export PDF/CSV, comparação.
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify.

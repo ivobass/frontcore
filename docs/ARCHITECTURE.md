@@ -301,6 +301,62 @@ categoria/fornecedores — sem biblioteca gráfica); datas em `pt-PT` via
 `lib/format.ts::formatDate()` já existente, sem formatador novo. Ver
 `docs/phases/phase-7-financial-dashboard-foundation.md`.
 
+## Chat IA (`@frontcore/ai`, primeiro consumidor real)
+
+Desde a Fase 8, `apps/frontrest/api/src/ai/` (`AiModule`) é o primeiro
+consumidor real de `@frontcore/ai` (Fase 6.11 — até aqui, zero
+consumidores). `AiChatService`/`AiController` nunca conhecem
+`OllamaAiProvider`/`MockAiProvider` diretamente — só o tipo
+`AiCompletionProvider`, injetado via token `AI_COMPLETION_PROVIDER`
+registado dentro do próprio `ai.module.ts` (mesmo padrão de
+`OBJECT_STORAGE` em `uploads.module.ts`: único consumidor real, sem
+ciclo de vida a fechar no shutdown — ao contrário de `QueueProducer`,
+que por isso vive no seu próprio `QueueModule`).
+
+`AiConversation`/`AiMessage` (novos modelos Prisma) pertencem sempre a
+uma organização **e** a um utilizador — nunca só um dos dois. Todo o
+isolamento acontece nas queries (`findFirst({ where: { id,
+organizationId, userId } })`, mesmo padrão de
+`InvoiceDraftsService.findOne()`), nunca no modelo de IA: uma conversa
+de outro tenant ou de outro utilizador da mesma organização é
+indistinguível de uma conversa inexistente na resposta HTTP.
+`organizationId`/`userId` vêm sempre de `CurrentUser()`, nunca do corpo/
+query/path do pedido. `AiConversation` não tem `title` nem endpoint de
+eliminação nesta fase — um campo sempre `null` ou uma operação com
+decisões de retenção/auditoria ainda por tomar não pertencem a uma
+foundation; a lista de conversas usa só `createdAt`/`updatedAt`/
+`lastMessagePreview` (derivado, nunca persistido).
+
+`AiTenantContextService` é o mecanismo arquitetural de contexto por
+tenant — nesta fase, construído chamando
+`DashboardService.getFinancialSummary()` (Fase 7) diretamente em
+processo — nunca um pedido HTTP interno, nunca queries Prisma
+duplicadas. `DashboardModule` passou a exportar `DashboardService` para
+este reuso. Esta integração é uma demonstração do mecanismo, não o
+objetivo funcional da fase — o chat continua uma foundation genérica de
+conversas/histórico/isolamento/providers, não um assistente financeiro
+dedicado; um consumidor de contexto diferente reutilizaria a mesma forma
+sem alterar `AiChatService`/`AiController`. O contexto é pequeno,
+read-only, limitado ao mês atual (mesma omissão do dashboard) e
+reconstruído em cada pedido, nunca persistido nem cacheado. O `system
+prompt` declara explicitamente que só pode responder com os dados
+fornecidos e que o modelo nunca é fronteira de autorização — reforço,
+não o mecanismo de segurança real (esse já está garantido antes de
+qualquer dado chegar ao provider).
+
+`POST /ai/chat` persiste a mensagem `USER` antes de chamar o provider —
+uma falha do provider (`AiProviderError`, mesma taxonomia da Fase 6.11)
+nunca apaga essa mensagem nem cria uma resposta `ASSISTANT` falsa;
+`code` mapeado para HTTP sanitizado (`timeout`→504, `provider_unavailable`/
+`model_not_found`→503, `invalid_response`/`unknown`→502), nunca a
+mensagem bruta do provider. Histórico enviado ao provider limitado por
+`AI_CHAT_HISTORY_LIMIT`, sempre reordenado cronologicamente (carregado
+descendente pelo índice, invertido em memória) antes de
+`AiCompletionProvider.complete()`. `/ai/chat`
+(`apps/frontrest/web`) consome o endpoint com lista de conversas +
+thread; sem package novo, sem streaming, sem RAG. Ver
+`docs/phases/phase-8-ai-chat-foundation.md`.
+
 ## Apps (FrontRest)
 
 | App                    | Stack       | Porta | Estado Fase 1            |

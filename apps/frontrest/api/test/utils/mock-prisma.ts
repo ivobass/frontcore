@@ -27,6 +27,9 @@ export function createMockPrismaService() {
     storageObject: createModelMock(),
     invoiceAttachment: createModelMock(),
     invoiceDraft: createModelMock(),
+    // Usados por AiChatService (Fase 8) — nenhum outro consumidor hoje.
+    aiConversation: createModelMock(),
+    aiMessage: createModelMock(),
     // Executa o callback com o próprio mock como "tx" — os testes
     // continuam a configurar invoice/invoiceAttachment/invoiceDraft
     // diretamente, sem precisar de um segundo objeto de transação.

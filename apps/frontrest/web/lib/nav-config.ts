@@ -24,6 +24,11 @@ export function getNavItems(pathname: string): NavItem[] {
       href: '/invoice-drafts',
       active: pathname === '/invoice-drafts',
     },
+    {
+      label: 'Assistente IA',
+      href: '/ai/chat',
+      active: pathname === '/ai/chat',
+    },
     { label: 'Definições', href: '/settings', active: pathname === '/settings' },
   ];
 }
