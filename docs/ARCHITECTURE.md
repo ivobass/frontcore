@@ -276,6 +276,31 @@ controlo do NIF português (módulo 11) antes de escolher, para nunca
 devolver um número estruturalmente inválido. Ver
 `docs/phases/phase-6.12-ocr-fiscal-parsing-stabilization.md`.
 
+## Dashboard financeiro
+
+Desde a Fase 7, `apps/frontrest/api/src/dashboard/` (`DashboardService`)
+agrega `Invoice` já confirmadas (nunca `InvoiceDraft` — staging, nunca
+dado financeiro) num único endpoint de leitura,
+`GET /dashboard/financial-summary`, sempre isolado por
+`organizationId` e usando `issueDate` como dimensão temporal.
+`CANCELLED` fica fora dos totais "ativos" mas continua contado à parte
+e visível em `byStatus` — nunca escondido. Período `from`/`to`
+opcional (ISO `YYYY-MM-DD`, omisso → mês atual), resolvido sempre em
+UTC (`period.util.ts`) — início inclusivo, fim exclusivo internamente,
+nunca dependente do timezone do processo Node; rejeita formato
+inválido, `from > to`, e datas de calendário impossíveis (`@IsDateString()`
+sozinho aceita "2026-02-30" — só a validação adicional em
+`resolvePeriod()` o rejeita). Nenhuma query depende do número de
+faturas (sem N+1) e nenhuma monta agregações sobre a listagem
+paginada. Montantes serializados sempre como string
+(`Prisma.Decimal.toJSON()`), nunca convertidos para `number` antes da
+resposta — evita perda de precisão. `/dashboard`
+(`apps/frontrest/web`) consome o endpoint com cards e barras HTML/CSS
+proporcionais (`ProportionalBarList`, reutilizado por evolução mensal/
+categoria/fornecedores — sem biblioteca gráfica); datas em `pt-PT` via
+`lib/format.ts::formatDate()` já existente, sem formatador novo. Ver
+`docs/phases/phase-7-financial-dashboard-foundation.md`.
+
 ## Apps (FrontRest)
 
 | App                    | Stack       | Porta | Estado Fase 1            |

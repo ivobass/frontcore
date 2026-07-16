@@ -9,6 +9,7 @@ import { SuppliersModule } from './suppliers/suppliers.module';
 import { ExpenseCategoriesModule } from './expense-categories/expense-categories.module';
 import { InvoicesModule } from './invoices/invoices.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { UploadsModule } from './uploads/uploads.module';
     ExpenseCategoriesModule,
     InvoicesModule,
     UploadsModule,
+    DashboardModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

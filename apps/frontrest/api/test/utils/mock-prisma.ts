@@ -13,6 +13,9 @@ function createModelMock() {
     count: jest.fn(),
     update: jest.fn(),
     delete: jest.fn(),
+    // Usados por DashboardService (Fase 7) — nenhum outro consumidor hoje.
+    aggregate: jest.fn(),
+    groupBy: jest.fn(),
   };
 }
 

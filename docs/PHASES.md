@@ -162,7 +162,21 @@
   é sempre a baseline atual confirmada, nunca o ideal; nenhum extractor,
   contrato ou teste existente alterado — Fase 6.13
   (`docs/phases/phase-6.13-document-regression-test-suite.md`).
-- **Fase 7 — Dashboard financeiro**: agregações, cards, gráficos.
+- **Fase 7 — Financial Dashboard Foundation**: `GET /dashboard/financial-summary`
+  (`apps/frontrest/api/src/dashboard/`), agregações Prisma
+  (`aggregate`/`groupBy`) só sobre `Invoice` confirmadas (nunca
+  `InvoiceDraft`), isoladas por organização, `issueDate` como dimensão
+  temporal, `CANCELLED` excluído dos totais ativos mas contado à parte;
+  período `from`/`to` opcional (ISO `YYYY-MM-DD`, omisso → mês atual),
+  limites sempre em UTC, validado contra formato/`from > to`/calendário
+  impossível; montantes como string (`Decimal`, sem perda de precisão);
+  `/dashboard` transformado num dashboard financeiro real — cards,
+  resumo por estado, evolução mensal, distribuição por categoria,
+  principais fornecedores — com barras HTML/CSS (sem biblioteca
+  gráfica nova), datas em `pt-PT` via `lib/format.ts` já existente (sem
+  formatador novo); sem package novo, sem migration, sem alteração ao
+  fluxo Upload→Draft→OCR→Parsing→Review→Promote — Fase 7
+  (`docs/phases/phase-7-financial-dashboard-foundation.md`).
 - **Fase 8 — Chat IA**: ai_conversations, ai_messages, /ai/chat, contexto por
   tenant, segurança anti-fuga.
 - **Fase 9 — Relatórios**: mensal, export PDF/CSV, comparação.
