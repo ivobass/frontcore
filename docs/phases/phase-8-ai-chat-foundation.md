@@ -122,6 +122,28 @@ contexto reflete sempre o estado mais recente e que uma alteração de
 organização/permissões nunca deixa dados desatualizados visíveis a um
 utilizador.
 
+### Cálculos determinísticos no contexto — nunca inferidos pelo modelo
+
+O texto de contexto inclui uma linha própria, já calculada pelo backend:
+`Por pagar (Pendente + Vencida): N fatura(s), X EUR.` — soma de
+`Prisma.Decimal` (nunca `number`, mesma disciplina da Fase 7) sobre as
+faturas `PENDING`/`OVERDUE` de `summary.byStatus`, sempre presente
+(mesmo `0 fatura(s), 0.00 EUR.` quando não há nenhuma), nunca deixada
+para o modelo somar por si. O `system prompt` reforça isto
+explicitamente: "por pagar" é sempre Pendente+Vencida, nunca inclui
+Paga; qualquer valor já calculado nos dados (como este) deve ser usado
+diretamente, nunca recalculado, estimado ou inferido — mesmo quando o
+utilizador pede uma explicação do cálculo ("Explica como calculaste"),
+a resposta deve citar o valor já fornecido, nunca inventar uma operação
+matemática. Confirmado real com Ollama (`qwen2.5:3b`) contra dados reais
+— ver "Validação manual".
+
+Os estados internos (`InvoiceStatus`) são sempre traduzidos antes de
+chegarem ao contexto (`Pendente`/`Paga`/`Vencida`/`Cancelada`) — o
+modelo nunca vê os enums em inglês; o `system prompt` reforça a mesma
+regra para qualquer texto gerado. Resposta sempre em português de
+Portugal, nunca "você".
+
 ### Histórico — últimas N mensagens, ordem cronológica garantida
 
 A mensagem `USER` do pedido atual é persistida antes de qualquer chamada
@@ -172,6 +194,17 @@ Aviso fixo, visível em todas as conversas, de que a resposta pode
 necessitar de confirmação humana — nunca escondido atrás de um estado
 condicional. Sem ação de eliminar na lista de conversas, consistente com
 a ausência do endpoint.
+
+**Contraste das bolhas de mensagem**: `Typography` aplica sempre
+`text-foreground` na sua própria classe base, independentemente da
+variante — uma bolha com `bg-primary`/`text-primary-foreground` (mensagens
+`USER`) via o `<div>` envolvente não é suficiente, porque o texto da
+`Typography` filha reafirma explicitamente a sua própria cor. `ChatThread`
+passa `text-primary-foreground` como `className` da `Typography` nas
+mensagens `USER` (mesclado via `cn()`/`tailwind-merge`, que resolve a
+sobreposição a favor da classe mais específica ao pedido) — os mesmos
+tokens de tema já usados por `Button` (`variant="primary"`), com
+contraste AA/AAA já garantido pelo Design System.
 
 ## Contrato final
 
@@ -301,6 +334,7 @@ apps/frontrest/api/test/utils/mock-prisma.ts        — + aiConversation/aiMessa
 apps/frontrest/api/test/setup-env.ts                — AI_PROVIDER=mock explícito para e2e
 
 apps/frontrest/web/lib/nav-config.ts                — item "Assistente IA" (/ai/chat)
+apps/frontrest/web/app/(dashboard)/ai/chat/chat-thread.tsx — contraste AA/AAA nas mensagens USER
 
 docker-compose.yml                                  — variáveis AI_*/AI_CHAT_* no serviço api (omissos → mock, sem custo)
 .env.example                                        — AI_CHAT_HISTORY_LIMIT/AI_CHAT_MAX_MESSAGE_LENGTH
@@ -314,13 +348,20 @@ real que justificasse streaming/tools/RAG foi encontrado.
 
 ## Testes adicionados
 
-- **Backend, `ai-tenant-context.service.spec.ts`** (6 testes): chama
+- **Backend, `ai-tenant-context.service.spec.ts`** (12 testes): chama
   `DashboardService.getFinancialSummary` com a organização autenticada e
   período omisso; mensagem `system` inclui as regras obrigatórias
   (só responder com os dados, admitir insuficiência, nunca inventar,
-  nunca escrever); período sem faturas produz nota explícita; inclui
-  totais/estado/tendência/categoria/fornecedores quando existem dados;
-  nunca inclui dados de outra organização.
+  nunca escrever); regras incluem a definição de "Por pagar" e a
+  proibição de recalcular um total já fornecido; regras exigem
+  explicações baseadas exclusivamente nos dados fornecidos; regras
+  exigem português de Portugal, proíbem "você" e exigem estados
+  traduzidos; período sem faturas produz nota explícita; inclui
+  totais/estado (traduzido)/tendência/categoria/fornecedores quando
+  existem dados; a linha "Por estado" nunca expõe os enums internos;
+  "Por pagar" calculado como Pendente+Vencida via `Prisma.Decimal`,
+  incluindo o caso de zero faturas pendentes/vencidas; nunca inclui
+  dados de outra organização.
 - **Backend, `ai-chat.service.spec.ts`** (23 testes): criação/continuação
   de conversa; conversa de outro tenant/utilizador tratada como
   inexistente; ordem USER→provider→ASSISTANT; provider/model/usage
@@ -354,8 +395,8 @@ real que justificasse streaming/tools/RAG foi encontrado.
 
 - `pnpm typecheck` — 24/24.
 - `pnpm build` — 14/14; rota `/ai/chat` gerada (2.53 kB).
-- `pnpm test` (raiz) — 18/18 tarefas: `@frontrest/api` 434/434 (411
-  pré-existentes + 23 novos), `@frontrest/web` 40/40 (32 pré-existentes +
+- `pnpm test` (raiz) — 18/18 tarefas: `@frontrest/api` 440/440 (411
+  pré-existentes + 29 novos), `@frontrest/web` 40/40 (32 pré-existentes +
   8 novos), `@frontrest/workers` 27/27 (inalterado).
 - `pnpm --filter @frontrest/api test:e2e` — 107/107 (92 pré-existentes +
   15 novos).
@@ -398,6 +439,18 @@ dados, nenhuma `ASSISTANT` falsa criada (confirmado por `SELECT`
 direto). Container restaurado a `AI_PROVIDER=mock` no final — nenhuma
 dependência de Ollama fica ativa por omissão.
 
+Validação dedicada ao cálculo "Por pagar", com dados reais da mesma
+organização (`PENDING` 2/316.00, `PAID` 1/80.00, `OVERDUE` 2/54.00,
+confirmado por `SELECT` direto): "Quantas faturas ainda estão por pagar?"
+→ **"4"**; "Qual é o valor total ainda por pagar?" (mesma conversa) →
+**"370.00 EUR"** — ambos exatos (2+2 faturas, 316.00+54.00, `Paga`
+corretamente excluída). "Explica como calculaste o valor por pagar." →
+o modelo citou diretamente o valor já fornecido no contexto, sem
+inventar nenhuma operação. "Diz-me quantas faturas há em cada estado."
+→ **"Pendente: 2 / Paga: 1 / Vencida: 2"** — estados sempre traduzidos,
+nenhum enum interno (`PENDING`/`PAID`/`OVERDUE`) na resposta, nenhum uso
+de "você".
+
 `docker-compose.yml` não passava nenhuma variável `AI_*`/`AI_CHAT_*` ao
 serviço `api` antes desta fase (`packages/ai` não tinha consumidor
 real) — corrigido nesta fase (ver "Ficheiros alterados"), com omissão
@@ -415,8 +468,12 @@ arranque assim que `docker-compose.yml` a reencaminhasse.
   substituída pela validação mais forte disponível: chamadas HTTP reais
   contra Docker+Postgres+Ollama reais, com um utilizador de teste real
   registado via `POST /auth/register`, mais a suite de testes
-  automatizados do frontend. Recomenda-se uma confirmação visual manual
-  antes de dar esta fase por definitivamente fechada.
+  automatizados do frontend. A correção de contraste das mensagens
+  `USER` foi confirmada por inspeção direta do bundle JS reconstruído
+  dentro do container `web` (a classe `text-primary-foreground` presente
+  no chunk da rota `/ai/chat`), não por captura de ecrã. Recomenda-se
+  uma confirmação visual manual antes de dar esta fase por
+  definitivamente fechada.
 - O contexto do chat usa sempre o mês atual (mesma omissão do
   dashboard) — sem seletor de período dentro do chat nesta fase.
 - Sem eliminação de conversa nesta fase — decisão explícita (ver "Sem
@@ -458,7 +515,7 @@ package novo em `packages/*`.
 - [x] Sem streaming, tools, RAG, provider cloud ou package novo.
 - [x] `pnpm typecheck` limpo (24/24).
 - [x] `pnpm build` limpo (14/14).
-- [x] `pnpm test` limpo (18/18 tarefas, 434+40+27).
+- [x] `pnpm test` limpo (18/18 tarefas, 440+40+27).
 - [x] `pnpm --filter @frontrest/api test:e2e` limpo (107/107).
 - [x] Migrations e Docker validados contra PostgreSQL real.
 - [x] Comportamento manual validado (mock + Ollama real).

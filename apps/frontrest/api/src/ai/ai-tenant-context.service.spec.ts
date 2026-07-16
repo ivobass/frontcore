@@ -50,6 +50,33 @@ describe('AiTenantContextService', () => {
     expect(message.content).toContain('Nunca sugiras nem finjas alterar');
   });
 
+  it('regras incluem a definição de "Por pagar" e a proibição de recalcular um total já fornecido', async () => {
+    const service = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+
+    const message = await service.buildSystemMessage('org-1');
+
+    expect(message.content).toContain('"Por pagar" significa sempre Pendente + Vencida — nunca inclui faturas Pagas.');
+    expect(message.content).toContain('nunca o recalcules, estimes ou infiras a partir de outros números');
+  });
+
+  it('regras exigem explicações baseadas exclusivamente nos dados fornecidos, nunca em operações inventadas', async () => {
+    const service = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+
+    const message = await service.buildSystemMessage('org-1');
+
+    expect(message.content).toContain('nunca inventes operações matemáticas nem dados adicionais');
+  });
+
+  it('regras exigem português de Portugal, proíbem "você" e exigem estados traduzidos', async () => {
+    const service = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+
+    const message = await service.buildSystemMessage('org-1');
+
+    expect(message.content).toContain('Responde sempre em português de Portugal');
+    expect(message.content).toContain('nunca uses "você"');
+    expect(message.content).toContain('Usa sempre os nomes traduzidos dos estados das faturas (Pendente, Paga, Vencida, Cancelada)');
+  });
+
   it('período sem faturas produz uma nota explícita, sem inventar dados', async () => {
     const service = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
 
@@ -58,17 +85,48 @@ describe('AiTenantContextService', () => {
     expect(message.content).toContain('Sem faturas confirmadas neste período.');
   });
 
-  it('inclui totais, por estado, tendência mensal, categorias e fornecedores quando existem dados', async () => {
+  it('inclui totais, por estado (traduzido), tendência mensal, categorias e fornecedores quando existem dados', async () => {
     const service = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
     const message = await service.buildSystemMessage('org-1');
 
     expect(message.content).toContain('Faturas ativas: 4 (total: 370.00 EUR; média: 92.50 EUR)');
     expect(message.content).toContain('Faturas canceladas: 1');
-    expect(message.content).toContain('PENDING: 2 fatura(s), 316.00 EUR');
+    expect(message.content).toContain('Por estado: Pendente: 2 fatura(s), 316.00 EUR; Vencida: 2 fatura(s), 54.00 EUR.');
     expect(message.content).toContain('2026-07: 4 fatura(s), 370.00 EUR');
     expect(message.content).toContain('Hosting: 3 fatura(s), 354.00 EUR');
     expect(message.content).toContain('Hetzner: 3 fatura(s), 354.00 EUR');
+  });
+
+  it('a linha "Por estado" nunca expõe os enums internos (PENDING/OVERDUE/PAID/CANCELLED)', async () => {
+    const service = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+    const message = await service.buildSystemMessage('org-1');
+    const statusLine = message.content.split('\n').find((line) => line.startsWith('Por estado:'));
+
+    expect(statusLine).toBeDefined();
+    expect(statusLine).not.toMatch(/\b(PENDING|OVERDUE|PAID|CANCELLED)\b/);
+  });
+
+  it('calcula "Por pagar" como Pendente + Vencida, nunca incluindo Paga, de forma determinística (Prisma.Decimal, não number)', async () => {
+    const service = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+    const message = await service.buildSystemMessage('org-1');
+
+    // FILLED_SUMMARY: PENDING 2/316.00 + OVERDUE 2/54.00 = 4 faturas, 370.00 EUR.
+    expect(message.content).toContain('Por pagar (Pendente + Vencida): 4 fatura(s), 370.00 EUR.');
+  });
+
+  it('"Por pagar" com zero faturas pendentes/vencidas devolve 0, nunca omite a linha', async () => {
+    const summaryOnlyPaid: FinancialDashboardSummary = {
+      ...FILLED_SUMMARY,
+      byStatus: [{ status: 'PAID', count: 1, totalAmount: '80.00' }],
+    };
+    const service = buildService(jest.fn().mockResolvedValue(summaryOnlyPaid));
+
+    const message = await service.buildSystemMessage('org-1');
+
+    expect(message.content).toContain('Por pagar (Pendente + Vencida): 0 fatura(s), 0.00 EUR.');
   });
 
   it('nunca inclui dados de outra organização — só o resumo devolvido para a organização pedida', async () => {

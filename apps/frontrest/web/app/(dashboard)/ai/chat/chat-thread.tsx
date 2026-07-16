@@ -57,7 +57,10 @@ export function ChatThread({
                   : 'self-start bg-muted text-foreground'
               }`}
             >
-              <Typography variant="small" className="whitespace-pre-wrap">
+              <Typography
+                variant="small"
+                className={`whitespace-pre-wrap ${message.role === 'USER' ? 'text-primary-foreground' : ''}`}
+              >
                 {message.content}
               </Typography>
             </div>
