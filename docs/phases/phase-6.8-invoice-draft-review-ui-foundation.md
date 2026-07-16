@@ -371,15 +371,63 @@ ambiente de execução) e `MEMBER` real via Docker (sem endpoint de
 convite). Nada nesta revalidação altera essas limitações nem os
 critérios de conclusão já assinalados.
 
+## Validação manual
+
+Fluxo completo confirmado interativamente no browser, contra a
+infraestrutura real (Docker/Postgres/Redis/MinIO/Tesseract) — cobre
+exatamente o que a "Validação real (Docker)" e a "Revalidação real
+pós-Fase 6.9" já tinham confirmado ao nível dos contratos HTTP,
+desta vez por interação direta na interface:
+
+- fluxo completo Upload → `InvoiceDraft` → OCR → Fiscal Parsing →
+  Review → Promote, ponta a ponta, por clique real;
+- upload de documentos (drag-and-drop/seleção de ficheiro);
+- criação do `InvoiceDraft` a partir do upload;
+- processamento OCR e atualização do respetivo estado (badge) na
+  interface, sem intervenção manual;
+- carregamento automático das sugestões do parsing fiscal assim que o
+  OCR fica `COMPLETED`;
+- abertura da interface de revisão (`InvoiceDraftReviewSheet`);
+- edição manual dos campos do formulário;
+- gravação das alterações (`PATCH` diff-only);
+- promoção explícita a `Invoice`, com o diálogo de confirmação;
+- funcionamento geral da interface — navegação, estados de
+  carregamento, mensagens de erro/sucesso, botões.
+
+Com esta confirmação, o único critério de conclusão que permanecia por
+validar (ver "Critérios de conclusão") fica satisfeito. **A Fase 6.8 é
+considerada concluída.**
+
+Esta validação confirma que o objetivo definido para a Fase 6.8 foi
+integralmente cumprido. A interface de revisão encontra-se funcional e
+considera-se esta fase concluída. As melhorias futuras deverão incidir
+exclusivamente na qualidade do OCR e do parsing fiscal, não na
+arquitetura nem no fluxo de revisão implementado nesta fase.
+
 ## Limitações conhecidas
 
-- **Validação manual interativa no browser não executada nesta
-  sessão** — este ambiente de execução não tem acesso a um browser
-  real. Todo o resto (contratos HTTP, Docker, base de dados/storage/
-  fila reais) já foi validado nesta sessão — falta só a confirmação por
-  clique direto na interface (drag-and-drop, badge a mudar sozinho,
-  diálogos de confirmação, modo `MEMBER` visual). Ver checklist entregue
-  ao utilizador.
+- **A interface está concluída e funcional** — validada tanto contra a
+  API real (secções acima) como manualmente no browser (ver "Validação
+  manual"). As limitações abaixo são do domínio OCR/parsing, não da
+  interface desta fase.
+- **O OCR pode continuar a produzir resultados imperfeitos**,
+  dependendo da qualidade e do formato do documento — identificados,
+  entre outros: confusão entre `0` e `O`; reconhecimento imperfeito de
+  alguns números de fatura; necessidade ocasional de correção manual
+  pelo utilizador.
+- Estas limitações **não comprometem o fluxo**: toda a sugestão do
+  parsing fiscal passa obrigatoriamente por revisão humana antes de
+  qualquer valor chegar a `Invoice` — nada é persistido a partir do OCR/
+  parsing sem confirmação explícita (ver "Parsing fiscal — automático,
+  mas nunca aplicado nem persistido", acima).
+- Melhorias futuras de precisão de OCR e de parsing fiscal devem ser
+  tratadas numa fase própria de evolução — não nesta foundation —
+  suportadas por documentos reais e pela suite de regressão já existente
+  (`fiscal-parsing.regression.spec.ts`, Fase 6.13), que protege
+  precisamente contra este tipo de regressão.
+- Estas limitações foram observadas durante testes reais e representam
+  limitações naturais do OCR determinístico utilizado nesta fase, não
+  falhas da interface de revisão implementada.
 - **`MEMBER` real não testado via Docker** — ver ponto 8 da "Validação
   real", acima; sem endpoint de convite/gestão de membros na aplicação
   (limitação pré-existente, não desta fase), a validação de `MEMBER`
@@ -416,9 +464,8 @@ critérios de conclusão já assinalados.
 
 ## Trabalho futuro
 
-Validação manual interativa completa; corrigir o crash do worker
-Tesseract perante imagens corrompidas (`packages/ocr`/
-`apps/frontrest/workers`, fora do âmbito desta fase); endpoint de
+Corrigir o crash do worker Tesseract perante imagens corrompidas
+(`packages/ocr`/`apps/frontrest/workers`, fora do âmbito desta fase); endpoint de
 convite/gestão de membros (necessário para testar `MEMBER` real contra
 infraestrutura real em qualquer fase futura); "Aplicar sugestões" por
 campo em vez de tudo-ou-nada; preview de PDF/imagem no painel de
@@ -452,14 +499,13 @@ preparado desde a Fase 6.5) com botão de retry manual na UI.
 - [x] Typecheck e build limpos (raiz e isolado por app).
 - [x] Validação Docker executada (imagens reconstruídas, 6 serviços saudáveis).
 - [x] Validação real da API executada (upload, OCR, parsing, PATCH nullable ×7, promoção, isolamento).
-- [ ] Fluxo completo validado manualmente no browser — pendente confirmação do utilizador (ver checklist).
+- [x] Fluxo completo validado manualmente no browser (confirmado pelo utilizador — ver "Validação manual").
 - [x] Documentação da fase atualizada com o estado real (`PHASES.md`/`INDEX.md`/`ARCHITECTURE.md`).
 - [x] Git permanece sem commit/tag/push executados pela IA.
 
 ## Próxima fase
 
-Validação manual interativa no browser (checklist entregue ao
-utilizador — bloqueante para fecho definitivo); depois, candidatos
-naturais: corrigir o crash do worker Tesseract com imagens corrompidas,
+Fase concluída — sem bloqueio pendente. Candidatos naturais para fases
+futuras: corrigir o crash do worker Tesseract com imagens corrompidas,
 endpoint de convite/gestão de membros, persistência opcional do parsing
 fiscal no draft, UI de retry manual de OCR, preview de documento.
