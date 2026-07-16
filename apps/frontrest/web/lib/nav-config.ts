@@ -29,6 +29,11 @@ export function getNavItems(pathname: string): NavItem[] {
       href: '/ai/chat',
       active: pathname === '/ai/chat',
     },
+    {
+      label: 'Relatórios',
+      href: '/reports',
+      active: pathname === '/reports',
+    },
     { label: 'Definições', href: '/settings', active: pathname === '/settings' },
   ];
 }

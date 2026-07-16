@@ -201,7 +201,24 @@
   com `AI_PROVIDER=mock` e com Ollama real — sem streaming, tools, RAG,
   embeddings, provider cloud, eliminação de conversa ou package novo
   (`docs/phases/phase-8-ai-chat-foundation.md`).
-- **Fase 9 — Relatórios**: mensal, export PDF/CSV, comparação.
+- **Fase 9 — Monthly Financial Reports & Export Foundation**:
+  `GET /reports/monthly` (JSON/CSV/PDF, `apps/frontrest/api/src/reports/`)
+  — relatório de um mês, comparação com o mês anterior, detalhe das
+  faturas do período (inclui `CANCELLED`, distinguível pelo estado);
+  `ReportsService` reutiliza exclusivamente a API pública de
+  `DashboardService` (Fase 7) para todas as agregações — nunca duplica
+  queries financeiras, nunca conhece os seus métodos privados; `month.util.ts`
+  reutiliza `resolvePeriod()` para a validação/UTC, sem a duplicar;
+  comparação sem `Infinity`/`NaN` por construção
+  (`percentageChange: null` quando o período anterior é zero, calculada
+  antes de qualquer divisão); exportação CSV escrita à mão (delimitador
+  `;`, BOM UTF-8, mitigação CSV injection) e PDF via PDFKit (sem
+  Chromium, sem dependências nativas) — JSON/CSV/PDF derivam sempre do
+  mesmo `MonthlyFinancialReport`; `/reports` no frontend (seleção de
+  mês, resumo, comparação, tabela de faturas, exportação); sem
+  persistência de relatórios, sem package novo, sem migration, sem
+  alteração a Dashboard ou AI Chat
+  (`docs/phases/phase-9-monthly-financial-reports-export-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify.
 

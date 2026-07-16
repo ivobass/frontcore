@@ -1,0 +1,138 @@
+import type { MonthlyFinancialReport } from '../reports.service';
+
+/**
+ * CSV escrito à mão (Fase 9) — sem dependência: RFC4180 é simples o
+ * suficiente para não justificar um package só para isto. Delimitador
+ * `;` (não `,`): no locale `pt-PT`, `,` é o separador decimal — o Excel
+ * português espera `;` como separador de campos CSV, `,` produziria um
+ * ficheiro mal interpretado. BOM UTF-8 no início — sem ele, o Excel
+ * assume Latin-1 e desalinha os acentos portugueses.
+ */
+const DELIMITER = ';';
+const BOM = '﻿';
+const LINE_BREAK = '\r\n';
+
+/** Local a `reports/` deliberadamente — evita tocar em `ai/` (Fase 8, fora do âmbito) só para partilhar 4 linhas. */
+const STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Pendente',
+  PAID: 'Paga',
+  OVERDUE: 'Vencida',
+  CANCELLED: 'Cancelada',
+};
+
+/**
+ * Mitigação OWASP contra CSV injection: um campo cujo primeiro carácter
+ * seja `=`, `+`, `-` ou `@` é interpretado como fórmula por alguns
+ * leitores de CSV (incluindo o Excel) — prefixar com `'` faz o Excel
+ * tratar o valor como texto puro, sem o executar.
+ */
+const FORMULA_PREFIXES = ['=', '+', '-', '@'];
+
+function escapeCsvField(value: string): string {
+  let field = value;
+  if (FORMULA_PREFIXES.some((prefix) => field.startsWith(prefix))) {
+    field = `'${field}`;
+  }
+  if (/[;"\r\n]/.test(field)) {
+    field = `"${field.replace(/"/g, '""')}"`;
+  }
+  return field;
+}
+
+function csvRow(fields: Array<string | number>): string {
+  return fields.map((field) => escapeCsvField(String(field))).join(DELIMITER);
+}
+
+export function serializeMonthlyReportToCsv(report: MonthlyFinancialReport): string {
+  const lines: string[] = [];
+
+  lines.push(csvRow(['Relatório Financeiro Mensal']));
+  lines.push(csvRow(['Período', `${report.period.from} a ${report.period.to}`]));
+  lines.push(csvRow(['Período anterior (comparação)', `${report.previousPeriod.from} a ${report.previousPeriod.to}`]));
+  lines.push('');
+
+  lines.push(csvRow(['Resumo']));
+  lines.push(csvRow(['Faturas ativas', report.totals.activeInvoiceCount]));
+  lines.push(csvRow(['Faturas canceladas', report.totals.cancelledInvoiceCount]));
+  lines.push(csvRow(['Total', report.totals.totalAmount]));
+  lines.push(csvRow(['Média por fatura', report.totals.averageAmount]));
+  lines.push('');
+
+  lines.push(csvRow(['Comparação com o período anterior']));
+  lines.push(csvRow(['Métrica', 'Atual', 'Anterior', 'Variação absoluta', 'Variação percentual', 'Direção']));
+  lines.push(
+    csvRow([
+      'Total',
+      report.comparison.totalAmount.current,
+      report.comparison.totalAmount.previous,
+      report.comparison.totalAmount.absoluteChange,
+      report.comparison.totalAmount.percentageChange === null
+        ? 'Sem dados no período anterior'
+        : `${report.comparison.totalAmount.percentageChange}%`,
+      translateDirection(report.comparison.totalAmount.direction),
+    ]),
+  );
+  lines.push(
+    csvRow([
+      'Número de faturas ativas',
+      report.comparison.activeInvoiceCount.current,
+      report.comparison.activeInvoiceCount.previous,
+      report.comparison.activeInvoiceCount.absoluteChange,
+      report.comparison.activeInvoiceCount.percentageChange === null
+        ? 'Sem dados no período anterior'
+        : `${report.comparison.activeInvoiceCount.percentageChange}%`,
+      translateDirection(report.comparison.activeInvoiceCount.direction),
+    ]),
+  );
+  lines.push('');
+
+  lines.push(csvRow(['Por estado']));
+  lines.push(csvRow(['Estado', 'Faturas', 'Total']));
+  for (const row of report.byStatus) {
+    lines.push(csvRow([STATUS_LABELS[row.status] ?? row.status, row.count, row.totalAmount]));
+  }
+  lines.push('');
+
+  lines.push(csvRow(['Por categoria']));
+  lines.push(csvRow(['Categoria', 'Faturas', 'Total']));
+  for (const row of report.byCategory) {
+    lines.push(csvRow([row.categoryName, row.count, row.totalAmount]));
+  }
+  lines.push('');
+
+  lines.push(csvRow(['Principais fornecedores']));
+  lines.push(csvRow(['Fornecedor', 'Faturas', 'Total']));
+  for (const row of report.topSuppliers) {
+    lines.push(csvRow([row.supplierName, row.count, row.totalAmount]));
+  }
+  lines.push('');
+
+  lines.push(csvRow(['Detalhe das faturas']));
+  lines.push(csvRow(['Número', 'Fornecedor', 'Categoria', 'Data de emissão', 'Data de vencimento', 'Estado', 'Montante']));
+  for (const invoice of report.invoices) {
+    lines.push(
+      csvRow([
+        invoice.number ?? '',
+        invoice.supplierName,
+        invoice.categoryName,
+        invoice.issueDate,
+        invoice.dueDate ?? '',
+        STATUS_LABELS[invoice.status] ?? invoice.status,
+        invoice.totalAmount,
+      ]),
+    );
+  }
+
+  return BOM + lines.join(LINE_BREAK);
+}
+
+function translateDirection(direction: 'increase' | 'decrease' | 'unchanged'): string {
+  switch (direction) {
+    case 'increase':
+      return 'Aumento';
+    case 'decrease':
+      return 'Redução';
+    case 'unchanged':
+      return 'Sem alteração';
+  }
+}

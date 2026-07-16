@@ -357,6 +357,37 @@ descendente pelo índice, invertido em memória) antes de
 thread; sem package novo, sem streaming, sem RAG. Ver
 `docs/phases/phase-8-ai-chat-foundation.md`.
 
+## Relatórios financeiros mensais
+
+Desde a Fase 9, `apps/frontrest/api/src/reports/` (`ReportsModule`,
+importando `DashboardModule`) é o segundo consumidor real de
+`DashboardService` (o primeiro foi o Chat IA, Fase 8) — `ReportsService`
+reutiliza exclusivamente a sua API pública (`getFinancialSummary()`),
+nunca conhece métodos privados nem duplica nenhuma agregação
+financeira; a única query Prisma própria deste módulo é o detalhe de
+faturas do mês (`invoices[]`, inclui `CANCELLED`, distinguível pelo
+`status`, sem paginação — volume naturalmente limitado por
+organização+mês). `month.util.ts` resolve `YYYY-MM` reutilizando
+`resolvePeriod()` (Fase 7) para toda a validação de calendário e
+construção UTC — sem lógica de datas duplicada.
+
+`GET /reports/monthly` (JSON/CSV/PDF) chama sempre
+`ReportsService.getMonthlyReport()` — os três formatos derivam do mesmo
+`MonthlyFinancialReport`, nunca queries diferentes por formato. A
+comparação com o mês anterior é `Infinity`/`NaN`-impossível por
+construção: `percentageChange` fica `null` antes de qualquer divisão
+quando o período anterior é zero, nunca calculado e depois validado.
+Exportação sem armazenamento (sem `StorageObject`/MinIO) — CSV escrito
+à mão (RFC4180, delimitador `;` e BOM UTF-8 para compatibilidade com
+Excel em `pt-PT`, mitigação OWASP contra CSV injection) e PDF via
+PDFKit (fontes standard `WinAnsiEncoding`, sem Chromium, sem
+dependências nativas — comparado explicitamente contra `pdf-lib`,
+`@react-pdf/renderer` e Puppeteer). `/reports`
+(`apps/frontrest/web`) consome o endpoint com seleção de mês, resumo,
+comparação e tabela de faturas; downloads autenticados via `Blob`/
+`ObjectURL` (nunca um link direto sem `Authorization`). Ver
+`docs/phases/phase-9-monthly-financial-reports-export-foundation.md`.
+
 ## Apps (FrontRest)
 
 | App                    | Stack       | Porta | Estado Fase 1            |
