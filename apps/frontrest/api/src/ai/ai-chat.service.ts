@@ -2,12 +2,14 @@ import {
   BadGatewayException,
   BadRequestException,
   GatewayTimeoutException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { HttpException } from '@nestjs/common';
 import { PrismaService } from '@frontcore/database';
 import type { AiConversation, AiMessage as AiMessageRow, AiMessageRole } from '@frontcore/database';
 import { AiProviderError } from '@frontcore/ai';
@@ -54,6 +56,7 @@ export interface SendChatMessageResult {
  */
 @Injectable()
 export class AiChatService {
+  private readonly logger = new Logger(AiChatService.name);
   private readonly config: AiChatConfig;
 
   constructor(
@@ -258,14 +261,25 @@ export class AiChatService {
   }
 
   /**
-   * Nunca propaga `error.message`/`error.cause` do provider — só texto
-   * fixo em pt-PT por `code` (mesma taxonomia sanitizada de
-   * `AiProviderError`, Fase 6.11). `timeout` → 504, indisponibilidade/
-   * configuração → 503, resposta inválida/desconhecido → 502 — nenhum
-   * destes é um erro do cliente (o pedido HTTP em si era válido).
+   * Nunca propaga `error.message`/`error.cause` do provider ao cliente —
+   * só texto fixo em pt-PT por `code` (mesma taxonomia sanitizada de
+   * `AiProviderError`, Fase 6.11, estendida na Fase 8.2 com
+   * `authentication`/`rate_limit` — códigos reais desde que
+   * `OpenRouterAiProvider` existe). `timeout` → 504, indisponibilidade/
+   * configuração/autenticação → 503 (erro do lado do servidor, nunca do
+   * pedido do cliente), limite de taxa → 429, resposta inválida/
+   * desconhecido → 502. O detalhe real do erro (`error.message`/
+   * `error.cause`, nunca expostos ao cliente) é registado aqui, uma
+   * única vez, no ponto exato onde a taxonomia sanitizada é decidida —
+   * mesmo padrão já usado por `InvoiceDraftsService` para falhas
+   * técnicas não expostas ao pedido HTTP.
    */
   private mapProviderError(error: unknown): HttpException {
     if (error instanceof AiProviderError) {
+      this.logger.error(
+        `Falha do provider de IA (code=${error.code}): ${error.message}`,
+        error.cause instanceof Error ? error.cause.stack : undefined,
+      );
       switch (error.code) {
         case 'timeout':
           return new GatewayTimeoutException(
@@ -276,8 +290,14 @@ export class AiChatService {
             'O assistente de IA está indisponível de momento. Tenta novamente mais tarde.',
           );
         case 'model_not_found':
+        case 'authentication':
           return new ServiceUnavailableException(
             'O assistente de IA não está configurado corretamente. Contacta o suporte.',
+          );
+        case 'rate_limit':
+          return new HttpException(
+            'O assistente de IA está a receber demasiados pedidos de momento. Tenta novamente dentro de instantes.',
+            HttpStatus.TOO_MANY_REQUESTS,
           );
         case 'invalid_response':
         case 'unknown':
@@ -287,6 +307,10 @@ export class AiChatService {
           );
       }
     }
+    this.logger.error(
+      'Falha inesperada ao chamar o provider de IA (não é AiProviderError).',
+      error instanceof Error ? error.stack : undefined,
+    );
     return new BadGatewayException(
       'Não foi possível obter resposta do assistente de IA. Tenta novamente.',
     );

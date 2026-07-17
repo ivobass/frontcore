@@ -235,6 +235,27 @@
   calling/agentes/RAG; sem package novo, sem migration, sem alteração
   ao frontend
   (`docs/phases/phase-8.1-financial-ai-retrieval-foundation.md`).
+- **Fase 8.2 — OpenRouter Provider Integration & AI Runtime
+  Stabilization**: primeiro provider cloud real —
+  `OpenRouterAiProvider` (`packages/ai/src/providers/openrouter/`),
+  API OpenAI-compatible, sobre `fetch` nativo, sem SDK; `AiConfig`/
+  `loadAiConfig()` ganham `'openrouter'` com a mesma disciplina do
+  Ollama (`AI_MODEL`/`OPENROUTER_API_KEY` obrigatórios, sem default
+  permanente); `AiErrorCode` estendido com `authentication`/
+  `rate_limit` (reais desde que existe um provider com credencial e
+  limite de taxa — inclui `402`, confirmado real na validação manual);
+  retry genérico (`withRetries()`, decorator interno aplicado pela
+  `createAiProvider()` a providers reais, nunca a `mock`, backoff
+  exponencial, omissão sem alteração de comportamento);
+  `AiChatService` ganha `Logger.error()` no ponto onde já sanitiza
+  erros do provider (mesmo padrão de `InvoiceDraftsService`).
+  `AiCompletionProvider`/`AiChatService`/`AiController` inalterados —
+  adicionar o terceiro provider não exigiu tocar em nenhum consumidor;
+  validado contra o serviço OpenRouter real (autorização explícita do
+  utilizador, um pedido pago mínimo); sem RAG, embeddings, agentes,
+  tools, streaming complexo, package novo, migration, dependência nova
+  ou alteração ao frontend
+  (`docs/phases/phase-8.2-openrouter-provider-integration-ai-runtime-stabilization.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify.
 

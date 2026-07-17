@@ -1,4 +1,12 @@
-import { BadGatewayException, BadRequestException, GatewayTimeoutException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  GatewayTimeoutException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { AiProviderError } from '@frontcore/ai';
 import type { AiCompletionProvider, AiMessage } from '@frontcore/ai';
 import { AiChatService } from './ai-chat.service';
@@ -217,8 +225,9 @@ describe('AiChatService', () => {
 
   describe('sendMessage — falha do provider', () => {
     async function expectSanitizedError(
-      code: 'timeout' | 'provider_unavailable' | 'model_not_found' | 'invalid_response' | 'unknown',
+      code: 'timeout' | 'provider_unavailable' | 'model_not_found' | 'authentication' | 'rate_limit' | 'invalid_response' | 'unknown',
       expectedType: new (...args: never[]) => Error,
+      expectedStatus?: number,
     ) {
       const { service, prisma, provider } = buildService();
       prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1' });
@@ -230,6 +239,9 @@ describe('AiChatService', () => {
 
       expect(error).toBeInstanceOf(expectedType);
       expect(error.message).not.toContain('mensagem interna nunca exposta');
+      if (expectedStatus !== undefined) {
+        expect((error as HttpException).getStatus()).toBe(expectedStatus);
+      }
       // Mensagem USER já foi persistida (create chamado uma vez, role USER) — nunca apagada.
       expect(prisma.aiMessage.create).toHaveBeenCalledTimes(1);
       expect(prisma.aiMessage.create).toHaveBeenCalledWith({
@@ -242,6 +254,9 @@ describe('AiChatService', () => {
     it('timeout → 504 sanitizado', () => expectSanitizedError('timeout', GatewayTimeoutException));
     it('provider_unavailable → 503 sanitizado', () => expectSanitizedError('provider_unavailable', ServiceUnavailableException));
     it('model_not_found → 503 sanitizado', () => expectSanitizedError('model_not_found', ServiceUnavailableException));
+    it('authentication → 503 sanitizado (erro de configuração do servidor, nunca do pedido do cliente)', () =>
+      expectSanitizedError('authentication', ServiceUnavailableException));
+    it('rate_limit → 429 sanitizado', () => expectSanitizedError('rate_limit', HttpException, HttpStatus.TOO_MANY_REQUESTS));
     it('invalid_response → 502 sanitizado', () => expectSanitizedError('invalid_response', BadGatewayException));
     it('unknown → 502 sanitizado', () => expectSanitizedError('unknown', BadGatewayException));
   });

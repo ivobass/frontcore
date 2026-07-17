@@ -176,16 +176,70 @@ um provider local não tem, a reintroduzir só quando um provider cloud
 real os exigir) — nunca a mensagem bruta do Ollama, nunca o nome do
 modelo pedido, só texto fixo sanitizado por `code`.
 
-Zero consumidor real ainda — nenhum extractor de IA foi implementado.
-Um futuro extractor fiscal de IA (ver `docs/adr/0007-document-extraction-foundation.md`)
-implementaria `DocumentExtractor<FiscalField, T>`
+Zero consumidor de extração ainda — nenhum extractor de IA foi
+implementado. Um futuro extractor fiscal de IA (ver
+`docs/adr/0007-document-extraction-foundation.md`) implementaria
+`DocumentExtractor<FiscalField, T>`
 (`apps/frontrest/api/src/document-extraction/`) chamando
 `AiCompletionProvider` no seu próprio `extract()` — `packages/ai`
-continua sem qualquer conhecimento de faturas, OCR ou `FiscalField`. Um
-segundo provider cloud (OpenAI, Anthropic, Azure OpenAI, OpenRouter)
-fica para uma fase futura, sobre o mesmo `AiCompletionProvider`. Ver
-`docs/phases/phase-6.11-ai-provider-foundation.md` para o contrato
+continua sem qualquer conhecimento de faturas, OCR ou `FiscalField`.
+Ver `docs/phases/phase-6.11-ai-provider-foundation.md` para o contrato
 completo e a comparação API nativa vs. OpenAI-compatible do Ollama.
+
+### Provider cloud — OpenRouter, retries e taxonomia de erro completa (Fase 8.2)
+
+`OpenRouterAiProvider` (`packages/ai/src/providers/openrouter/`) é o
+primeiro provider cloud real — API **OpenAI-compatible** do OpenRouter
+(`POST {baseUrl}/chat/completions`, endpoint público
+`https://openrouter.ai/api/v1`), que dá acesso a dezenas de modelos
+(OpenAI, Anthropic, Google, Mistral, DeepSeek, ...) atrás de uma única
+API e uma única credencial. Mesma disciplina do Ollama: `fetch` nativo,
+sem SDK; `model` usa a convenção `"<fabricante>/<modelo>"` do
+OpenRouter — uma string de configuração (`AiConfig.model`), nunca uma
+nova abstração de seleção de modelo. Adicionar este terceiro provider
+**não exigiu nenhuma alteração** a `AiCompletionProvider`,
+`AiChatService` ou `AiController` — confirma empiricamente a promessa
+provider-agnostic desde a Fase 6.11.
+
+`AiErrorCode` ganha `authentication` (401/403/**402**) e `rate_limit`
+(429) — só fazem sentido com um provider com credencial e limite de
+taxa reais, nenhum dos dois existia com só Mock/Ollama. `402`
+(saldo insuficiente) foi confirmado real contra o serviço OpenRouter
+durante a validação manual desta fase, não assumido a partir de
+documentação — classificado como `authentication` (mesma categoria
+operacional, nunca reintentável), sem introduzir um oitavo código para
+um caso de baixa frequência.
+
+`withRetries()` (`packages/ai/src/providers/with-retries.ts`) é um
+decorator interno, nunca exportado do package, aplicado por
+`createAiProvider()` a providers reais (`ollama`/`openrouter`, nunca
+`mock`, que nunca falha) — reintenta só códigos transitórios
+(`timeout`/`provider_unavailable`/`rate_limit`) com backoff
+exponencial, nunca erros de configuração/pedido
+(`authentication`/`model_not_found`/`invalid_response`/`unknown`, onde
+reintentar não mudaria o resultado). `retryAttempts=0` (omissão)
+devolve o provider original sem qualquer wrapper — nenhuma alteração
+de comportamento para consumidores existentes. Um único ponto de
+aplicação, não duplicado por provider — qualquer provider futuro ganha
+retries sem alteração própria. Confirmado a reintentar de facto contra
+falhas reais (HTTP 429 genuíno do nível gratuito do OpenRouter) durante
+a validação manual — não só simulado em testes.
+
+Alternativas consideradas e rejeitadas (YAGNI): um Provider Registry
+dinâmico em vez do `switch` de `createAiProvider()` (sem problema de
+manutenção que uma tabela resolva com 3 providers reais); um sistema
+de negociação de capacidades (zero consumidor real a diferenciar
+comportamento por capacidade); retry duplicado dentro de cada provider
+concreto; logging dentro de `packages/ai` (exigiria uma dependência de
+framework num package deliberadamente agnóstico — o log do erro real
+do provider, antes da sanitização, vive em `AiChatService`
+(`apps/frontrest/api`), mesmo padrão já usado por
+`InvoiceDraftsService`).
+
+Ver `docs/phases/phase-8.2-openrouter-provider-integration-ai-runtime-stabilization.md`
+para a validação manual completa contra o serviço real (incluindo os
+casos reais de `402`/`429` que motivaram a classificação de erro
+acima).
 
 ## Base de dados partilhada entre apps NestJS
 
@@ -346,11 +400,14 @@ segurança real (esse já está garantido antes de qualquer dado chegar
 ao provider).
 
 `POST /ai/chat` persiste a mensagem `USER` antes de chamar o provider —
-uma falha do provider (`AiProviderError`, mesma taxonomia da Fase 6.11)
-nunca apaga essa mensagem nem cria uma resposta `ASSISTANT` falsa;
-`code` mapeado para HTTP sanitizado (`timeout`→504, `provider_unavailable`/
-`model_not_found`→503, `invalid_response`/`unknown`→502), nunca a
-mensagem bruta do provider. Histórico enviado ao provider limitado por
+uma falha do provider (`AiProviderError`, taxonomia estendida na Fase
+8.2) nunca apaga essa mensagem nem cria uma resposta `ASSISTANT` falsa;
+`code` mapeado para HTTP sanitizado (`timeout`→504,
+`provider_unavailable`/`model_not_found`/`authentication`→503,
+`rate_limit`→429, `invalid_response`/`unknown`→502), nunca a mensagem
+bruta do provider — o detalhe real é registado server-side
+(`Logger.error()`, Fase 8.2), nunca devolvido ao cliente. Histórico
+enviado ao provider limitado por
 `AI_CHAT_HISTORY_LIMIT`, sempre reordenado cronologicamente (carregado
 descendente pelo índice, invertido em memória) antes de
 `AiCompletionProvider.complete()`. `/ai/chat`

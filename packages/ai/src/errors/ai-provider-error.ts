@@ -1,12 +1,19 @@
 /**
  * Categorias com valor operacional imediato para o(s) provider(s)
  * realmente implementados — nunca a hierarquia integral de erros de um
- * SDK/API. Sem `authentication`/`rate_limit`: nenhum provider
- * implementado hoje (Ollama, local, sem API key) tem esses conceitos;
- * reintroduzir-se-iam quando um provider cloud real os exigir, não
- * antes.
+ * SDK/API. `authentication`/`rate_limit` (Fase 8.2) só existem desde que
+ * `OpenRouterAiProvider` — o primeiro provider cloud, com API key e
+ * limites de taxa reais — foi implementado; o Ollama local nunca produz
+ * nenhum dos dois.
  */
-export type AiErrorCode = 'timeout' | 'invalid_response' | 'provider_unavailable' | 'model_not_found' | 'unknown';
+export type AiErrorCode =
+  | 'timeout'
+  | 'invalid_response'
+  | 'provider_unavailable'
+  | 'model_not_found'
+  | 'authentication'
+  | 'rate_limit'
+  | 'unknown';
 
 /**
  * Erro operacional de um provider de IA — uma única classe com `code`

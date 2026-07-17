@@ -9,6 +9,8 @@ const config: OllamaAiConfig = {
   model: 'qwen3:4b',
   timeoutMs: 5000,
   maxOutputTokens: 256,
+  retryAttempts: 0,
+  retryBackoffMs: 500,
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
