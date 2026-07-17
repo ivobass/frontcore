@@ -336,4 +336,40 @@ describe('AI Chat (e2e)', () => {
       expect(response.body.message.content).not.toContain('org-1');
     });
   });
+
+  /**
+   * Retrieval financeiro estruturado (Fase 8.1) — o `MockAiProvider` ecoa
+   * sempre a última mensagem (a pergunta do utilizador), nunca o `system
+   * prompt`, por isso um teste e2e não consegue inspecionar o texto de
+   * dados/orientação construído pelo retrieval (isso já está coberto
+   * exaustivamente por `financial-retrieval.service.spec.ts` e
+   * `ai-tenant-context.service.spec.ts`, unitários). O que só um teste
+   * e2e real prova, e que nenhum teste unitário prova sozinho (esses
+   * instanciam os serviços à mão, sem passar pela injeção do Nest), é
+   * que a árvore de injeção de `AiModule` — agora com
+   * `FinancialRetrievalService` — continua a arrancar e a ligar
+   * corretamente ponta a ponta: intenção suportada → período resolvido →
+   * chamada real ao `DashboardService` → resposta concluída através do
+   * Mock provider.
+   */
+  describe('retrieval financeiro — integração ponta a ponta (Fase 8.1)', () => {
+    it('intenção suportada (valores por pagar este mês) resolve o período, consulta o DashboardService e devolve a resposta do Mock provider', async () => {
+      prisma.invoice.groupBy.mockResolvedValueOnce([
+        { status: 'PENDING', _count: 2, _sum: { totalAmount: '316.00' } },
+        { status: 'OVERDUE', _count: 2, _sum: { totalAmount: '54.00' } },
+      ]);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quanto tenho por pagar este mês?' })
+        .expect(201);
+
+      // Confirma a chamada real ao DashboardService (via Prisma) — não um mock do próprio serviço.
+      expect(prisma.invoice.groupBy).toHaveBeenCalled();
+      // Confirma que a resposta atravessou toda a árvore de injeção até ao Mock provider.
+      expect(response.body.message.role).toBe('ASSISTANT');
+      expect(response.body.message.provider).toBeUndefined(); // ChatMessageView público não expõe o provider — contrato inalterado.
+    });
+  });
 });

@@ -219,6 +219,22 @@
   persistência de relatórios, sem package novo, sem migration, sem
   alteração a Dashboard ou AI Chat
   (`docs/phases/phase-9-monthly-financial-reports-export-foundation.md`).
+- **Fase 8.1 — Financial AI Retrieval Foundation**: substitui o resumo
+  fixo do período por omissão do Chat IA (Fase 8) por retrieval
+  financeiro estruturado — intenção (`FINANCIAL_SUMMARY`/
+  `OUTSTANDING_BALANCE`/`BY_STATUS`/`BY_CATEGORY`/`TOP_SUPPLIERS`/
+  `MONTHLY_TREND`, conjunto fechado) e período (mês/ano atual/anterior,
+  mês explícito, intervalo explícito) resolvidos deterministicamente por
+  regex/palavras-chave sobre a mensagem do utilizador, nunca pelo LLM;
+  `FinancialRetrievalService` (`apps/frontrest/api/src/ai/financial-retrieval/`)
+  reutiliza exclusivamente `DashboardService.getFinancialSummary()`
+  (Fase 7) e devolve só o subconjunto de dados relevante para a
+  intenção; fallback explícito para pergunta não suportada, período em
+  falta/ambíguo e erro interno — nunca cai silenciosamente no mês
+  atual; `AiCompletionProvider` inalterado, sem tools/function
+  calling/agentes/RAG; sem package novo, sem migration, sem alteração
+  ao frontend
+  (`docs/phases/phase-8.1-financial-ai-retrieval-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify.
 

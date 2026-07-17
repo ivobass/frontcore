@@ -180,7 +180,7 @@ describe('AiChatService', () => {
   });
 
   describe('sendMessage — contexto', () => {
-    it('constrói o contexto só a partir da organização autenticada', async () => {
+    it('constrói o contexto a partir da organização autenticada e da mensagem atual (retrieval financeiro, Fase 8.1)', async () => {
       const { service, prisma, provider, tenantContext } = buildService();
       prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-42', userId: 'user-1' });
       prisma.aiMessage.findMany.mockResolvedValue([]);
@@ -188,9 +188,9 @@ describe('AiChatService', () => {
       prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
       prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'resposta', createdAt: new Date() });
 
-      await service.sendMessage('org-42', 'user-1', { message: 'Olá' });
+      await service.sendMessage('org-42', 'user-1', { message: 'Quanto gastei este mês?' });
 
-      expect(tenantContext.buildSystemMessage).toHaveBeenCalledWith('org-42');
+      expect(tenantContext.buildSystemMessage).toHaveBeenCalledWith('org-42', 'Quanto gastei este mês?');
       expect(tenantContext.buildSystemMessage).toHaveBeenCalledTimes(1);
     });
   });

@@ -61,8 +61,13 @@ export function previousMonth(value: string): string {
   return `${prevDate.getUTCFullYear()}-${pad2(prevDate.getUTCMonth() + 1)}`;
 }
 
-/** `YYYY-MM` do mês atual em UTC — omissão do endpoint, mesma convenção de `resolvePeriod()` para o dashboard. */
-export function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${pad2(now.getUTCMonth() + 1)}`;
+/**
+ * `YYYY-MM` do mês atual em UTC — omissão do endpoint, mesma convenção de
+ * `resolvePeriod()` para o dashboard. `referenceDate` opcional (omissão
+ * `new Date()`) — reutilizado pela resolução de período do retrieval
+ * financeiro (Fase 8.1), cujos testes precisam de uma data determinística
+ * em vez da data real da máquina.
+ */
+export function currentMonth(referenceDate: Date = new Date()): string {
+  return `${referenceDate.getUTCFullYear()}-${pad2(referenceDate.getUTCMonth() + 1)}`;
 }

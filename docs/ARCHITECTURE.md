@@ -337,12 +337,13 @@ objetivo funcional da fase — o chat continua uma foundation genérica de
 conversas/histórico/isolamento/providers, não um assistente financeiro
 dedicado; um consumidor de contexto diferente reutilizaria a mesma forma
 sem alterar `AiChatService`/`AiController`. O contexto é pequeno,
-read-only, limitado ao mês atual (mesma omissão do dashboard) e
-reconstruído em cada pedido, nunca persistido nem cacheado. O `system
-prompt` declara explicitamente que só pode responder com os dados
-fornecidos e que o modelo nunca é fronteira de autorização — reforço,
-não o mecanismo de segurança real (esse já está garantido antes de
-qualquer dado chegar ao provider).
+read-only, e reconstruído em cada pedido, nunca persistido nem
+cacheado — desde a Fase 8.1, já não fixo ao mês atual (ver "Retrieval
+financeiro estruturado do Chat IA", abaixo). O `system prompt` declara
+explicitamente que só pode responder com os dados fornecidos e que o
+modelo nunca é fronteira de autorização — reforço, não o mecanismo de
+segurança real (esse já está garantido antes de qualquer dado chegar
+ao provider).
 
 `POST /ai/chat` persiste a mensagem `USER` antes de chamar o provider —
 uma falha do provider (`AiProviderError`, mesma taxonomia da Fase 6.11)
@@ -356,6 +357,36 @@ descendente pelo índice, invertido em memória) antes de
 (`apps/frontrest/web`) consome o endpoint com lista de conversas +
 thread; sem package novo, sem streaming, sem RAG. Ver
 `docs/phases/phase-8-ai-chat-foundation.md`.
+
+### Retrieval financeiro estruturado do Chat IA (Fase 8.1)
+
+`AiTenantContextService.buildSystemMessage()` já não chama
+`DashboardService.getFinancialSummary()` com o período por omissão do
+dashboard — delega em `FinancialRetrievalService`
+(`apps/frontrest/api/src/ai/financial-retrieval/`), que resolve
+deterministicamente (regex/palavras-chave sobre a mensagem do
+utilizador, **nunca** uma completion) uma intenção financeira fechada
+(`FINANCIAL_SUMMARY`/`OUTSTANDING_BALANCE`/`BY_STATUS`/`BY_CATEGORY`/
+`TOP_SUPPLIERS`/`MONTHLY_TREND`) e um período (mês/ano atual/anterior,
+mês explícito, intervalo explícito), reutilizando sempre
+`resolvePeriod()` (Fase 7) e `resolveMonth()`/`previousMonth()`/
+`currentMonth()` (Fase 9) para a validação de calendário/UTC — nunca
+uma segunda semântica temporal. Continua a chamar exclusivamente
+`DashboardService.getFinancialSummary(organizationId, { from, to })`
+(a API pública, nunca métodos privados), mas agora seleciona só o
+subconjunto de dados relevante para a intenção antes de o enviar ao
+provider — nunca o resumo completo independentemente da pergunta.
+
+Uma pergunta fora do conjunto fechado de intenções, ou cujo período não
+seja identificável/ambíguo, nunca cai silenciosamente no mês atual:
+`financial-context.builder.ts` (função pura) produz um bloco de texto
+explícito e distinto para cada caso (`UNSUPPORTED`/`PERIOD_MISSING`/
+`PERIOD_AMBIGUOUS`/`ERROR`/`DATA`), orientando o modelo a admitir a
+limitação ou a pedir clarificação em vez de inventar dados. `packages/ai`
+e o contrato de `AiCompletionProvider` permanecem inalterados — o
+retrieval é uma etapa do backend do FrontRest, antes da chamada ao
+provider, nunca tools/function calling (fora do âmbito desta fase; ver
+`docs/phases/phase-8.1-financial-ai-retrieval-foundation.md`).
 
 ## Relatórios financeiros mensais
 

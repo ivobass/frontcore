@@ -6,6 +6,7 @@ import { AiController } from './ai.controller';
 import { AiChatService } from './ai-chat.service';
 import { AiTenantContextService } from './ai-tenant-context.service';
 import { AI_COMPLETION_PROVIDER } from './ai-completion-provider.token';
+import { FinancialRetrievalService } from './financial-retrieval/financial-retrieval.service';
 
 /**
  * Único ponto de `apps/frontrest/api` que importa `createAiProvider`/
@@ -24,6 +25,7 @@ import { AI_COMPLETION_PROVIDER } from './ai-completion-provider.token';
   providers: [
     AiChatService,
     AiTenantContextService,
+    FinancialRetrievalService,
     {
       provide: AI_COMPLETION_PROVIDER,
       useFactory: (): AiCompletionProvider => createAiProvider(loadAiConfig()),

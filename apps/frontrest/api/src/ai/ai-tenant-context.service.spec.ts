@@ -1,107 +1,138 @@
 import { AiTenantContextService } from './ai-tenant-context.service';
-import type { DashboardService } from '../dashboard/dashboard.service';
-import type { FinancialDashboardSummary } from '../dashboard/dashboard.service';
+import type { FinancialRetrievalService } from './financial-retrieval/financial-retrieval.service';
+import type { FinancialRetrievalResult } from './financial-retrieval/financial-retrieval.service';
 
-const EMPTY_SUMMARY: FinancialDashboardSummary = {
-  period: { from: '2026-07-01', to: '2026-07-31' },
-  totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
-  byStatus: [],
-  monthlyTrend: [],
-  byCategory: [],
-  topSuppliers: [],
-};
-
-const FILLED_SUMMARY: FinancialDashboardSummary = {
-  period: { from: '2026-07-01', to: '2026-07-31' },
-  totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' },
-  byStatus: [
-    { status: 'PENDING', count: 2, totalAmount: '316.00' },
-    { status: 'OVERDUE', count: 2, totalAmount: '54.00' },
-  ],
-  monthlyTrend: [{ month: '2026-07', count: 4, totalAmount: '370.00' }],
-  byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 3, totalAmount: '354.00' }],
-  topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '354.00' }],
-};
+const NOW = new Date('2026-07-16T12:00:00Z');
 
 describe('AiTenantContextService', () => {
-  function buildService(getFinancialSummary: jest.Mock) {
-    const dashboardService = { getFinancialSummary } as unknown as DashboardService;
-    return new AiTenantContextService(dashboardService);
+  function buildService(retrieve: jest.Mock) {
+    const financialRetrieval = { retrieve } as unknown as FinancialRetrievalService;
+    return new AiTenantContextService(financialRetrieval);
   }
 
-  it('chama DashboardService.getFinancialSummary com a organização autenticada e período omisso (mês atual)', async () => {
-    const getFinancialSummary = jest.fn().mockResolvedValue(EMPTY_SUMMARY);
-    const service = buildService(getFinancialSummary);
+  it('delega no FinancialRetrievalService com a organização autenticada, a mensagem e a data de referência', async () => {
+    const retrieve = jest.fn().mockResolvedValue({ kind: 'UNSUPPORTED' } satisfies FinancialRetrievalResult);
+    const service = buildService(retrieve);
 
-    await service.buildSystemMessage('org-1');
+    await service.buildSystemMessage('org-1', 'Quanto gastei este mês?', NOW);
 
-    expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {});
+    expect(retrieve).toHaveBeenCalledWith('org-1', 'Quanto gastei este mês?', NOW);
   });
 
   it('devolve uma mensagem "system" com as regras obrigatórias', async () => {
-    const service = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+    const service = buildService(jest.fn().mockResolvedValue({ kind: 'UNSUPPORTED' } satisfies FinancialRetrievalResult));
 
-    const message = await service.buildSystemMessage('org-1');
+    const message = await service.buildSystemMessage('org-1', 'Olá', NOW);
 
     expect(message.role).toBe('system');
     expect(message.content).toContain('Responde só com base nos dados financeiros fornecidos');
     expect(message.content).toContain('nunca adivinhes');
     expect(message.content).toContain('Nunca inventes valores, datas, fornecedores, categorias, faturas');
     expect(message.content).toContain('Nunca sugiras nem finjas alterar');
+    expect(message.content).toContain('nunca afirmes que executaste');
   });
 
   it('regras incluem a definição de "Por pagar" e a proibição de recalcular um total já fornecido', async () => {
-    const service = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+    const service = buildService(jest.fn().mockResolvedValue({ kind: 'UNSUPPORTED' } satisfies FinancialRetrievalResult));
 
-    const message = await service.buildSystemMessage('org-1');
+    const message = await service.buildSystemMessage('org-1', 'Olá', NOW);
 
     expect(message.content).toContain('"Por pagar" significa sempre Pendente + Vencida — nunca inclui faturas Pagas.');
     expect(message.content).toContain('nunca o recalcules, estimes ou infiras a partir de outros números');
   });
 
   it('regras exigem explicações baseadas exclusivamente nos dados fornecidos, nunca em operações inventadas', async () => {
-    const service = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+    const service = buildService(jest.fn().mockResolvedValue({ kind: 'UNSUPPORTED' } satisfies FinancialRetrievalResult));
 
-    const message = await service.buildSystemMessage('org-1');
+    const message = await service.buildSystemMessage('org-1', 'Olá', NOW);
 
     expect(message.content).toContain('nunca inventes operações matemáticas nem dados adicionais');
   });
 
   it('regras exigem português de Portugal, proíbem "você" e exigem estados traduzidos', async () => {
-    const service = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+    const service = buildService(jest.fn().mockResolvedValue({ kind: 'UNSUPPORTED' } satisfies FinancialRetrievalResult));
 
-    const message = await service.buildSystemMessage('org-1');
+    const message = await service.buildSystemMessage('org-1', 'Olá', NOW);
 
     expect(message.content).toContain('Responde sempre em português de Portugal');
     expect(message.content).toContain('nunca uses "você"');
     expect(message.content).toContain('Usa sempre os nomes traduzidos dos estados das faturas (Pendente, Paga, Vencida, Cancelada)');
   });
 
-  it('período sem faturas produz uma nota explícita, sem inventar dados', async () => {
-    const service = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+  it('pergunta não suportada produz orientação explícita, sem dados financeiros', async () => {
+    const service = buildService(jest.fn().mockResolvedValue({ kind: 'UNSUPPORTED' } satisfies FinancialRetrievalResult));
 
-    const message = await service.buildSystemMessage('org-1');
+    const message = await service.buildSystemMessage('org-1', 'Qual é a melhor receita para bacalhau?', NOW);
+
+    expect(message.content).toContain('fora das consultas financeiras disponíveis');
+  });
+
+  it('período em falta produz um pedido de clarificação, nunca assume o mês atual', async () => {
+    const service = buildService(jest.fn().mockResolvedValue({ kind: 'PERIOD_MISSING' } satisfies FinancialRetrievalResult));
+
+    const message = await service.buildSystemMessage('org-1', 'Quanto gastei?', NOW);
+
+    expect(message.content).toContain('não foi possível identificar um período');
+  });
+
+  it('período ambíguo produz um pedido de clarificação distinto', async () => {
+    const service = buildService(jest.fn().mockResolvedValue({ kind: 'PERIOD_AMBIGUOUS' } satisfies FinancialRetrievalResult));
+
+    const message = await service.buildSystemMessage('org-1', 'Quanto gastei no Natal?', NOW);
+
+    expect(message.content).toContain('não foi possível interpretar com segurança');
+  });
+
+  it('período sem faturas produz uma nota explícita, sem inventar dados', async () => {
+    const service = buildService(
+      jest.fn().mockResolvedValue({
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
+        },
+      } satisfies FinancialRetrievalResult),
+    );
+
+    const message = await service.buildSystemMessage('org-1', 'Quanto gastei este mês?', NOW);
 
     expect(message.content).toContain('Sem faturas confirmadas neste período.');
   });
 
-  it('inclui totais, por estado (traduzido), tendência mensal, categorias e fornecedores quando existem dados', async () => {
-    const service = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+  it('inclui os dados selecionados pelo retrieval quando existem', async () => {
+    const service = buildService(
+      jest.fn().mockResolvedValue({
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: {
+          intent: 'BY_STATUS',
+          byStatus: [
+            { status: 'PENDING', count: 2, totalAmount: '316.00' },
+            { status: 'OVERDUE', count: 2, totalAmount: '54.00' },
+          ],
+        },
+      } satisfies FinancialRetrievalResult),
+    );
 
-    const message = await service.buildSystemMessage('org-1');
+    const message = await service.buildSystemMessage('org-1', 'Valores por estado este mês', NOW);
 
-    expect(message.content).toContain('Faturas ativas: 4 (total: 370.00 EUR; média: 92.50 EUR)');
-    expect(message.content).toContain('Faturas canceladas: 1');
     expect(message.content).toContain('Por estado: Pendente: 2 fatura(s), 316.00 EUR; Vencida: 2 fatura(s), 54.00 EUR.');
-    expect(message.content).toContain('2026-07: 4 fatura(s), 370.00 EUR');
-    expect(message.content).toContain('Hosting: 3 fatura(s), 354.00 EUR');
-    expect(message.content).toContain('Hetzner: 3 fatura(s), 354.00 EUR');
   });
 
   it('a linha "Por estado" nunca expõe os enums internos (PENDING/OVERDUE/PAID/CANCELLED)', async () => {
-    const service = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+    const service = buildService(
+      jest.fn().mockResolvedValue({
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: {
+          intent: 'BY_STATUS',
+          byStatus: [{ status: 'PENDING', count: 2, totalAmount: '316.00' }],
+        },
+      } satisfies FinancialRetrievalResult),
+    );
 
-    const message = await service.buildSystemMessage('org-1');
+    const message = await service.buildSystemMessage('org-1', 'Valores por estado este mês', NOW);
     const statusLine = message.content.split('\n').find((line) => line.startsWith('Por estado:'));
 
     expect(statusLine).toBeDefined();
@@ -109,33 +140,40 @@ describe('AiTenantContextService', () => {
   });
 
   it('calcula "Por pagar" como Pendente + Vencida, nunca incluindo Paga, de forma determinística (Prisma.Decimal, não number)', async () => {
-    const service = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+    const service = buildService(
+      jest.fn().mockResolvedValue({
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: { intent: 'OUTSTANDING_BALANCE', outstandingCount: 4, outstandingAmount: '370.00' },
+      } satisfies FinancialRetrievalResult),
+    );
 
-    const message = await service.buildSystemMessage('org-1');
+    const message = await service.buildSystemMessage('org-1', 'Quanto tenho por pagar este mês?', NOW);
 
-    // FILLED_SUMMARY: PENDING 2/316.00 + OVERDUE 2/54.00 = 4 faturas, 370.00 EUR.
     expect(message.content).toContain('Por pagar (Pendente + Vencida): 4 fatura(s), 370.00 EUR.');
   });
 
   it('"Por pagar" com zero faturas pendentes/vencidas devolve 0, nunca omite a linha', async () => {
-    const summaryOnlyPaid: FinancialDashboardSummary = {
-      ...FILLED_SUMMARY,
-      byStatus: [{ status: 'PAID', count: 1, totalAmount: '80.00' }],
-    };
-    const service = buildService(jest.fn().mockResolvedValue(summaryOnlyPaid));
+    const service = buildService(
+      jest.fn().mockResolvedValue({
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: { intent: 'OUTSTANDING_BALANCE', outstandingCount: 0, outstandingAmount: '0.00' },
+      } satisfies FinancialRetrievalResult),
+    );
 
-    const message = await service.buildSystemMessage('org-1');
+    const message = await service.buildSystemMessage('org-1', 'Quanto tenho por pagar este mês?', NOW);
 
     expect(message.content).toContain('Por pagar (Pendente + Vencida): 0 fatura(s), 0.00 EUR.');
   });
 
-  it('nunca inclui dados de outra organização — só o resumo devolvido para a organização pedida', async () => {
-    const getFinancialSummary = jest.fn().mockResolvedValue(FILLED_SUMMARY);
-    const service = buildService(getFinancialSummary);
+  it('nunca inclui dados de outra organização — o organizationId pedido é o único encaminhado ao retrieval', async () => {
+    const retrieve = jest.fn().mockResolvedValue({ kind: 'UNSUPPORTED' } satisfies FinancialRetrievalResult);
+    const service = buildService(retrieve);
 
-    await service.buildSystemMessage('org-only-this-one');
+    await service.buildSystemMessage('org-only-this-one', 'Olá', NOW);
 
-    expect(getFinancialSummary).toHaveBeenCalledTimes(1);
-    expect(getFinancialSummary).toHaveBeenCalledWith('org-only-this-one', {});
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(retrieve).toHaveBeenCalledWith('org-only-this-one', 'Olá', NOW);
   });
 });

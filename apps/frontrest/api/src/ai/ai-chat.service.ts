@@ -95,7 +95,7 @@ export class AiChatService {
       data: { conversationId: conversation.id, role: 'USER', content },
     });
 
-    const systemMessage = await this.tenantContext.buildSystemMessage(organizationId);
+    const systemMessage = await this.tenantContext.buildSystemMessage(organizationId, content);
     // Carregada depois de persistir a mensagem USER atual — as "últimas N
     // mensagens" já a incluem como a mais recente, sem a duplicar
     // manualmente no pedido ao provider.

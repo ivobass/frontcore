@@ -58,4 +58,8 @@ describe('currentMonth', () => {
     const expected = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
     expect(currentMonth()).toBe(expected);
   });
+
+  it('aceita uma data de referência explícita, para testes determinísticos', () => {
+    expect(currentMonth(new Date('2025-01-15T00:00:00Z'))).toBe('2025-01');
+  });
 });
