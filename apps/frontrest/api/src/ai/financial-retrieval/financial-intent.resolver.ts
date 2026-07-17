@@ -35,12 +35,25 @@ const INVOICE_DETAIL_PATTERN =
   /\bmostra a fatura\b|\bdetalhe da fatura\b|\bnumero da fatura\b|\bfatura\s+(n[ºo°]?\s*)?\S*\d/;
 const COMPARISON_PATTERN = /\bcompara(r)?\b|\bversus\b|\bvs\b/;
 
-const OUTSTANDING_PATTERN = /\bpor pagar\b|\bem divida\b|\ba pagar\b/;
+// Vocabulário alargado na Fase 8.3 — expandido diretamente sobre o
+// regex existente (sem camada de normalização lexical nova, YAGNI face
+// ao tamanho real da lacuna), a partir de perguntas reais que falhavam
+// (ver docs/phases/phase-8.3-ai-tools-function-calling-foundation.md).
+const OUTSTANDING_PATTERN = /\bpor pagar\b|\bem divida\b|\ba pagar\b|\bpendentes?\b/;
 const BY_STATUS_PATTERN = /\bpor estado\b|\bcada estado\b|\bestados?\b.*\bfatura/;
-const BY_CATEGORY_PATTERN = /\bcategorias?\b/;
+// "onde gasto mais"/"maior despesa" — decisão de desenho explícita:
+// mapeados para BY_CATEGORY (não TOP_SUPPLIERS) por "categoria" ser a
+// dimensão de despesa mais comum nesta fraseação; TOP_SUPPLIERS continua
+// a exigir a palavra "fornecedor" explicitamente.
+const BY_CATEGORY_PATTERN =
+  /\bcategorias?\b|\bonde (estou a gastar|gasto|gastamos)\b|\bmaior despesa\b/;
 const TOP_SUPPLIERS_PATTERN = /\bfornecedor(es)?\b/;
 const MONTHLY_TREND_PATTERN = /\bevolucao mensal\b|\bevolucao\b.*\bmensal\b/;
-const FINANCIAL_SUMMARY_PATTERN = /\bquanto gastei\b|\bresumo financeiro\b|\bresumo\b|\btotal\b/;
+// "quantas faturas"/"faturas existem"/"numero de faturas" — contagem de
+// faturas é parte de `totals` (FINANCIAL_SUMMARY), nunca uma intenção
+// própria (sem novo tipo de dado a expor).
+const FINANCIAL_SUMMARY_PATTERN =
+  /\bquanto gastei\b|\bresumo financeiro\b|\bresumo\b|\btotal\b|\bquantas faturas\b|\bfaturas existem\b|\bnumero de faturas\b/;
 
 export function resolveFinancialIntent(text: string): FinancialIntentResolution {
   const normalized = normalize(text);

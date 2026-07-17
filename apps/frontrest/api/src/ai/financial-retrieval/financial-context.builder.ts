@@ -18,39 +18,12 @@ const SUPPORTED_QUERIES_HINT =
   'resumo financeiro, valores por pagar, valores por estado, despesas por categoria, principais fornecedores, evolução mensal';
 
 /**
- * Constrói o bloco de dados/orientação da mensagem `system` a partir de um
- * `FinancialRetrievalResult` (Fase 8.1) — pura, sem I/O. Cada `kind`
- * produz um texto explícito e distinto (dados; não suportada; período em
- * falta; período ambíguo; erro interno) para o modelo nunca ter de
- * adivinhar porque não recebeu dados, e nunca tratar uma consulta válida
- * sem resultados como um erro técnico.
+ * Constrói o bloco de dados da mensagem `system` a partir de um resultado
+ * `DATA` do retrieval financeiro — pura, sem I/O. Só chamada quando o
+ * `provider` vai mesmo ser invocado (Fase 8.3: os outros 4 `kind` nunca
+ * chegam a esta função nem ao provider — ver `buildDeterministicReply()`).
  */
-export function buildFinancialContextMessage(result: FinancialRetrievalResult): string {
-  switch (result.kind) {
-    case 'UNSUPPORTED':
-      return [
-        'Pergunta fora das consultas financeiras disponíveis nesta conversa.',
-        'Explica isso ao utilizador sem inventar dados e sem afirmar que executaste qualquer ação.',
-        `Indica brevemente os tipos de perguntas suportadas: ${SUPPORTED_QUERIES_HINT}.`,
-      ].join('\n');
-    case 'PERIOD_MISSING':
-      return [
-        'A pergunta parece financeira, mas não foi possível identificar um período.',
-        'Pede ao utilizador para indicar um período concreto (ex.: "este mês", "junho de 2026", "este ano") — nunca assumas o mês atual sem essa indicação.',
-      ].join('\n');
-    case 'PERIOD_AMBIGUOUS':
-      return [
-        'A pergunta parece financeira, mas o período indicado não foi possível interpretar com segurança.',
-        'Pede ao utilizador para reformular o período de forma concreta (ex.: "este mês", "junho de 2026", "este ano") — nunca assumas o mês atual sem essa indicação.',
-      ].join('\n');
-    case 'ERROR':
-      return 'Não foi possível obter os dados financeiros de momento, devido a um problema técnico. Informa o utilizador com clareza, sem inventar valores.';
-    case 'DATA':
-      return buildDataSection(result);
-  }
-}
-
-function buildDataSection(result: Extract<FinancialRetrievalResult, { kind: 'DATA' }>): string {
+export function buildFinancialContextMessage(result: Extract<FinancialRetrievalResult, { kind: 'DATA' }>): string {
   const { period, data } = result;
   const lines: string[] = [`Período consultado: ${period.from} a ${period.to}.`];
 
@@ -123,4 +96,28 @@ function buildDataSection(result: Extract<FinancialRetrievalResult, { kind: 'DAT
   }
 
   return `Dados financeiros disponíveis:\n${lines.join('\n')}`;
+}
+
+/**
+ * Resposta final, pt-PT, para os 4 `kind` que nunca chegam ao provider
+ * (Fase 8.3) — texto já pronto para ser persistido diretamente como a
+ * mensagem `ASSISTANT`, não uma instrução para o modelo. Elimina
+ * estruturalmente a possibilidade de alucinação nestes caminhos: sem
+ * dados financeiros estruturados, não há chamada ao LLM nenhuma.
+ * Compromisso assumido: uma pergunta genuinamente fora do domínio
+ * financeiro recebe sempre este mesmo texto fixo, nunca uma recusa
+ * "conversacional" gerada pelo modelo — ver
+ * `docs/phases/phase-8.3-ai-tools-function-calling-foundation.md`.
+ */
+export function buildDeterministicReply(result: Exclude<FinancialRetrievalResult, { kind: 'DATA' }>): string {
+  switch (result.kind) {
+    case 'UNSUPPORTED':
+      return `Não tenho essa informação disponível nesta conversa. Posso ajudar com: ${SUPPORTED_QUERIES_HINT}.`;
+    case 'PERIOD_MISSING':
+      return 'Preciso que indiques um período concreto para responder (ex.: "este mês", "junho de 2026", "este ano").';
+    case 'PERIOD_AMBIGUOUS':
+      return 'Não consegui perceber o período que indicaste. Podes reformular de forma mais concreta (ex.: "este mês", "junho de 2026", "este ano")?';
+    case 'ERROR':
+      return 'Não foi possível obter os dados financeiros de momento. Tenta novamente.';
+  }
 }

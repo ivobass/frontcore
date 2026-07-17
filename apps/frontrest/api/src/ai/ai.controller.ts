@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, Body, Query } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Body, Query } from '@nestjs/common';
 import { CurrentUser, type AuthenticatedIdentity } from '@frontcore/auth';
 import { AiChatService } from './ai-chat.service';
 import { SendChatMessageDto } from './dto/send-chat-message.dto';
@@ -36,5 +36,15 @@ export class AiController {
     @Param('id') id: string,
   ) {
     return this.aiChatService.getConversation(identity.organizationId, identity.userId, id);
+  }
+
+  /** Fase 8.3 — eliminação física (cascata já provisionada no schema), isolada por organização e utilizador. */
+  @Delete('conversations/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteConversation(
+    @CurrentUser() identity: AuthenticatedIdentity,
+    @Param('id') id: string,
+  ) {
+    return this.aiChatService.deleteConversation(identity.organizationId, identity.userId, id);
   }
 }

@@ -3,13 +3,17 @@
 import { useEffect, useState } from 'react';
 import { PageHeader, Alert, AlertDescription, Spinner } from '@frontcore/ui';
 import { useSession } from '../../../../lib/session-context';
-import { listConversations, getConversation, sendChatMessage } from '../../../../lib/ai-chat';
+import { useFeedback } from '../../../../lib/use-feedback';
+import { FeedbackBanner } from '../../../../components/feedback-banner';
+import { ConfirmDialog } from '../../../../components/confirm-dialog';
+import { listConversations, getConversation, sendChatMessage, deleteConversation } from '../../../../lib/ai-chat';
 import type { ConversationSummary, ChatMessage } from '../../../../lib/ai-chat';
 import { ConversationList } from './conversation-list';
 import { ChatThread } from './chat-thread';
 
 export default function AiChatPage() {
   const { session } = useSession();
+  const { feedback, notifySuccess, notifyError } = useFeedback();
 
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationsLoading, setConversationsLoading] = useState(true);
@@ -22,6 +26,9 @@ export default function AiChatPage() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  const [deleting, setDeleting] = useState<ConversationSummary | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   async function loadConversations() {
     setConversationsLoading(true);
@@ -94,12 +101,38 @@ export default function AiChatPage() {
     }
   }
 
+  /**
+   * Atualização imediata (Fase 8.3) — remove da lista local logo após o
+   * sucesso do pedido, sem refazer `listConversations()` nem qualquer
+   * refresh da página. Se a conversa eliminada era a ativa, volta ao
+   * estado "nova conversa".
+   */
+  async function confirmDelete() {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      await deleteConversation(session.accessToken, deleting.id);
+      setConversations((prev) => prev.filter((c) => c.id !== deleting.id));
+      if (selectedId === deleting.id) {
+        handleNew();
+      }
+      notifySuccess('Conversa eliminada.');
+      setDeleting(null);
+    } catch (err) {
+      notifyError(err instanceof Error ? err.message : 'Erro ao eliminar a conversa.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Assistente IA"
         description="Faz perguntas sobre os dados financeiros confirmados da tua organização."
       />
+
+      <FeedbackBanner feedback={feedback} />
 
       {conversationsError ? (
         <Alert variant="destructive">
@@ -119,6 +152,7 @@ export default function AiChatPage() {
               selectedId={selectedId}
               onSelect={setSelectedId}
               onNew={handleNew}
+              onDeleteRequest={setDeleting}
             />
           )}
         </div>
@@ -133,6 +167,15 @@ export default function AiChatPage() {
           sendError={sendError}
         />
       </div>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title="Eliminar conversa"
+        description={`Tens a certeza que queres eliminar "${deleting?.titlePreview ?? 'esta conversa'}"? Esta ação não pode ser desfeita.`}
+        loading={deleteLoading}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

@@ -435,15 +435,94 @@ subconjunto de dados relevante para a intenção antes de o enviar ao
 provider — nunca o resumo completo independentemente da pergunta.
 
 Uma pergunta fora do conjunto fechado de intenções, ou cujo período não
-seja identificável/ambíguo, nunca cai silenciosamente no mês atual:
-`financial-context.builder.ts` (função pura) produz um bloco de texto
-explícito e distinto para cada caso (`UNSUPPORTED`/`PERIOD_MISSING`/
-`PERIOD_AMBIGUOUS`/`ERROR`/`DATA`), orientando o modelo a admitir a
-limitação ou a pedir clarificação em vez de inventar dados. `packages/ai`
-e o contrato de `AiCompletionProvider` permanecem inalterados — o
-retrieval é uma etapa do backend do FrontRest, antes da chamada ao
-provider, nunca tools/function calling (fora do âmbito desta fase; ver
-`docs/phases/phase-8.1-financial-ai-retrieval-foundation.md`).
+seja identificável/ambíguo, nunca cai silenciosamente no mês atual —
+ver "Hardening da precisão do retrieval" e "Tool calling", abaixo, para
+o desenho final (Fase 8.3) de como esses casos são tratados sem nunca
+confiar em texto livre do modelo sem dados reais por trás.
+
+### Hardening da precisão do retrieval e fallback determinístico (Fase 8.3)
+
+Uma investigação real (organização com dados reais) confirmou que,
+quando `FinancialRetrievalService` não reconhecia a pergunta, o
+`system prompt` ficava sem nenhum dado financeiro — e o modelo, apesar
+da instrução para admitir insuficiência, por vezes inventava valores e
+entidades inexistentes. Duas correções: (1) o vocabulário de
+`resolveFinancialIntent()`/`resolveFinancialPeriod()` foi alargado
+diretamente (mais padrões, mesma disciplina regex); (2) quando a
+mensagem atual não resolve intenção **ou** período sozinha mas o outro
+dos dois resolve, `FinancialRetrievalService` procura a peça em falta
+na janela de histórico já carregada para o provider (mais recente
+primeiro, nunca persistida, nunca mais longe que `AI_CHAT_HISTORY_LIMIT`) —
+resolve continuações como "sim este mês".
+
+Mais estruturalmente: `AiChatService.sendMessage()` passou a decidir
+**antes** de construir qualquer `system prompt`. Só chama o provider a
+confiar na resposta como final em duas situações — resultado `DATA`
+(dados reais) ou uma tool real respondida com sucesso (ver abaixo).
+Em qualquer outro caso, persiste diretamente `buildDeterministicReply()`
+(`financial-context.builder.ts` — texto pt-PT final, já pronto para o
+utilizador, não uma instrução para o modelo), marcado
+(`provider='deterministic'`, `model='financial-retrieval-fallback'`)
+para nunca ser confundido com uma resposta real numa auditoria. `buildFinancialContextMessage()`
+passou a tratar exclusivamente resultados `DATA`. `ERROR` (falha
+interna, ex. `DashboardService`) nunca tenta o orquestrador de tools
+nem o provider — vai direto a este fallback. Ver
+`docs/phases/phase-8.3-ai-tools-function-calling-foundation.md`.
+
+### Tool calling — oportunidade adicional, nunca substituto (Fase 8.3)
+
+`AiCompletionProvider` ganhou uma extensão aditiva e opcional
+(`tools`/`toolCalls`, `AiMessage.role: 'tool'`, `AiMessage.toolCalls`
+em mensagens `assistant`) — `packages/ai` continua completamente
+genérico, sem qualquer conhecimento de faturas;
+`MockAiProvider`/`OllamaAiProvider`/`OpenRouterAiProvider` implementam
+o protocolo (Ollama e OpenRouter em formatos ligeiramente diferentes —
+`function.arguments` objeto vs. string JSON, `tool_name` vs.
+`tool_call_id` na mensagem `tool`, sem `id` nas tool calls nativas do
+Ollama — tudo normalizado para o mesmo `AiToolCall`/`AiMessage`). Ao
+reenviar a mensagem `assistant` que originou a tool call, ambos os
+providers preservam as tool calls no formato nativo (`tool_calls` em
+ambos, com forma diferente) — nunca só `role`/`content`, exigido pelos
+dois protocolos reais para correlacionar com a mensagem `tool`
+seguinte. A parte específica do domínio vive inteiramente em
+`apps/frontrest/api/src/ai/tools/`: 6 tools read-only
+(`financial-tool.registry.ts`, allow-list fechada) espelhando as
+intenções da Fase 8.1, cada uma reutilizando
+`FinancialRetrievalService.retrieveForIntent()` (novo método público,
+mesma fonte de dados, nunca duplicada); `AiToolOrchestratorService`
+orquestra um protocolo bounded — no máximo 1 tool call, no máximo 2
+chamadas ao provider (a 2ª nunca volta a oferecer `tools`, força uma
+resposta final) — nunca um loop aberto, nunca um agente autónomo.
+**Garantia estrutural**: a 2ª chamada só acontece quando
+`retrieveForIntent()` devolve `kind === 'DATA'` — qualquer outro
+resultado (`PERIOD_MISSING`/`PERIOD_AMBIGUOUS`/`ERROR`/`UNSUPPORTED`)
+devolve `NOT_ANSWERED` de imediato, sem nunca construir uma mensagem
+`tool` a partir de dados inexistentes nem confiar na resposta textual
+do modelo nesse caso. `organizationId` vem sempre do chamador
+autenticado, nunca declarado como parâmetro de nenhuma tool nem lido
+de argumentos do modelo. Texto livre do modelo sem nenhuma tool
+chamada nunca é a resposta final — `AiChatService` só recorre ao
+orquestrador quando o retrieval determinístico (Fase 8.1, reforçado
+neste mesmo Bloco 1 da Fase 8.3) devolveu
+`UNSUPPORTED`/`PERIOD_MISSING`/`PERIOD_AMBIGUOUS` (nunca para `ERROR`,
+que vai direto ao fallback), e só confia no resultado quando uma tool
+real foi executada com sucesso; caso contrário, cai no mesmo fallback
+determinístico. Ver
+`docs/phases/phase-8.3-ai-tools-function-calling-foundation.md`.
+
+### Gestão de conversas (Fase 8.3)
+
+`DELETE /ai/conversations/:id` (`AiChatService.deleteConversation()`,
+mesma verificação de propriedade de `findOwnedConversation()`) —
+eliminação física, cascata já provisionada no schema
+(`AiMessage.conversation`, `onDelete: Cascade` desde a Fase 8), sem
+migration nova. `titlePreview` (renomeado de `lastMessagePreview`)
+passou a derivar da primeira mensagem da conversa, não da última —
+único consumidor (barra lateral de `/ai/chat`) atualizado em conjunto.
+Frontend reutiliza `ConfirmDialog`/`EmptyState` já existentes (mesmo
+padrão de Fornecedores/Categorias/Faturas) — sem componente novo em
+`@frontcore/ui`; lista atualizada localmente após eliminação, sem
+`listConversations()` nem refresh da página.
 
 ## Relatórios financeiros mensais
 

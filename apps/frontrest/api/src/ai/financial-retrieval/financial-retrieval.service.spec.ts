@@ -34,7 +34,7 @@ describe('FinancialRetrievalService', () => {
   it('UNSUPPORTED nunca chama o DashboardService', async () => {
     const { service, getFinancialSummary } = buildService(jest.fn());
 
-    const result = await service.retrieve('org-1', 'Qual é a melhor receita para bacalhau?', NOW);
+    const result = await service.retrieve('org-1', 'Qual é a melhor receita para bacalhau?', [], NOW);
 
     expect(result).toEqual({ kind: 'UNSUPPORTED' });
     expect(getFinancialSummary).not.toHaveBeenCalled();
@@ -43,7 +43,7 @@ describe('FinancialRetrievalService', () => {
   it('PERIOD_MISSING nunca chama o DashboardService', async () => {
     const { service, getFinancialSummary } = buildService(jest.fn());
 
-    const result = await service.retrieve('org-1', 'Quanto gastei?', NOW);
+    const result = await service.retrieve('org-1', 'Quanto gastei?', [], NOW);
 
     expect(result).toEqual({ kind: 'PERIOD_MISSING' });
     expect(getFinancialSummary).not.toHaveBeenCalled();
@@ -52,7 +52,7 @@ describe('FinancialRetrievalService', () => {
   it('PERIOD_AMBIGUOUS nunca chama o DashboardService', async () => {
     const { service, getFinancialSummary } = buildService(jest.fn());
 
-    const result = await service.retrieve('org-1', 'Quanto gastei no Natal?', NOW);
+    const result = await service.retrieve('org-1', 'Quanto gastei no Natal?', [], NOW);
 
     expect(result).toEqual({ kind: 'PERIOD_AMBIGUOUS' });
     expect(getFinancialSummary).not.toHaveBeenCalled();
@@ -61,7 +61,7 @@ describe('FinancialRetrievalService', () => {
   it('usa o organizationId autenticado e o período resolvido a partir da mensagem', async () => {
     const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
-    await service.retrieve('org-42', 'Quanto gastei este mês?', NOW);
+    await service.retrieve('org-42', 'Quanto gastei este mês?', [], NOW);
 
     expect(getFinancialSummary).toHaveBeenCalledWith('org-42', { from: '2026-07-01', to: '2026-07-31' });
   });
@@ -69,7 +69,7 @@ describe('FinancialRetrievalService', () => {
   it('FINANCIAL_SUMMARY devolve só totals — nenhum outro bloco', async () => {
     const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
-    const result = await service.retrieve('org-1', 'Quanto gastei este mês?', NOW);
+    const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
 
     expect(result).toEqual({
       kind: 'DATA',
@@ -81,7 +81,7 @@ describe('FinancialRetrievalService', () => {
   it('OUTSTANDING_BALANCE calcula Pendente + Vencida via Decimal, nunca inclui Paga', async () => {
     const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
-    const result = await service.retrieve('org-1', 'Quanto tenho por pagar este mês?', NOW);
+    const result = await service.retrieve('org-1', 'Quanto tenho por pagar este mês?', [], NOW);
 
     expect(result).toEqual({
       kind: 'DATA',
@@ -97,7 +97,7 @@ describe('FinancialRetrievalService', () => {
     };
     const { service } = buildService(jest.fn().mockResolvedValue(onlyPaid));
 
-    const result = await service.retrieve('org-1', 'Quanto tenho por pagar este mês?', NOW);
+    const result = await service.retrieve('org-1', 'Quanto tenho por pagar este mês?', [], NOW);
 
     expect(result).toEqual({
       kind: 'DATA',
@@ -109,7 +109,7 @@ describe('FinancialRetrievalService', () => {
   it('BY_STATUS devolve só byStatus', async () => {
     const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
-    const result = await service.retrieve('org-1', 'Valores por estado este mês', NOW);
+    const result = await service.retrieve('org-1', 'Valores por estado este mês', [], NOW);
 
     expect(result).toEqual({
       kind: 'DATA',
@@ -121,7 +121,7 @@ describe('FinancialRetrievalService', () => {
   it('BY_CATEGORY devolve só byCategory', async () => {
     const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
-    const result = await service.retrieve('org-1', 'Principais categorias este mês', NOW);
+    const result = await service.retrieve('org-1', 'Principais categorias este mês', [], NOW);
 
     expect(result).toEqual({
       kind: 'DATA',
@@ -133,7 +133,7 @@ describe('FinancialRetrievalService', () => {
   it('TOP_SUPPLIERS devolve só topSuppliers', async () => {
     const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
-    const result = await service.retrieve('org-1', 'Principais fornecedores este mês', NOW);
+    const result = await service.retrieve('org-1', 'Principais fornecedores este mês', [], NOW);
 
     expect(result).toEqual({
       kind: 'DATA',
@@ -145,7 +145,7 @@ describe('FinancialRetrievalService', () => {
   it('MONTHLY_TREND devolve só monthlyTrend', async () => {
     const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
-    const result = await service.retrieve('org-1', 'Evolução mensal este ano', NOW);
+    const result = await service.retrieve('org-1', 'Evolução mensal este ano', [], NOW);
 
     expect(result).toEqual({
       kind: 'DATA',
@@ -157,7 +157,7 @@ describe('FinancialRetrievalService', () => {
   it('consulta válida sem faturas devolve DATA com arrays/zeros, nunca UNSUPPORTED nem ERROR', async () => {
     const { service } = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
 
-    const result = await service.retrieve('org-1', 'Quanto gastei este mês?', NOW);
+    const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
 
     expect(result).toEqual({
       kind: 'DATA',
@@ -169,7 +169,7 @@ describe('FinancialRetrievalService', () => {
   it('erro do DashboardService devolve ERROR, nunca propaga a exceção', async () => {
     const { service } = buildService(jest.fn().mockRejectedValue(new Error('falha interna de base de dados')));
 
-    const result = await service.retrieve('org-1', 'Quanto gastei este mês?', NOW);
+    const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
 
     expect(result).toEqual({ kind: 'ERROR' });
   });
@@ -177,9 +177,127 @@ describe('FinancialRetrievalService', () => {
   it('nunca envia dados de outra organização — só o organizationId pedido é usado na query', async () => {
     const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
-    await service.retrieve('org-only-this-one', 'Quanto gastei este mês?', NOW);
+    await service.retrieve('org-only-this-one', 'Quanto gastei este mês?', [], NOW);
 
     expect(getFinancialSummary).toHaveBeenCalledTimes(1);
     expect(getFinancialSummary).toHaveBeenCalledWith('org-only-this-one', expect.any(Object));
+  });
+
+  describe('Fase 8.3 — recuperação por histórico', () => {
+    it('"sim este mês" recupera a intenção da mensagem anterior (regressão real)', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      const result = await service.retrieve(
+        'org-1',
+        'sim este mes',
+        ['Faz um resumo financeiro da empresa.'],
+        NOW,
+      );
+
+      expect(result).toEqual({
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: { intent: 'FINANCIAL_SUMMARY', totals: FILLED_SUMMARY.totals },
+      });
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
+    });
+
+    it('pergunta nova sem período recupera o período de uma mensagem anterior (regressão real)', async () => {
+      const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      const result = await service.retrieve(
+        'org-1',
+        'Qual é o fornecedor onde mais gastamos?',
+        ['Existem faturas pendentes?', 'sim este mes', 'Faz um resumo financeiro da empresa.'],
+        NOW,
+      );
+
+      expect(result).toEqual({
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: { intent: 'TOP_SUPPLIERS', topSuppliers: FILLED_SUMMARY.topSuppliers },
+      });
+    });
+
+    it('usa sempre a mensagem anterior MAIS RECENTE que resolve, nunca uma mais antiga', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      // "Este mês" (mais recente) deve vencer sobre "este ano" (mais antigo) — ordem: mais recente primeiro.
+      await service.retrieve(
+        'org-1',
+        'Qual é o fornecedor onde mais gastamos?',
+        ['Resumo deste mês', 'Resumo deste ano'],
+        NOW,
+      );
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
+    });
+
+    it('sem intenção nem período em nenhuma mensagem (atual ou histórico) continua UNSUPPORTED', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn());
+
+      const result = await service.retrieve('org-1', 'Qual é a melhor receita para bacalhau?', ['Olá', 'Bom dia'], NOW);
+
+      expect(result).toEqual({ kind: 'UNSUPPORTED' });
+      expect(getFinancialSummary).not.toHaveBeenCalled();
+    });
+
+    it('mensagem atual sem intenção nem período próprios nunca recupera intenção do histórico (exige período próprio primeiro)', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn());
+
+      // "Olá" não tem período próprio — não deve tentar recuperar a intenção de "Quanto gastei este mês?".
+      const result = await service.retrieve('org-1', 'Olá', ['Quanto gastei este mês?'], NOW);
+
+      expect(result).toEqual({ kind: 'UNSUPPORTED' });
+      expect(getFinancialSummary).not.toHaveBeenCalled();
+    });
+
+    it('histórico vazio nunca lança — comportamento idêntico a omitir o parâmetro', async () => {
+      const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      const result = await service.retrieve('org-1', 'Quanto tenho por pagar este mês?', [], NOW);
+
+      expect(result.kind).toBe('DATA');
+    });
+
+    it('período ambíguo na mensagem atual, sem recuperação possível no histórico, preserva PERIOD_AMBIGUOUS', async () => {
+      const { service } = buildService(jest.fn());
+
+      const result = await service.retrieve('org-1', 'Quanto tenho por pagar no Natal?', ['Olá'], NOW);
+
+      expect(result).toEqual({ kind: 'PERIOD_AMBIGUOUS' });
+    });
+  });
+
+  describe('Fase 8.3 — retrieveForIntent (usado pelas AI Tools)', () => {
+    it('intenção já conhecida + período em texto livre devolve DATA, mesma fonte que o caminho principal', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      const result = await service.retrieveForIntent('org-1', 'TOP_SUPPLIERS', 'este mês', NOW);
+
+      expect(result).toEqual({
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: { intent: 'TOP_SUPPLIERS', topSuppliers: FILLED_SUMMARY.topSuppliers },
+      });
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
+    });
+
+    it('período em texto livre não resolvível devolve PERIOD_AMBIGUOUS, nunca lança', async () => {
+      const { service } = buildService(jest.fn());
+
+      const result = await service.retrieveForIntent('org-1', 'FINANCIAL_SUMMARY', 'no Natal', NOW);
+
+      expect(result).toEqual({ kind: 'PERIOD_AMBIGUOUS' });
+    });
+
+    it('nunca recupera por histórico — só usa o período explícito da tool', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn());
+
+      const result = await service.retrieveForIntent('org-1', 'FINANCIAL_SUMMARY', '', NOW);
+
+      expect(result).toEqual({ kind: 'PERIOD_MISSING' });
+      expect(getFinancialSummary).not.toHaveBeenCalled();
+    });
   });
 });

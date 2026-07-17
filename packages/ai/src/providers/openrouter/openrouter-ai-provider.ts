@@ -1,14 +1,28 @@
-import type { AiCompletionProvider, AiCompletionRequest, AiCompletionResponse, OpenRouterAiConfig } from '../../contracts';
+import type {
+  AiCompletionProvider,
+  AiCompletionRequest,
+  AiCompletionResponse,
+  AiToolCall,
+  AiToolDefinition,
+  OpenRouterAiConfig,
+} from '../../contracts';
 import { AiProviderError } from '../../errors';
 
 interface OpenRouterChatMessage {
   role: string;
   content: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+}
+
+interface OpenRouterToolCall {
+  id?: string;
+  function?: { name: string; arguments?: string };
 }
 
 interface OpenRouterChatResponse {
   model?: string;
-  choices?: Array<{ message?: { role: string; content: string }; finish_reason?: string }>;
+  choices?: Array<{ message?: { role: string; content: string; tool_calls?: OpenRouterToolCall[] }; finish_reason?: string }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
 
@@ -28,12 +42,18 @@ interface OpenRouterChatResponse {
  * string de configuração, nunca uma nova abstração de seleção de modelo
  * (o mesmo campo `model`/`AiConfig.model` já existente serve).
  *
- * Sem validação empírica contra o serviço real do OpenRouter nesta fase
- * (sem API key disponível no ambiente de implementação) — validado por
- * testes unitários com `fetch` mockado, reproduzindo o formato de
- * pedido/resposta documentado da API OpenAI-compatible. Ver
- * `docs/phases/phase-8.2-openrouter-provider-integration-ai-runtime-stabilization.md`,
- * secção "Limitações conhecidas".
+ * Completions simples validadas empiricamente contra o serviço real do
+ * OpenRouter (Fase 8.2) — ver
+ * `docs/phases/phase-8.2-openrouter-provider-integration-ai-runtime-stabilization.md`.
+ * **Tools (Fase 8.3)** — `tools`/`tool_calls` seguem exatamente o
+ * formato OpenAI-compatible documentado (`function.arguments` já é uma
+ * string JSON, ao contrário do Ollama nativo); a mensagem `assistant`
+ * que originou uma tool call preserva `tool_calls` ao ser reenviada no
+ * pedido seguinte (obrigatório para o OpenRouter correlacionar com a
+ * mensagem `tool` seguinte — nunca só `role`/`content`); validado por
+ * testes unitários com `fetch` mockado — ver validação manual da Fase
+ * 8.3 para confirmação (ou não) contra o serviço real com um modelo
+ * tools-capable.
  */
 export class OpenRouterAiProvider implements AiCompletionProvider {
   readonly name = 'openrouter';
@@ -57,10 +77,22 @@ export class OpenRouterAiProvider implements AiCompletionProvider {
         body: JSON.stringify({
           model,
           messages: request.messages.map(
-            (message): OpenRouterChatMessage => ({ role: message.role, content: message.content }),
+            (message): OpenRouterChatMessage => ({
+              role: message.role,
+              content: message.content,
+              ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
+              // A mensagem `assistant` que originou a(s) tool call(s) tem de
+              // preservar `tool_calls` ao ser reenviada — a API
+              // OpenAI-compatible usa isto para correlacionar com a mensagem
+              // `tool` seguinte; só `role`/`content` nunca é suficiente.
+              ...(message.toolCalls && message.toolCalls.length > 0
+                ? { tool_calls: buildOpenRouterToolCalls(message.toolCalls) }
+                : {}),
+            }),
           ),
           stream: false,
           max_tokens: maxOutputTokens,
+          ...(request.tools && request.tools.length > 0 ? { tools: buildOpenRouterTools(request.tools) } : {}),
         }),
         signal: controller.signal,
       });
@@ -80,8 +112,9 @@ export class OpenRouterAiProvider implements AiCompletionProvider {
     }
 
     const body = await parseOpenRouterResponseBody(response);
-    const content = body.choices?.[0]?.message?.content;
-    if (!content) {
+    const toolCalls = normalizeOpenRouterToolCalls(body.choices?.[0]?.message?.tool_calls);
+    const content = body.choices?.[0]?.message?.content ?? '';
+    if (!content && !toolCalls) {
       throw new AiProviderError('Resposta inválida do provider de IA — sem conteúdo de texto.', 'invalid_response');
     }
 
@@ -93,8 +126,34 @@ export class OpenRouterAiProvider implements AiCompletionProvider {
         body.usage?.prompt_tokens !== undefined && body.usage?.completion_tokens !== undefined
           ? { inputTokens: body.usage.prompt_tokens, outputTokens: body.usage.completion_tokens }
           : undefined,
+      ...(toolCalls ? { toolCalls } : {}),
     };
   }
+}
+
+function buildOpenRouterTools(tools: AiToolDefinition[]): Array<{ type: 'function'; function: AiToolDefinition }> {
+  return tools.map((tool) => ({ type: 'function' as const, function: tool }));
+}
+
+function buildOpenRouterToolCalls(
+  toolCalls: AiToolCall[],
+): Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> {
+  return toolCalls.map((call) => ({
+    id: call.id,
+    type: 'function' as const,
+    function: { name: call.name, arguments: call.arguments },
+  }));
+}
+
+function normalizeOpenRouterToolCalls(toolCalls: OpenRouterToolCall[] | undefined): AiToolCall[] | undefined {
+  if (!toolCalls || toolCalls.length === 0) return undefined;
+  return toolCalls
+    .filter((call): call is Required<OpenRouterToolCall> => Boolean(call.function?.name))
+    .map((call, index) => ({
+      id: call.id ?? `openrouter-tool-call-${index}`,
+      name: call.function.name,
+      arguments: call.function.arguments ?? '{}',
+    }));
 }
 
 /** Remove barra(s) finais de `baseUrl` antes de anexar `/chat/completions` — evita `https://host//chat/completions`. */

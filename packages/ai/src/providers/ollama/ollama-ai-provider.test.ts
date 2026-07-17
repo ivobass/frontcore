@@ -291,4 +291,112 @@ describe('OllamaAiProvider', () => {
   it('nunca faz uma chamada de rede real — fetch está sempre mockado neste ficheiro', () => {
     expect(vi.isMockFunction(fetch)).toBe(true);
   });
+
+  describe('Fase 8.3 — tools', () => {
+    const tools = [
+      { name: 'get_financial_summary', description: 'Resumo financeiro', parameters: { type: 'object' as const, properties: { period: {} } } },
+    ];
+
+    it('sem request.tools, nunca envia o campo "tools" no pedido (comportamento idêntico ao anterior à Fase 8.3)', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ model: 'qwen3:4b', message: { content: 'ok' }, done: true }));
+      const provider = new OllamaAiProvider(config);
+
+      await provider.complete({ messages: [{ role: 'user', content: 'oi' }] });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body).not.toHaveProperty('tools');
+    });
+
+    it('com request.tools, envia no formato {type:"function", function: AiToolDefinition}', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ model: 'qwen3:4b', message: { content: 'ok' }, done: true }));
+      const provider = new OllamaAiProvider(config);
+
+      await provider.complete({ messages: [{ role: 'user', content: 'oi' }], tools });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.tools).toEqual([{ type: 'function', function: tools[0] }]);
+    });
+
+    it('mensagem role:"assistant" com toolCalls converte arguments (string JSON) de volta a objeto no pedido, sem "id" (formato nativo não tem id)', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ model: 'qwen3:4b', message: { content: 'ok' }, done: true }));
+      const provider = new OllamaAiProvider(config);
+
+      await provider.complete({
+        messages: [
+          { role: 'user', content: 'oi' },
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call-1', name: 'get_financial_summary', arguments: '{"period":"este mês"}' }],
+          },
+          { role: 'tool', content: '{"totais":{}}', toolCallId: 'call-1', name: 'get_financial_summary' },
+        ],
+      });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.messages[1]).toEqual({
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ function: { name: 'get_financial_summary', arguments: { period: 'este mês' } } }],
+      });
+    });
+
+    it('mensagem role:"tool" inclui tool_name (nunca um id de correlação — formato nativo do Ollama não tem tool_call_id)', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ model: 'qwen3:4b', message: { content: 'ok' }, done: true }));
+      const provider = new OllamaAiProvider(config);
+
+      await provider.complete({
+        messages: [
+          { role: 'user', content: 'oi' },
+          { role: 'assistant', content: '' },
+          { role: 'tool', content: '{"totais":{}}', toolCallId: 'call-1', name: 'get_financial_summary' },
+        ],
+      });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.messages[2]).toEqual({ role: 'tool', content: '{"totais":{}}', tool_name: 'get_financial_summary' });
+      expect(body.messages[2]).not.toHaveProperty('tool_call_id');
+    });
+
+    it('normaliza message.tool_calls (arguments como objeto) para AiToolCall.arguments (string)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          model: 'qwen3:4b',
+          message: { content: '', tool_calls: [{ function: { name: 'get_financial_summary', arguments: { period: 'este mês' } } }] },
+          done: true,
+        }),
+      );
+      const provider = new OllamaAiProvider(config);
+
+      const response = await provider.complete({ messages: [{ role: 'user', content: 'oi' }], tools });
+
+      expect(response.toolCalls).toEqual([
+        { id: 'ollama-tool-call-0', name: 'get_financial_summary', arguments: JSON.stringify({ period: 'este mês' }) },
+      ]);
+    });
+
+    it('content vazio com tool_calls presente nunca lança invalid_response', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          model: 'qwen3:4b',
+          message: { content: '', tool_calls: [{ function: { name: 'get_financial_summary', arguments: {} } }] },
+          done: true,
+        }),
+      );
+      const provider = new OllamaAiProvider(config);
+
+      await expect(
+        provider.complete({ messages: [{ role: 'user', content: 'oi' }], tools }),
+      ).resolves.toMatchObject({ content: '' });
+    });
+
+    it('sem tool_calls na resposta, toolCalls fica undefined', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ model: 'qwen3:4b', message: { content: 'ok' }, done: true }));
+      const provider = new OllamaAiProvider(config);
+
+      const response = await provider.complete({ messages: [{ role: 'user', content: 'oi' }], tools });
+
+      expect(response.toolCalls).toBeUndefined();
+    });
+  });
 });

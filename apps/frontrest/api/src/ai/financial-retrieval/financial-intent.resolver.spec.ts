@@ -10,6 +10,12 @@ describe('resolveFinancialIntent', () => {
     ['Quais foram os principais fornecedores este ano?', 'TOP_SUPPLIERS'],
     ['Mostra a evolução mensal deste ano.', 'MONTHLY_TREND'],
     ['Diz-me quantas faturas há em cada estado.', 'BY_STATUS'],
+    // Regressão Fase 8.3 — frases reais que falhavam na investigação da conversa real.
+    ['Quantas faturas existem?', 'FINANCIAL_SUMMARY'],
+    ['Existem faturas pendentes?', 'OUTSTANDING_BALANCE'],
+    ['Onde estou a gastar mais dinheiro?', 'BY_CATEGORY'],
+    ['Qual é o fornecedor onde mais gastamos?', 'TOP_SUPPLIERS'],
+    ['Faz um resumo financeiro da empresa.', 'FINANCIAL_SUMMARY'],
   ] as const)('reconhece "%s" como %s', (message, expected) => {
     expect(resolveFinancialIntent(message)).toEqual({ kind: 'SUPPORTED', intent: expected });
   });
@@ -38,5 +44,10 @@ describe('resolveFinancialIntent', () => {
       kind: 'SUPPORTED',
       intent: 'OUTSTANDING_BALANCE',
     });
+  });
+
+  it('Fase 8.3 — vocabulário alargado nunca sobrepõe os padrões de exclusão já existentes', () => {
+    expect(resolveFinancialIntent('Elimina as faturas pendentes.')).toEqual({ kind: 'UNSUPPORTED' });
+    expect(resolveFinancialIntent('Compara onde gasto mais entre maio e junho.')).toEqual({ kind: 'UNSUPPORTED' });
   });
 });

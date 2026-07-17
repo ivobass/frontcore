@@ -5,6 +5,7 @@ import AiChatPage from './page';
 const listConversations = vi.fn();
 const getConversation = vi.fn();
 const sendChatMessage = vi.fn();
+const deleteConversation = vi.fn();
 
 vi.mock('../../../../lib/ai-chat', async () => {
   const actual = await vi.importActual<typeof import('../../../../lib/ai-chat')>('../../../../lib/ai-chat');
@@ -13,6 +14,7 @@ vi.mock('../../../../lib/ai-chat', async () => {
     listConversations: (...args: unknown[]) => listConversations(...args),
     getConversation: (...args: unknown[]) => getConversation(...args),
     sendChatMessage: (...args: unknown[]) => sendChatMessage(...args),
+    deleteConversation: (...args: unknown[]) => deleteConversation(...args),
   };
 });
 
@@ -34,13 +36,13 @@ const conversationA = {
   id: 'conv-a',
   createdAt: '2026-07-16T10:00:00Z',
   updatedAt: '2026-07-16T10:05:00Z',
-  lastMessagePreview: 'Prévia da conversa A',
+  titlePreview: 'Prévia da conversa A',
 };
 const conversationB = {
   id: 'conv-b',
   createdAt: '2026-07-15T10:00:00Z',
   updatedAt: '2026-07-15T10:05:00Z',
-  lastMessagePreview: 'Prévia da conversa B',
+  titlePreview: 'Prévia da conversa B',
 };
 
 const messagesA = [
@@ -99,7 +101,7 @@ describe('AiChatPage (Fase 8)', () => {
       id: 'conv-new',
       createdAt: '2026-07-16T10:00:00Z',
       updatedAt: '2026-07-16T10:00:05Z',
-      lastMessagePreview: 'Resposta do assistente.',
+      titlePreview: 'Qual é o meu total de despesas?',
       messages: [
         { id: 'm1', role: 'USER', content: 'Qual é o meu total de despesas?', createdAt: '2026-07-16T10:00:00Z' },
         { id: 'm2', role: 'ASSISTANT', content: 'Resposta do assistente.', createdAt: '2026-07-16T10:00:05Z' },
@@ -165,7 +167,7 @@ describe('AiChatPage (Fase 8)', () => {
       id: 'conv-x',
       createdAt: '2026-07-16T10:00:00Z',
       updatedAt: '2026-07-16T10:00:00Z',
-      lastMessagePreview: null,
+      titlePreview: null,
       messages: [],
     });
     let resolveSend: (value: unknown) => void = () => undefined;
@@ -193,5 +195,79 @@ describe('AiChatPage (Fase 8)', () => {
     });
 
     await waitFor(() => expect(textarea).not.toBeDisabled());
+  });
+
+  describe('Fase 8.3 — gestão de conversas', () => {
+    it('clicar em eliminar abre um diálogo de confirmação, sem eliminar de imediato', async () => {
+      listConversations.mockResolvedValue({ items: [conversationA], page: 1, pageSize: 20, total: 1, totalPages: 1 });
+      render(<AiChatPage />);
+      await screen.findByText('Prévia da conversa A');
+
+      fireEvent.click(screen.getByLabelText('Eliminar conversa "Prévia da conversa A"'));
+
+      expect(await screen.findByText('Eliminar conversa')).toBeInTheDocument();
+      expect(deleteConversation).not.toHaveBeenCalled();
+    });
+
+    it('confirmar elimina a conversa e remove-a da lista imediatamente, sem refresh', async () => {
+      listConversations.mockResolvedValue({ items: [conversationA, conversationB], page: 1, pageSize: 20, total: 2, totalPages: 1 });
+      deleteConversation.mockResolvedValue(undefined);
+      render(<AiChatPage />);
+      await screen.findByText('Prévia da conversa A');
+
+      fireEvent.click(screen.getByLabelText('Eliminar conversa "Prévia da conversa A"'));
+      await screen.findByText('Eliminar conversa');
+      fireEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
+
+      await waitFor(() => expect(screen.queryByText('Prévia da conversa A')).not.toBeInTheDocument());
+      expect(screen.getByText('Prévia da conversa B')).toBeInTheDocument();
+      expect(deleteConversation).toHaveBeenCalledWith('token-abc', 'conv-a');
+      // Nunca voltou a chamar listConversations — atualização só local (sem refresh).
+      expect(listConversations).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancelar não elimina nada', async () => {
+      listConversations.mockResolvedValue({ items: [conversationA], page: 1, pageSize: 20, total: 1, totalPages: 1 });
+      render(<AiChatPage />);
+      await screen.findByText('Prévia da conversa A');
+
+      fireEvent.click(screen.getByLabelText('Eliminar conversa "Prévia da conversa A"'));
+      await screen.findByText('Eliminar conversa');
+      fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+      expect(deleteConversation).not.toHaveBeenCalled();
+      expect(screen.getByText('Prévia da conversa A')).toBeInTheDocument();
+    });
+
+    it('eliminar a conversa ativa volta ao estado de nova conversa', async () => {
+      listConversations.mockResolvedValue({ items: [conversationA], page: 1, pageSize: 20, total: 1, totalPages: 1 });
+      getConversation.mockResolvedValue({ ...conversationA, messages: messagesA });
+      deleteConversation.mockResolvedValue(undefined);
+      render(<AiChatPage />);
+      await screen.findByText('Prévia da conversa A');
+
+      fireEvent.click(screen.getByText('Prévia da conversa A'));
+      await screen.findByText('Gastaste 370,00 € este mês.');
+
+      fireEvent.click(screen.getByLabelText('Eliminar conversa "Prévia da conversa A"'));
+      await screen.findByText('Eliminar conversa');
+      fireEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
+
+      await waitFor(() => expect(screen.queryByText('Gastaste 370,00 € este mês.')).not.toBeInTheDocument());
+    });
+
+    it('erro ao eliminar mostra feedback, sem remover a conversa da lista', async () => {
+      listConversations.mockResolvedValue({ items: [conversationA], page: 1, pageSize: 20, total: 1, totalPages: 1 });
+      deleteConversation.mockRejectedValue(new Error('Erro ao eliminar a conversa.'));
+      render(<AiChatPage />);
+      await screen.findByText('Prévia da conversa A');
+
+      fireEvent.click(screen.getByLabelText('Eliminar conversa "Prévia da conversa A"'));
+      await screen.findByText('Eliminar conversa');
+      fireEvent.click(screen.getByRole('button', { name: 'Eliminar' }));
+
+      expect(await screen.findByText('Erro ao eliminar a conversa.')).toBeInTheDocument();
+      expect(screen.getByText('Prévia da conversa A')).toBeInTheDocument();
+    });
   });
 });

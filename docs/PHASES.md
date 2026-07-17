@@ -256,6 +256,38 @@
   tools, streaming complexo, package novo, migration, dependência nova
   ou alteração ao frontend
   (`docs/phases/phase-8.2-openrouter-provider-integration-ai-runtime-stabilization.md`).
+- **Fase 8.3 — AI Tools (Function Calling) Foundation**: fase única,
+  dois blocos. Bloco 1 — correção de um bug real de alucinação
+  financeira, confirmado por investigação com dados reais: o retrieval
+  determinístico (Fase 8.1) não reconhecia perguntas naturais
+  ("Quantas faturas existem?", "Existem faturas pendentes?", "Onde
+  estou a gastar mais dinheiro?", respostas de continuação como "sim
+  este mês"), deixando o `system prompt` sem dados e o modelo a
+  inventar valores apesar da instrução para não o fazer. Vocabulário do
+  regex alargado diretamente; recuperação de intenção/período por
+  histórico recente (sem persistência nova, mesma janela já enviada ao
+  provider); `AiChatService` deixa de confiar no provider como resposta
+  final sem `DATA` real — fallback determinístico
+  (`buildDeterministicReply()`) marcado (`provider='deterministic'`),
+  nunca texto livre sem dados por trás; `ERROR` nunca tenta o
+  orquestrador de tools nem o provider. Bloco 2 — tool calling
+  read-only, só como oportunidade adicional quando o Bloco 1 não
+  reconhece a pergunta, nunca substituto — `AiCompletionProvider` ganha
+  `tools`/`toolCalls` (aditivo, `packages/ai` continua genérico);
+  `AiToolOrchestratorService` (`apps/frontrest/api/src/ai/tools/`)
+  bounded a 1 tool call e 2 chamadas ao provider, nunca um loop aberto,
+  com a garantia estrutural de que a 2ª chamada só acontece quando a
+  tool devolveu `kind === 'DATA'`; 6 tools read-only reutilizando
+  `FinancialRetrievalService.retrieveForIntent()`; `organizationId`
+  sempre do chamador autenticado, nunca do modelo; texto livre sem tool
+  nunca é a resposta final. Inclui também gestão de conversas —
+  `DELETE /ai/conversations/:id` (cascata já provisionada no schema,
+  sem migration), eliminação com confirmação na barra lateral
+  (`ConfirmDialog`/`EmptyState` já existentes, reutilizados),
+  `titlePreview` (primeira mensagem, não a última), lista atualizada
+  sem refresh. Sem RAG, embeddings, agentes autónomos, streaming,
+  escrita financeira, package novo
+  (`docs/phases/phase-8.3-ai-tools-function-calling-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify.
 

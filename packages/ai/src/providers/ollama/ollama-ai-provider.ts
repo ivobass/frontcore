@@ -1,14 +1,28 @@
-import type { AiCompletionProvider, AiCompletionRequest, AiCompletionResponse, OllamaAiConfig } from '../../contracts';
+import type {
+  AiCompletionProvider,
+  AiCompletionRequest,
+  AiCompletionResponse,
+  AiToolCall,
+  AiToolDefinition,
+  OllamaAiConfig,
+} from '../../contracts';
 import { AiProviderError } from '../../errors';
 
 interface OllamaChatMessage {
   role: string;
   content: string;
+  /** Só em mensagens `role: 'tool'` — formato nativo do Ollama usa `tool_name`, nunca `tool_call_id` (a API nativa não tem IDs de tool call, ao contrário do OpenAI-compatible). */
+  tool_name?: string;
+  tool_calls?: Array<{ function: { name: string; arguments: unknown } }>;
+}
+
+interface OllamaToolCall {
+  function?: { name: string; arguments?: unknown };
 }
 
 interface OllamaChatResponse {
   model?: string;
-  message?: { role: string; content: string };
+  message?: { role: string; content: string; tool_calls?: OllamaToolCall[] };
   done?: boolean;
   prompt_eval_count?: number;
   eval_count?: number;
@@ -49,6 +63,23 @@ interface OllamaChatResponse {
  * "thinking", deixando `message.content` vazio — nesse caso
  * `complete()` já lança `invalid_response`, corretamente (não há texto
  * final a devolver), não um efeito deste provider.
+ *
+ * **Tools (Fase 8.3)** — `tools`/`message.tool_calls` seguem o mesmo
+ * formato JSON Schema-based documentado pelo Ollama
+ * (`{type:'function', function:{name,description,parameters}}`), com
+ * `function.arguments` devolvido como **objeto**, não como string JSON
+ * (diferença real face ao formato OpenAI-compatible do OpenRouter) —
+ * normalizado aqui para `AiToolCall.arguments: string` via
+ * `JSON.stringify()`. Ao reenviar a mensagem `assistant` que originou a
+ * tool call, o formato nativo **não tem `id`** (só `function.name`/
+ * `function.arguments` como objeto, convertido de volta de string JSON);
+ * a mensagem `tool` correspondente usa `tool_name`, nunca um id de
+ * correlação — diferença estrutural face ao `tool_call_id` do
+ * OpenAI-compatible, documentada aqui para não ser assumida por engano.
+ * **Não confirmado empiricamente contra um servidor Ollama real com um
+ * modelo `tools`-capable** (ao contrário do resto deste provider) — só
+ * nem todos os modelos locais anunciam a capacidade `tools`; ver
+ * validação manual da Fase 8.3.
  */
 export class OllamaAiProvider implements AiCompletionProvider {
   readonly name = 'ollama';
@@ -68,11 +99,24 @@ export class OllamaAiProvider implements AiCompletionProvider {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          messages: request.messages.map(
-            (message): OllamaChatMessage => ({ role: message.role, content: message.content }),
-          ),
+          messages: request.messages.map((message): OllamaChatMessage => ({
+            role: message.role,
+            content: message.content,
+            // Formato nativo do Ollama para o resultado de uma tool usa
+            // `tool_name`, nunca um id de correlação (a API não tem IDs de
+            // tool call) — perder `name` aqui quebraria a mensagem `tool`.
+            ...(message.role === 'tool' && message.name ? { tool_name: message.name } : {}),
+            // A mensagem `assistant` que originou a(s) tool call(s) tem de
+            // preservar `tool_calls` ao ser reenviada — formato nativo não
+            // inclui `id` (só `function.name`/`function.arguments`, como
+            // objeto, nunca string JSON).
+            ...(message.toolCalls && message.toolCalls.length > 0
+              ? { tool_calls: buildOllamaToolCallsForRequest(message.toolCalls) }
+              : {}),
+          })),
           stream: false,
           options: { num_predict: maxOutputTokens },
+          ...(request.tools && request.tools.length > 0 ? { tools: buildOllamaTools(request.tools) } : {}),
         }),
         signal: controller.signal,
       });
@@ -92,8 +136,9 @@ export class OllamaAiProvider implements AiCompletionProvider {
     }
 
     const body = await parseOllamaResponseBody(response);
-    const content = body.message?.content;
-    if (!content) {
+    const toolCalls = normalizeOllamaToolCalls(body.message?.tool_calls);
+    const content = body.message?.content ?? '';
+    if (!content && !toolCalls) {
       throw new AiProviderError('Resposta inválida do provider de IA — sem conteúdo de texto.', 'invalid_response');
     }
 
@@ -105,8 +150,51 @@ export class OllamaAiProvider implements AiCompletionProvider {
         body.prompt_eval_count !== undefined && body.eval_count !== undefined
           ? { inputTokens: body.prompt_eval_count, outputTokens: body.eval_count }
           : undefined,
+      ...(toolCalls ? { toolCalls } : {}),
     };
   }
+}
+
+function buildOllamaTools(tools: AiToolDefinition[]): Array<{ type: 'function'; function: AiToolDefinition }> {
+  return tools.map((tool) => ({ type: 'function' as const, function: tool }));
+}
+
+/**
+ * Converte `AiToolCall.arguments` (string JSON, forma do contrato) de
+ * volta a objeto — assimétrico do lado da normalização de entrada
+ * (`normalizeOllamaToolCalls`, objeto → string), porque o formato nativo
+ * do Ollama espera sempre `function.arguments` como objeto, nunca string.
+ * `JSON.parse` nunca deve falhar aqui (a string só pode ter vindo de um
+ * `JSON.stringify` anterior, no mesmo provider ou no OpenRouter), mas um
+ * `catch` evita propagar um erro de parsing para dentro da serialização
+ * do pedido — preferível `{}` a uma exceção não tratada nesse ponto.
+ */
+function buildOllamaToolCallsForRequest(toolCalls: AiToolCall[]): Array<{ function: { name: string; arguments: unknown } }> {
+  return toolCalls.map((call) => ({
+    function: {
+      name: call.name,
+      arguments: parseToolCallArguments(call.arguments),
+    },
+  }));
+}
+
+function parseToolCallArguments(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function normalizeOllamaToolCalls(toolCalls: OllamaToolCall[] | undefined): AiToolCall[] | undefined {
+  if (!toolCalls || toolCalls.length === 0) return undefined;
+  return toolCalls
+    .filter((call): call is Required<OllamaToolCall> => Boolean(call.function?.name))
+    .map((call, index) => ({
+      id: `ollama-tool-call-${index}`,
+      name: call.function.name,
+      arguments: typeof call.function.arguments === 'string' ? call.function.arguments : JSON.stringify(call.function.arguments ?? {}),
+    }));
 }
 
 /** Remove barra(s) finais de `baseUrl` antes de anexar `/api/chat` — evita `http://host//api/chat`. */

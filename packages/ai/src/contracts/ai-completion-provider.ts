@@ -1,4 +1,5 @@
 import type { AiMessage } from './ai-message';
+import type { AiToolCall, AiToolDefinition } from './ai-tool';
 
 /**
  * Pedido normalizado de completion — mesma forma independentemente do
@@ -6,12 +7,15 @@ import type { AiMessage } from './ai-message';
  * `AiConfig` com que o provider foi construído; presentes, sobrepõem-no
  * para este pedido específico. Sem `temperature` nesta fase — nenhum
  * consumidor real a pede ainda; campo aditivo, fácil de acrescentar sem
- * mudança breaking quando existir necessidade confirmada.
+ * mudança breaking quando existir necessidade confirmada. `tools`
+ * (Fase 8.3) é aditivo e opcional — ausente, o comportamento de qualquer
+ * provider é idêntico ao anterior à Fase 8.3.
  */
 export interface AiCompletionRequest {
   messages: AiMessage[];
   model?: string;
   maxOutputTokens?: number;
+  tools?: AiToolDefinition[];
 }
 
 /** Consumo de tokens — só presente quando o provider o disponibiliza. */
@@ -24,13 +28,16 @@ export interface AiCompletionUsage {
  * Resposta normalizada — `content` já é o texto final agregado (nunca a
  * estrutura bruta de blocos/eventos de um provider específico).
  * `provider`/`model` identificam o que foi efetivamente usado, mesmo
- * quando o pedido não os especificou.
+ * quando o pedido não os especificou. `content` pode ser `''` quando
+ * `toolCalls` (Fase 8.3) está presente — o modelo escolheu chamar uma
+ * tool em vez de responder diretamente nesta volta.
  */
 export interface AiCompletionResponse {
   content: string;
   provider: string;
   model: string;
   usage?: AiCompletionUsage;
+  toolCalls?: AiToolCall[];
 }
 
 /**

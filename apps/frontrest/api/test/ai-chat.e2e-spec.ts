@@ -73,18 +73,29 @@ function wireInMemoryAiStore(prisma: MockPrismaService) {
     return Promise.resolve({ ...conversation, messages: conversationMessages });
   });
 
-  prisma.aiConversation.findMany.mockImplementation(({ where }: { where: { organizationId: string; userId: string } }) => {
-    const items = [...conversations.values()]
-      .filter((c) => c.organizationId === where.organizationId && c.userId === where.userId)
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
-      .map((c) => {
-        const last = [...messages.values()]
-          .filter((m) => m.conversationId === c.id)
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-        return { ...c, messages: last ? [last] : [] };
-      });
-    return Promise.resolve(items);
-  });
+  prisma.aiConversation.findMany.mockImplementation(
+    ({
+      where,
+      include,
+    }: {
+      where: { organizationId: string; userId: string };
+      include?: { messages?: { orderBy?: { createdAt?: 'asc' | 'desc' }; take?: number } };
+    }) => {
+      const direction = include?.messages?.orderBy?.createdAt ?? 'desc';
+      const take = include?.messages?.take ?? 1;
+      const items = [...conversations.values()]
+        .filter((c) => c.organizationId === where.organizationId && c.userId === where.userId)
+        .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+        .map((c) => {
+          const conversationMessages = [...messages.values()]
+            .filter((m) => m.conversationId === c.id)
+            .sort((a, b) => (direction === 'asc' ? a.createdAt.getTime() - b.createdAt.getTime() : b.createdAt.getTime() - a.createdAt.getTime()))
+            .slice(0, take);
+          return { ...c, messages: conversationMessages };
+        });
+      return Promise.resolve(items);
+    },
+  );
 
   prisma.aiConversation.count.mockImplementation(({ where }: { where: { organizationId: string; userId: string } }) =>
     Promise.resolve([...conversations.values()].filter((c) => c.organizationId === where.organizationId && c.userId === where.userId).length),
@@ -93,6 +104,16 @@ function wireInMemoryAiStore(prisma: MockPrismaService) {
   prisma.aiConversation.update.mockImplementation(({ where, data }: { where: { id: string }; data: { updatedAt: Date } }) => {
     const conversation = conversations.get(where.id)!;
     conversation.updatedAt = data.updatedAt;
+    return Promise.resolve(conversation);
+  });
+
+  // Fase 8.3 — elimina a conversa e, simulando `onDelete: Cascade` do schema real, as suas mensagens.
+  prisma.aiConversation.delete.mockImplementation(({ where }: { where: { id: string } }) => {
+    const conversation = conversations.get(where.id)!;
+    conversations.delete(where.id);
+    for (const [messageId, message] of messages) {
+      if (message.conversationId === where.id) messages.delete(messageId);
+    }
     return Promise.resolve(conversation);
   });
 
@@ -214,7 +235,7 @@ describe('AI Chat (e2e)', () => {
         .expect(200);
 
       expect(response.body.items).toHaveLength(1);
-      expect(response.body.items[0].lastMessagePreview).toContain('Olá');
+      expect(response.body.items[0].titlePreview).toContain('Olá');
     });
 
     it('GET /api/ai/conversations/:id de uma conversa inexistente → 404', async () => {
@@ -370,6 +391,153 @@ describe('AI Chat (e2e)', () => {
       // Confirma que a resposta atravessou toda a árvore de injeção até ao Mock provider.
       expect(response.body.message.role).toBe('ASSISTANT');
       expect(response.body.message.provider).toBeUndefined(); // ChatMessageView público não expõe o provider — contrato inalterado.
+    });
+  });
+
+  /**
+   * Regressão real (Fase 8.3) — as frases exatas que produziram
+   * respostas fabricadas na investigação real (ver
+   * `docs/phases/phase-8.3-ai-tools-function-calling-foundation.md`).
+   * A cobertura exaustiva de qual `kind`/dados cada uma resolve já está
+   * em `financial-intent.resolver.spec.ts`/`financial-retrieval.service.spec.ts`
+   * (unitários, deterministas); aqui só se confirma que a árvore de
+   * injeção completa (retrieval → fallback determinístico → orquestrador
+   * de tools → Mock) nunca rebenta com nenhuma delas.
+   */
+  describe('regressão Fase 8.3 — frases reais que antes produziam respostas fabricadas', () => {
+    it.each([
+      'Quantas faturas existem?',
+      'Existem faturas pendentes?',
+      'Onde estou a gastar mais dinheiro?',
+      'Qual é o fornecedor onde mais gastamos?',
+      'Faz um resumo financeiro da empresa.',
+    ])('"%s" completa com sucesso (201), sem nunca rebentar', async (message) => {
+      await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message })
+        .expect(201);
+    });
+
+    it('"sim este mês" como continuação de "Faz um resumo financeiro da empresa." recupera a intenção pelo histórico', async () => {
+      const first = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Faz um resumo financeiro da empresa.' })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ conversationId: first.body.conversationId, message: 'sim este mês' })
+        .expect(201);
+
+      // Confirma a chamada real ao DashboardService — a recuperação por histórico funcionou (deixou de ser UNSUPPORTED).
+      expect(prisma.invoice.aggregate).toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Orquestrador de tools (Fase 8.3) — o `MockAiProvider` chama sempre a
+   * primeira tool oferecida quando `tools` está presente (determinístico,
+   * ver `mock-ai-provider.ts`), por isso uma pergunta que o retrieval
+   * determinístico não reconheça ainda assim chega a dados reais via
+   * tool call, nunca via texto livre.
+   */
+  describe('orquestrador de tools — integração ponta a ponta (Fase 8.3)', () => {
+    it('pergunta não reconhecida pelo retrieval determinístico é respondida via tool call real (Mock + DashboardService)', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Onde estou a gastar mais dinheiro?' })
+        .expect(201);
+
+      // "Onde estou a gastar mais dinheiro?" já é reconhecida pelo vocabulário alargado (BY_CATEGORY) — usa o caminho DATA
+      // direto, não o orquestrador de tools. Confirma-se aqui a chamada real ao DashboardService de qualquer forma.
+      expect(prisma.invoice.groupBy).toHaveBeenCalled();
+      expect(response.body.message.role).toBe('ASSISTANT');
+    });
+
+    it('pergunta genuinamente não financeira nunca aciona nenhuma tool nem chega a alucinar um valor', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quem ganhou o Mundial de 2022?' })
+        .expect(201);
+
+      expect(response.body.message.role).toBe('ASSISTANT');
+    });
+  });
+
+  describe('Fase 8.3 — DELETE /api/ai/conversations/:id', () => {
+    it('elimina uma conversa própria (204) — deixa de aparecer na listagem e no detalhe (404)', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Olá' });
+      const conversationId = created.body.conversationId;
+
+      await request(app.getHttpServer())
+        .delete(`/api/ai/conversations/${conversationId}`)
+        .set('Authorization', authHeader())
+        .expect(204);
+
+      await request(app.getHttpServer())
+        .get(`/api/ai/conversations/${conversationId}`)
+        .set('Authorization', authHeader())
+        .expect(404);
+
+      const list = await request(app.getHttpServer())
+        .get('/api/ai/conversations')
+        .set('Authorization', authHeader())
+        .expect(200);
+      expect(list.body.items.find((c: { id: string }) => c.id === conversationId)).toBeUndefined();
+    });
+
+    it('sem token → 401', async () => {
+      await request(app.getHttpServer()).delete('/api/ai/conversations/conv-1').expect(401);
+    });
+
+    it('conversa de outra organização → 404, nunca elimina', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader({ organizationId: 'org-a', userId: 'user-a' }))
+        .send({ message: 'Segredo da org A' });
+
+      await request(app.getHttpServer())
+        .delete(`/api/ai/conversations/${created.body.conversationId}`)
+        .set('Authorization', authHeader({ organizationId: 'org-b', userId: 'user-b' }))
+        .expect(404);
+
+      // Continua acessível pela organização A — nunca foi eliminada.
+      await request(app.getHttpServer())
+        .get(`/api/ai/conversations/${created.body.conversationId}`)
+        .set('Authorization', authHeader({ organizationId: 'org-a', userId: 'user-a' }))
+        .expect(200);
+    });
+
+    it('conversa de outro utilizador da mesma organização → 404, nunca elimina', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader({ organizationId: 'org-1', userId: 'user-a' }))
+        .send({ message: 'Privado do utilizador A' });
+
+      await request(app.getHttpServer())
+        .delete(`/api/ai/conversations/${created.body.conversationId}`)
+        .set('Authorization', authHeader({ organizationId: 'org-1', userId: 'user-b' }))
+        .expect(404);
+
+      await request(app.getHttpServer())
+        .get(`/api/ai/conversations/${created.body.conversationId}`)
+        .set('Authorization', authHeader({ organizationId: 'org-1', userId: 'user-a' }))
+        .expect(200);
+    });
+
+    it('conversa inexistente → 404', async () => {
+      await request(app.getHttpServer())
+        .delete('/api/ai/conversations/conv-nao-existe')
+        .set('Authorization', authHeader())
+        .expect(404);
     });
   });
 });

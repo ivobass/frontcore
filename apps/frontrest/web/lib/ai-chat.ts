@@ -14,7 +14,8 @@ export interface ConversationSummary {
   id: string;
   createdAt: string;
   updatedAt: string;
-  lastMessagePreview: string | null;
+  /** Derivado da primeira mensagem da conversa (Fase 8.3) — título curto para a barra lateral. */
+  titlePreview: string | null;
 }
 
 export interface ConversationDetail extends ConversationSummary {
@@ -61,4 +62,13 @@ export async function sendChatMessage(
     body: JSON.stringify(input),
   });
   return parseJsonOrThrow(response);
+}
+
+/** Eliminação física (Fase 8.3) — mesmo padrão de `deleteSupplier`/`deleteCategory`. */
+export async function deleteConversation(accessToken: string, id: string): Promise<void> {
+  const response = await fetch(`${API_URL}/ai/conversations/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(accessToken),
+  });
+  await parseJsonOrThrow(response);
 }

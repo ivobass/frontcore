@@ -283,4 +283,131 @@ describe('OpenRouterAiProvider', () => {
   it('nunca faz uma chamada de rede real — fetch está sempre mockado neste ficheiro', () => {
     expect(vi.isMockFunction(fetch)).toBe(true);
   });
+
+  describe('Fase 8.3 — tools', () => {
+    const tools = [
+      { name: 'get_financial_summary', description: 'Resumo financeiro', parameters: { type: 'object' as const, properties: { period: {} } } },
+    ];
+
+    it('sem request.tools, nunca envia o campo "tools" no pedido', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      await provider.complete({ messages: [{ role: 'user', content: 'oi' }] });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body).not.toHaveProperty('tools');
+    });
+
+    it('com request.tools, envia no formato OpenAI-compatible {type:"function", function}', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      await provider.complete({ messages: [{ role: 'user', content: 'oi' }], tools });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.tools).toEqual([{ type: 'function', function: tools[0] }]);
+    });
+
+    it('mensagem role:"tool" com toolCallId inclui tool_call_id no pedido', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      await provider.complete({
+        messages: [
+          { role: 'user', content: 'oi' },
+          { role: 'assistant', content: '' },
+          { role: 'tool', content: '{"totals":{}}', toolCallId: 'call-1', name: 'get_financial_summary' },
+        ],
+      });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.messages[2]).toEqual({ role: 'tool', content: '{"totals":{}}', tool_call_id: 'call-1' });
+    });
+
+    it('mensagem role:"assistant" com toolCalls preserva tool_calls no formato OpenAI-compatible ao ser reenviada', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      await provider.complete({
+        messages: [
+          { role: 'user', content: 'oi' },
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call-1', name: 'get_financial_summary', arguments: '{"period":"este mês"}' }],
+          },
+          { role: 'tool', content: '{"totals":{}}', toolCallId: 'call-1', name: 'get_financial_summary' },
+        ],
+      });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.messages[1]).toEqual({
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          { id: 'call-1', type: 'function', function: { name: 'get_financial_summary', arguments: '{"period":"este mês"}' } },
+        ],
+      });
+    });
+
+    it('mensagem role:"assistant" sem toolCalls nunca envia o campo "tool_calls" no pedido', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      await provider.complete({
+        messages: [
+          { role: 'user', content: 'oi' },
+          { role: 'assistant', content: 'resposta normal' },
+        ],
+      });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.messages[1]).not.toHaveProperty('tool_calls');
+    });
+
+    it('normaliza choices[0].message.tool_calls (formato OpenAI, arguments já é string)', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          choices: [
+            {
+              message: {
+                content: '',
+                tool_calls: [{ id: 'call-abc', function: { name: 'get_financial_summary', arguments: '{"period":"este mês"}' } }],
+              },
+            },
+          ],
+        }),
+      );
+      const provider = new OpenRouterAiProvider(config);
+
+      const response = await provider.complete({ messages: [{ role: 'user', content: 'oi' }], tools });
+
+      expect(response.toolCalls).toEqual([
+        { id: 'call-abc', name: 'get_financial_summary', arguments: '{"period":"este mês"}' },
+      ]);
+    });
+
+    it('content vazio com tool_calls presente nunca lança invalid_response', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          choices: [{ message: { content: '', tool_calls: [{ id: 'call-1', function: { name: 'get_financial_summary', arguments: '{}' } }] } }],
+        }),
+      );
+      const provider = new OpenRouterAiProvider(config);
+
+      await expect(
+        provider.complete({ messages: [{ role: 'user', content: 'oi' }], tools }),
+      ).resolves.toMatchObject({ content: '' });
+    });
+
+    it('sem tool_calls na resposta, toolCalls fica undefined', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      const response = await provider.complete({ messages: [{ role: 'user', content: 'oi' }], tools });
+
+      expect(response.toolCalls).toBeUndefined();
+    });
+  });
 });

@@ -17,11 +17,18 @@ import type { AiCompletionProvider, AiMessage } from '@frontcore/ai';
 import { normalizePagination, type Paginated } from '@frontcore/shared';
 import { AI_COMPLETION_PROVIDER } from './ai-completion-provider.token';
 import { AiTenantContextService } from './ai-tenant-context.service';
+import { FinancialRetrievalService } from './financial-retrieval/financial-retrieval.service';
+import { buildDeterministicReply } from './financial-retrieval/financial-context.builder';
+import { AiToolOrchestratorService } from './tools/ai-tool-orchestrator.service';
 import { loadAiChatConfig, type AiChatConfig } from './ai-chat.config';
 import { SendChatMessageDto } from './dto/send-chat-message.dto';
 import { ListConversationsDto } from './dto/list-conversations.dto';
 
 const PREVIEW_LENGTH = 120;
+
+/** Marcadores das mensagens `ASSISTANT` respondidas sem nenhuma chamada ao provider confiada como final (Fase 8.3) — nunca confundíveis com uma resposta real de `mock`/`ollama`/`openrouter` numa auditoria. */
+const DETERMINISTIC_PROVIDER = 'deterministic';
+const DETERMINISTIC_MODEL = 'financial-retrieval-fallback';
 
 export interface ChatMessageView {
   id: string;
@@ -34,7 +41,8 @@ export interface ConversationSummaryView {
   id: string;
   createdAt: string;
   updatedAt: string;
-  lastMessagePreview: string | null;
+  /** Derivado da primeira mensagem da conversa (Fase 8.3) — título curto para a barra lateral, nunca persistido. */
+  titlePreview: string | null;
 }
 
 export interface ConversationDetailView extends ConversationSummaryView {
@@ -46,6 +54,14 @@ export interface SendChatMessageResult {
   message: ChatMessageView;
 }
 
+interface AssistantReply {
+  content: string;
+  provider: string;
+  model: string;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 /**
  * Orquestra o chat IA (Fase 8) — primeiro consumidor real de
  * `AiCompletionProvider`. Nunca conhece `OllamaAiProvider` diretamente,
@@ -53,6 +69,18 @@ export interface SendChatMessageResult {
  * (`ai.module.ts`). O modelo nunca é fronteira de autorização — todo o
  * isolamento por organização/utilizador acontece nas queries Prisma
  * abaixo, antes de qualquer dado ser construído para o provider.
+ *
+ * Fase 8.3 — o provider só é chamado a confiar na resposta como final
+ * em duas situações: (1) `FinancialRetrievalService.retrieve()`
+ * devolveu `DATA` (dados reais já resolvidos); (2)
+ * `AiToolOrchestratorService.run()` devolveu `ANSWERED` (uma tool
+ * read-only foi chamada e devolveu dados reais, o que só acontece
+ * quando `retrieveForIntent()` também devolve `DATA` — ver
+ * `AiToolOrchestratorService`). `ERROR` nunca tenta o orquestrador nem
+ * o provider — vai direto ao fallback determinístico. Em qualquer
+ * outro caso, a resposta é o texto determinístico de
+ * `buildDeterministicReply()` — nunca texto livre do modelo sem dados
+ * estruturados reais por trás.
  */
 @Injectable()
 export class AiChatService {
@@ -63,17 +91,25 @@ export class AiChatService {
     private readonly prisma: PrismaService,
     @Inject(AI_COMPLETION_PROVIDER) private readonly provider: AiCompletionProvider,
     private readonly tenantContext: AiTenantContextService,
+    private readonly financialRetrieval: FinancialRetrievalService,
+    private readonly toolOrchestrator: AiToolOrchestratorService,
   ) {
     this.config = loadAiChatConfig();
   }
 
   /**
    * Fluxo: valida → resolve/cria conversa (sempre organizationId+userId
-   * autenticados, nunca vindos do pedido) → persiste USER → constrói
-   * contexto → chama o provider → persiste ASSISTANT. Se o provider
-   * falhar, a mensagem USER já persistida fica (nunca apagada) e nenhuma
-   * mensagem ASSISTANT falsa é criada — o erro devolvido ao cliente é
-   * sempre sanitizado (ver `mapProviderError`).
+   * autenticados, nunca vindos do pedido) → persiste USER → carrega
+   * histórico → resolve retrieval financeiro (Fase 8.1, reforçado na
+   * Fase 8.3) → `DATA` chama o provider com contexto real;
+   * `UNSUPPORTED`/`PERIOD_MISSING`/`PERIOD_AMBIGUOUS` tentam o
+   * orquestrador de tools (Fase 8.3) antes de cair no fallback
+   * determinístico; `ERROR` vai direto ao fallback determinístico, sem
+   * tentar o orquestrador nem o provider → persiste ASSISTANT. Se o
+   * provider falhar no caminho `DATA`, a mensagem USER já persistida
+   * fica (nunca apagada) e nenhuma mensagem ASSISTANT falsa é criada —
+   * o erro devolvido ao cliente é sempre sanitizado (ver
+   * `mapProviderError`).
    */
   async sendMessage(
     organizationId: string,
@@ -98,56 +134,58 @@ export class AiChatService {
       data: { conversationId: conversation.id, role: 'USER', content },
     });
 
-    const systemMessage = await this.tenantContext.buildSystemMessage(organizationId, content);
-    // Carregada depois de persistir a mensagem USER atual — as "últimas N
+    // Carregado depois de persistir a mensagem USER atual — as "últimas N
     // mensagens" já a incluem como a mais recente, sem a duplicar
-    // manualmente no pedido ao provider.
+    // manualmente no pedido ao provider. Reutilizado também para a
+    // recuperação de intenção/período por histórico (Fase 8.3) e para
+    // o orquestrador de tools (Fase 8.3) — sem query nova.
     const history = await this.loadHistoryMessages(conversation.id);
+    const recentUserMessages = this.extractRecentUserMessages(history);
 
-    let responseContent: string;
-    let responseProvider: string;
-    let responseModel: string;
-    let inputTokens: number | undefined;
-    let outputTokens: number | undefined;
-    try {
-      const response = await this.provider.complete({
-        messages: [systemMessage, ...history],
+    const retrievalResult = await this.financialRetrieval.retrieve(organizationId, content, recentUserMessages);
+
+    if (retrievalResult.kind === 'DATA') {
+      const systemMessage = this.tenantContext.buildSystemMessage(retrievalResult);
+      let response;
+      try {
+        response = await this.provider.complete({ messages: [systemMessage, ...history] });
+      } catch (error) {
+        throw this.mapProviderError(error);
+      }
+      return this.persistAssistantReply(conversation.id, {
+        content: response.content,
+        provider: response.provider,
+        model: response.model,
+        inputTokens: response.usage?.inputTokens,
+        outputTokens: response.usage?.outputTokens,
       });
-      responseContent = response.content;
-      responseProvider = response.provider;
-      responseModel = response.model;
-      inputTokens = response.usage?.inputTokens;
-      outputTokens = response.usage?.outputTokens;
-    } catch (error) {
-      throw this.mapProviderError(error);
     }
 
-    // Forma callback do `$transaction` — mesmo padrão já usado por
-    // `InvoiceDraftsService.promote()`, e o único que o mock partilhado
-    // de testes (`test/utils/mock-prisma.ts`) implementa.
-    const assistantMessage = await this.prisma.$transaction(async (tx) => {
-      const message = await tx.aiMessage.create({
-        data: {
-          conversationId: conversation.id,
-          role: 'ASSISTANT',
-          content: responseContent,
-          provider: responseProvider,
-          model: responseModel,
-          inputTokens,
-          outputTokens,
-        },
-      });
-      await tx.aiConversation.update({
-        where: { id: conversation.id },
-        data: { updatedAt: new Date() },
-      });
-      return message;
-    });
+    // Fase 8.3 — antes do fallback determinístico, tenta uma oportunidade
+    // adicional via tool calling (bounded, read-only), mas só quando faz
+    // sentido: `UNSUPPORTED`/`PERIOD_MISSING`/`PERIOD_AMBIGUOUS` podem
+    // beneficiar de uma tool escolhida pelo modelo; `ERROR` é uma falha
+    // interna (ex.: `DashboardService`) sem nenhuma relação com "talvez
+    // uma tool ajude" — nunca chama o orquestrador nem o provider nesse
+    // caso, vai direto ao fallback determinístico. Nunca reabre a
+    // possibilidade de alucinação: `AiToolOrchestratorService` só devolve
+    // `ANSWERED` quando uma tool real foi executada com sucesso — texto
+    // livre do modelo sem tool nunca chega até aqui.
+    if (retrievalResult.kind !== 'ERROR') {
+      const toolResult = await this.toolOrchestrator.run(organizationId, history);
+      if (toolResult.kind === 'ANSWERED') {
+        return this.persistAssistantReply(conversation.id, toolResult);
+      }
+    }
 
-    return {
-      conversationId: conversation.id,
-      message: this.toMessageView(assistantMessage),
-    };
+    // Fallback determinístico final: sem dados estruturados reais (nem
+    // do retrieval nem de nenhuma tool), a resposta nunca vem de texto
+    // livre do modelo.
+    return this.persistAssistantReply(conversation.id, {
+      content: buildDeterministicReply(retrievalResult),
+      provider: DETERMINISTIC_PROVIDER,
+      model: DETERMINISTIC_MODEL,
+    });
   }
 
   async listConversations(
@@ -164,7 +202,8 @@ export class AiChatService {
         orderBy: { updatedAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: { messages: { orderBy: { createdAt: 'desc' as const }, take: 1 } },
+        // Fase 8.3 — primeira mensagem (não a última) para derivar o título curto da barra lateral.
+        include: { messages: { orderBy: { createdAt: 'asc' as const }, take: 1 } },
       }),
       this.prisma.aiConversation.count({ where }),
     ]);
@@ -191,9 +230,21 @@ export class AiChatService {
       throw new NotFoundException('Conversa não encontrada.');
     }
     return {
-      ...this.toSummaryView({ ...conversation, messages: conversation.messages.slice(-1) }),
+      ...this.toSummaryView({ ...conversation, messages: conversation.messages.slice(0, 1) }),
       messages: conversation.messages.map((message) => this.toMessageView(message)),
     };
+  }
+
+  /**
+   * Eliminação física (Fase 8.3) — `onDelete: Cascade` já provisionado
+   * no schema (`AiMessage.conversation`) elimina as mensagens
+   * automaticamente, sem migration nova. Mesma verificação de
+   * propriedade de `findOwnedConversation()` — conversa de outra
+   * organização ou de outro utilizador devolve o mesmo 404 genérico.
+   */
+  async deleteConversation(organizationId: string, userId: string, id: string): Promise<void> {
+    await this.findOwnedConversation(organizationId, userId, id);
+    await this.prisma.aiConversation.delete({ where: { id } });
   }
 
   /**
@@ -231,6 +282,21 @@ export class AiChatService {
     }));
   }
 
+  /**
+   * Mensagens `USER` anteriores à atual, mais recente primeiro (Fase
+   * 8.3) — reaproveita o mesmo `history` já carregado para
+   * `provider.complete()`, sem query nova. A mensagem atual é sempre a
+   * última entrada de `history` (já persistida e recarregada) — por
+   * isso excluída aqui via `.slice(0, -1)`.
+   */
+  private extractRecentUserMessages(history: AiMessage[]): string[] {
+    return history
+      .slice(0, -1)
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content)
+      .reverse();
+  }
+
   private toAiMessageRole(role: AiMessageRole): 'user' | 'assistant' {
     return role === 'ASSISTANT' ? 'assistant' : 'user';
   }
@@ -247,17 +313,51 @@ export class AiChatService {
   private toSummaryView(
     conversation: AiConversation & { messages: AiMessageRow[] },
   ): ConversationSummaryView {
-    const last = conversation.messages[0];
+    const first = conversation.messages[0];
     return {
       id: conversation.id,
       createdAt: conversation.createdAt.toISOString(),
       updatedAt: conversation.updatedAt.toISOString(),
-      lastMessagePreview: last ? this.truncate(last.content, PREVIEW_LENGTH) : null,
+      titlePreview: first ? this.truncate(first.content, PREVIEW_LENGTH) : null,
     };
   }
 
   private truncate(text: string, maxLength: number): string {
     return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+  }
+
+  /**
+   * Persiste a mensagem `ASSISTANT` (real, com provider/model/tokens, ou
+   * o marcador determinístico da Fase 8.3) e atualiza `updatedAt` da
+   * conversa — mesma transação em ambos os caminhos.
+   */
+  private async persistAssistantReply(conversationId: string, reply: AssistantReply): Promise<SendChatMessageResult> {
+    // Forma callback do `$transaction` — mesmo padrão já usado por
+    // `InvoiceDraftsService.promote()`, e o único que o mock partilhado
+    // de testes (`test/utils/mock-prisma.ts`) implementa.
+    const assistantMessage = await this.prisma.$transaction(async (tx) => {
+      const message = await tx.aiMessage.create({
+        data: {
+          conversationId,
+          role: 'ASSISTANT',
+          content: reply.content,
+          provider: reply.provider,
+          model: reply.model,
+          inputTokens: reply.inputTokens,
+          outputTokens: reply.outputTokens,
+        },
+      });
+      await tx.aiConversation.update({
+        where: { id: conversationId },
+        data: { updatedAt: new Date() },
+      });
+      return message;
+    });
+
+    return {
+      conversationId,
+      message: this.toMessageView(assistantMessage),
+    };
   }
 
   /**
