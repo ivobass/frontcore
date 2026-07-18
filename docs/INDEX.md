@@ -20,6 +20,52 @@ estrutura da equipa, está em `docs/ai/AI_GOVERNANCE.md`.
 
 ---
 
+## Ciclo de trabalho obrigatório
+
+Este índice é só o ponto de entrada — nunca o destino final da leitura.
+Todo o trabalho no FrontCore segue sempre o mesmo ciclo, do início da
+conversa ao fecho da fase:
+
+```
+INÍCIO DA CONVERSA
+        │
+        ▼
+docs/INDEX.md                         (este ficheiro — ponto de entrada)
+        │
+        ▼
+docs/ai/AI_BASE_PROMPT.md             (regras permanentes — leitura seguinte, obrigatória)
+        │
+        ▼
+Documentação específica da fase       (ARCHITECTURE.md, PHASES.md, ADRs, docs/phases/ — ver "Ordem de leitura obrigatória")
+        │
+        ▼
+Implementação                         (só o âmbito aprovado — Execution Mode, docs/ai/AI_BASE_PROMPT.md)
+        │
+        ▼
+Validação                             (docs/ai/AI_RELEASE_CHECKLIST.md)
+        │
+        ▼
+Documentação da fase                  (docs/phases/phase-X.Y-*.md, docs/PHASES.md, este índice)
+        │
+        ▼
+Git — commit / tag / push             (fim da fase, sempre manual e explícito — docs/ai/AI_BASE_PROMPT.md, secção 10)
+        │
+        ▼
+Fase seguinte → volta ao INÍCIO, sempre por docs/INDEX.md
+```
+
+Nunca saltar diretamente para a implementação a partir deste índice —
+o passo seguinte é sempre `docs/ai/AI_BASE_PROMPT.md`, nunca o código.
+
+> **Nenhuma IA deve iniciar análises, propostas de arquitetura ou
+> implementação antes de concluir esta leitura obrigatória.** Terminado
+> este percurso, `docs/ai/AI_BASE_PROMPT.md` passa a ser o contrato
+> operacional da conversa — as regras permanentes que define deixam de
+> ser discutidas durante a fase (ver `docs/ai/AI_BASE_PROMPT.md`,
+> secção 18, "Execution Mode").
+
+---
+
 ## Âmbito deste índice
 
 Índice oficial de toda a documentação técnica versionada com o código,

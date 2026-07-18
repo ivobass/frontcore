@@ -1,6 +1,6 @@
 # FrontCore — Documentação de IA
 
-Version: 1.2
+Version: 1.3
 
 Reúne toda a governação, workflow e formato de resposta para qualquer
 assistente de IA (Claude, ChatGPT, Codex, Gemini ou outro) que trabalhe no
@@ -64,6 +64,21 @@ internalizada — ver `AI_PROMPT_GUIDE.md` para a diferença na prática.
 Esta pasta não depende de nenhum modelo de IA específico para continuar
 válida — qualquer assistente que siga estes documentos pode substituir
 qualquer outro sem perda de contexto (ver `AI_GOVERNANCE.md`).
+
+## Estabilidade do AI Framework
+
+Depois da consolidação de 2026-07-18 (Execution Mode, Continuidade
+entre fases, prompts de fase mínimos), o AI Framework — esta pasta —
+é considerado estável. Alterações futuras só se justificam perante:
+
+- um problema real observado durante implementações;
+- uma regressão;
+- um bloqueio técnico;
+- ou uma decisão explícita do Product Owner.
+
+Melhorias hipotéticas deixam de justificar alterações ao framework —
+mesma disciplina de YAGNI já aplicada ao resto do projeto (ver
+`docs/ai/AI_BASE_PROMPT.md`, secção 5).
 
 ## Observações para fases futuras
 

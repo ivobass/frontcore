@@ -1,6 +1,6 @@
 # FrontCore AI Base Prompt
 
-Version: 1.2
+Version: 1.4
 
 ## Objetivo
 
@@ -19,10 +19,21 @@ nenhuma regra, só o ponto de partida rápido.
 
 Um prompt de fase deixa de precisar de explicar workflow, aprovações,
 regras de Git ou formato de resposta — basta assumir que o destinatário
-(humano ou IA) já segue `docs/ai/AI_BASE_PROMPT.md`. O prompt em si fica
-reduzido ao que **muda** de fase para fase: objetivo, contexto,
-requisitos, âmbito, critérios de conclusão — exatamente a forma de
-`docs/ai/AI_PHASE_TEMPLATE.md`.
+(humano ou IA) já segue `docs/ai/AI_BASE_PROMPT.md`. A leitura deste
+documento substitui a repetição das regras permanentes em cada prompt —
+**os prompts de fase devem ser mínimos**, contendo apenas:
+
+- fase;
+- objetivo;
+- âmbito (contexto e requisitos específicos);
+- critérios de conclusão.
+
+— exatamente a forma de `docs/ai/AI_PHASE_TEMPLATE.md`. Um prompt de
+fase existe só para definir aquilo que muda de fase para fase; tudo o
+que é permanente pertence ao AI Framework (`docs/ai/`), nunca ao
+prompt. Nunca voltar a repetir, num prompt de fase, workflow, Git,
+documentação, arquitetura ou qualquer outra regra permanente já
+coberta por este documento.
 
 Este documento é a leitura rápida obrigatória em qualquer tarefa. Não
 substitui a leitura completa de `AI_GOVERNANCE.md` e `AI_WORKFLOW.md` —
@@ -364,12 +375,46 @@ oportunistas. No final, usar o Modo Implementação (secção 11): o que
 mudou, ficheiros afetados, validação executada (nunca alegada sem ter
 corrido), riscos restantes, próximo passo recomendado.
 
+## 18. Execution Mode
+
+**Execution Mode é o estado operativo por omissão durante o
+desenvolvimento do FrontCore** (ver `docs/ai/AI_GOVERNANCE.md`,
+"Execution Mode"). Depois de Análise → Planeamento → aprovação
+explícita do Product Owner (secção 3), a IA entra em Execution Mode e
+permanece nesse estado até ao encerramento da fase: implementa, testa,
+valida, atualiza documentação, e fecha a fase (Modo Implementação,
+secção 11).
+
+Dentro de Execution Mode, não volta a:
+
+- reanalisar arquitetura já decidida;
+- rediscutir decisões já aprovadas (ver `docs/ai/AI_WORKFLOW.md`,
+  "Continuidade entre fases");
+- propor arquitetura nova fora do âmbito já aprovado (secção 5, YAGNI);
+- propor novos workflows ou alterações ao próprio AI Framework fora do
+  âmbito aprovado;
+- expandir o prompt da fase além do que foi pedido;
+- reabrir discussões já encerradas.
+
+Só sai de Execution Mode quando existir:
+
+- bloqueio técnico real;
+- conflito documental (secção 2, "Fonte de verdade");
+- pedido explícito do Product Owner.
+
+Fora destes três casos: implementar e continuar. Esta secção não
+inventa nenhuma regra nova — consolida, sob um único nome, o que já
+está definido nas secções 3–5 acima e em `docs/ai/AI_GOVERNANCE.md`,
+"Execution Mode", e `docs/ai/AI_WORKFLOW.md`, "Execution Mode — quando
+interromper".
+
 ## Documentos relacionados
 
 | Situação | Documento |
 |---|---|
 | Filosofia completa | `docs/ai/AI_GOVERNANCE.md` |
 | Workflow operacional completo | `docs/ai/AI_WORKFLOW.md` |
+| Execution Mode (estado entre aprovação e fecho de fase) | secção 18, acima |
 | Continuidade entre fases (decisões aprovadas, o que conta como "encerrada") | `docs/ai/AI_WORKFLOW.md`, secção "Continuidade entre fases" |
 | Começar uma fase nova | `docs/ai/AI_PHASE_TEMPLATE.md` |
 | Rever algo já existente | `docs/ai/AI_REVIEW_CHECKLIST.md` |

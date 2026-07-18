@@ -1,6 +1,6 @@
 # FrontCore AI Workflow
 
-Version: 1.9
+Version: 1.10
 
 ## Objetivo
 
@@ -242,6 +242,15 @@ Apresentar:
 - validações executadas
 - riscos restantes
 - próximo passo recomendado
+
+Uma fase só termina quando: implementação concluída; validação
+concluída; documentação atualizada; comandos Git preparados (nunca
+executados pela IA — ver "Git", abaixo); e o Product Owner encerra a
+fase (a sequência `commit`/`tag`/`push`, ver "Protocolo de Transição de
+Fase", acima). Critérios completos: secção seguinte. Depois do
+encerramento, a fase seguinte começa sempre por `docs/INDEX.md` — nunca
+a partir do estado ou da memória desta conversa (ver "Protocolo de
+Transição de Fase", acima).
 
 ## Definition of Done (DoD)
 
