@@ -28,6 +28,13 @@ localização de documentos.
   `frontcore/docs/`. Documentação de produto, negócio ou visão de longo
   prazo vive fora do repositório, em `FrontCore/docs/` (ver
   `docs/PROJECT_STRUCTURE.md`) — os dois níveis não se duplicam.
+- **Princípios permanentes da plataforma** (missão, separação
+  Core/Produto, multi-tenant, princípios de engenharia, visão de longo
+  prazo — nunca stack, fases, roadmap ou funcionalidades) vivem em
+  `FrontCore/docs/Architecture/FrontCore Principles.md`, fora deste
+  repositório. Documentos estratégicos referenciam-no em vez de repetir
+  o seu conteúdo; não é Source of Truth técnica (essa continua a ser
+  `frontcore/docs/`, ver `AI_GOVERNANCE.md`).
 
 ## Regra de escrita para documentos de fase
 

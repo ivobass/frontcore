@@ -184,10 +184,17 @@ Nenhum documento nesta categoria por agora.
   repositório) tenta cumprir um papel semelhante, mas só para
   `FrontCore/docs/` — os dois índices não se sobrepõem e não devem ser
   fundidos (ver `docs/PROJECT_STRUCTURE.md`).
-- Documentação desatualizada identificada fora deste repositório (tabela de
-  estado em `Architecture Index.md`, e pares quase-homónimos como `Coding
-  Standards.md`/`Folder Structure.md`/`Decisions Log.md` vs os equivalentes
-  aqui dentro) **não foi corrigida** — está fora do âmbito deste índice, que
-  cobre apenas `frontcore/docs/`.
+- `FrontCore/docs/Architecture/FrontCore Principles.md` (fora deste
+  repositório, 2026-07-18) consolida os princípios permanentes da
+  plataforma — missão, separação Core/Produto, multi-tenant,
+  princípios de engenharia, visão de longo prazo. É a base de
+  referência do eixo estratégico (`FrontCore/docs/`), não deste índice
+  técnico; não substitui nem duplica `docs/ai/AI_GOVERNANCE.md`
+  (Source of Truth técnica) — eixos distintos, ver
+  `docs/PROJECT_STRUCTURE.md`.
+- Documentação desatualizada identificada fora deste repositório (pares
+  quase-homónimos como `Coding Standards.md`/`Folder Structure.md`/
+  `Decisions Log.md` vs os equivalentes aqui dentro) **não foi corrigida**
+  — está fora do âmbito deste índice, que cobre apenas `frontcore/docs/`.
 - `docs/DEVELOPER_GUIDE.md` deixou de ter a sua própria lista de leitura
   divergente — passou a apontar para `docs/INDEX.md` (ver ADR-0006).
