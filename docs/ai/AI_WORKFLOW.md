@@ -1,6 +1,6 @@
 # FrontCore AI Workflow
 
-Version: 1.8
+Version: 1.9
 
 ## Objetivo
 
@@ -90,6 +90,53 @@ Protocolo agnóstico de ferramenta — aplica-se a qualquer IA (ChatGPT,
 Claude, Codex, Gemini, Cursor, ou outra), com ou sem acesso direto a
 git/GitHub a partir da própria conversa (ver `docs/ai/AI_GOVERNANCE.md`,
 "Boas práticas" e "Escalabilidade futura").
+
+## Continuidade entre fases
+
+O protocolo acima define **quando** sincronizar. Esta secção define o
+que permanece verdadeiro entre uma sincronização e a seguinte — para
+nenhuma IA voltar a questionar, numa fase nova, algo já decidido numa
+fase anterior.
+
+**O que conta como "aprovada".** Uma fase ou decisão só é oficialmente
+aprovada quando a aprovação do Product Owner estiver registada num
+documento oficial versionado no repositório — por exemplo:
+`docs/PHASES.md`; o documento oficial da fase (`docs/phases/phase-X.Y-*.md`);
+a secção de encerramento/handoff de uma fase; uma ADR (`docs/adr/`),
+quando aplicável; ou outro documento oficial referenciado por
+`docs/INDEX.md`. **Uma conversa com ChatGPT, Claude, Codex ou qualquer
+outra IA não é, por si só, documentação oficial** — por mais explícita
+ou detalhada que tenha sido, nunca se torna Source of Truth só por ter
+acontecido; só o registo escrito num destes documentos conta. Uma nota
+marcada como "candidata", "proposta", "recomendação" ou "não aprovada"
+— onde quer que apareça — nunca constitui, por si só, uma decisão
+aprovada.
+
+Regras que decorrem disto:
+
+- Uma fase aprovada e documentada não volta a ser discutida nas fases
+  seguintes.
+- Uma decisão aprovada e documentada permanece válida até ser
+  explicitamente alterada pelo próprio Product Owner — nunca revista
+  por iniciativa de uma IA, mesmo que pareça desatualizada (ver
+  `docs/ai/AI_GOVERNANCE.md`, "Documentação prevalece sobre memória",
+  para o procedimento quando isso acontece).
+- Quando uma fase já aprovada pelo Product Owner e já registada num dos
+  documentos oficiais acima (ex. numa ADR, ou na secção de encerramento
+  de outra fase) ainda não estiver consolidada em `docs/PHASES.md`, essa
+  consolidação deve acontecer na primeira atualização documental
+  apropriada — a ausência temporária em `docs/PHASES.md` não invalida
+  uma aprovação já registada noutro documento oficial, mas também não a
+  substitui indefinidamente.
+- As IAs não devem reabrir discussões já encerradas.
+
+Uma nota de "candidata, não iniciada, não aprovada" deixada no
+documento de fecho de uma fase (secção "Próxima fase",
+`docs/ai/templates/phase-closure.md`) **não é** uma decisão fechada —
+é só uma sugestão de quem fechou essa fase. Analisar criticamente essa
+sugestão, incluindo rejeitá-la ou substituí-la por uma alternativa
+diferente, não é "reabrir uma discussão encerrada": é a primeira
+aprovação real, que ainda não aconteceu.
 
 ## Documentação utilizada (formato obrigatório)
 

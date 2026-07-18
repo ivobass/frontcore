@@ -1,6 +1,6 @@
 # FrontCore AI Base Prompt
 
-Version: 1.1
+Version: 1.2
 
 ## Objetivo
 
@@ -58,6 +58,12 @@ Em caso de conflito entre fontes, esta é a ordem de prioridade:
 Se existir conflito entre documentação e código, ou entre duas fontes
 de documentação: **não assumir qual está correto** — identificar o
 conflito, explicá-lo, esperar validação.
+
+Uma fase ou decisão já aprovada pelo Product Owner permanece válida
+entre fases — não voltar a questioná-la só porque uma fase nova
+começou. Uma nota de "candidata, não aprovada" deixada no fecho de uma
+fase não é, por si só, uma aprovação. Fundamentação completa:
+`docs/ai/AI_WORKFLOW.md`, secção "Continuidade entre fases".
 
 Ponto de entrada único para localizar qualquer documento:
 `docs/INDEX.md`. Ordem de leitura completa: `docs/ai/README.md`.
@@ -123,6 +129,13 @@ concluir as próximas 2 ou 3 fases?"**
 Não propor arquitetura para problemas hipotéticos sem consumidor real,
 funcionalidades que não serão usadas nas próximas 2-3 fases, ou
 alterações que aumentam o âmbito sem necessidade imediata.
+
+Distinto de "preservar evolução futura" (`docs/ai/AI_GOVERNANCE.md`,
+Execution Mode): YAGNI é sobre não **construir** antes da hora;
+preservar evolução futura é sobre não fechar, sem necessidade, portas
+para permissões/RBAC, utilizadores, auditoria, deploy, escalabilidade,
+multi-produto ou multi-tenant — sem aumentar o âmbito da fase atual
+para isso.
 
 Fundamentação completa: `docs/ai/AI_WORKFLOW.md`, secção "Execution
 Mode — quando interromper".
@@ -357,6 +370,7 @@ corrido), riscos restantes, próximo passo recomendado.
 |---|---|
 | Filosofia completa | `docs/ai/AI_GOVERNANCE.md` |
 | Workflow operacional completo | `docs/ai/AI_WORKFLOW.md` |
+| Continuidade entre fases (decisões aprovadas, o que conta como "encerrada") | `docs/ai/AI_WORKFLOW.md`, secção "Continuidade entre fases" |
 | Começar uma fase nova | `docs/ai/AI_PHASE_TEMPLATE.md` |
 | Rever algo já existente | `docs/ai/AI_REVIEW_CHECKLIST.md` |
 | Fechar uma fase | `docs/ai/AI_RELEASE_CHECKLIST.md` |

@@ -56,3 +56,17 @@ Correr `prisma migrate deploy` (não `dev`) como passo de release:
 ```
 pnpm db:deploy
 ```
+
+## Trabalho futuro — documento de entrega de infraestrutura
+
+Registo de intenção, não desenvolvido nesta fase: quando a Fase 10
+arrancar, criar um documento dedicado de entrega para a FrontWeb —
+equipa responsável pela Infraestrutura & Deployment (não uma pessoa
+específica; o documento deve continuar válido mesmo que mudem as
+pessoas responsáveis), cobrindo requisitos mínimos de produção e staging,
+Docker, PostgreSQL, Redis, Object Storage, HTTPS, DNS, backups,
+monitorização, CI/CD, variáveis de ambiente, segurança, deploy e
+escalabilidade — mais detalhado do que esta referência preparatória.
+Não criar esse documento antecipadamente (ver `docs/PROJECT_STRUCTURE.md`,
+"regra anti-caos") — nasce com conteúdo real, no momento em que a Fase
+10 o justificar.

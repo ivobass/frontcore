@@ -352,7 +352,10 @@
   (Docker, OpenRouter, autorizado explicitamente)
   (`docs/phases/phase-8.6-financial-period-comparison-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
-  métricas, health dashboard, deploy Coolify.
+  métricas, health dashboard, deploy Coolify. Inclui a criação do
+  documento dedicado de entrega de infraestrutura ao responsável pela
+  operação (registo de intenção em `docs/DEPLOY-COOLIFY.md`, secção
+  "Trabalho futuro" — não desenvolvido antecipadamente).
 
 > Regra: não avançar de fase sem aprovação. Não refazer. Não tocar em ficheiros
 > fora da fase atual.
