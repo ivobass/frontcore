@@ -575,6 +575,46 @@ tool nova (`get_largest_expenses`) — `AiToolDefinition.parameters`
 já suficientemente genérico, sem alteração a `packages/ai`. Ver
 `docs/phases/phase-8.4-hybrid-ai-routing-conversational-financial-queries-foundation.md`.
 
+### Continuidade de filtros conversacionais (Fase 8.5)
+
+A extração de um filtro de estado explícito ("só as pagas", "apenas as
+canceladas") foi separada em três responsabilidades distintas, antes
+misturadas em `financial-intent.resolver.ts` (Fase 8.4). Resolução de
+**intenção** (`financial-intent.resolver.ts`) continua responsável só
+por `FinancialIntentType`, nunca por transportar um filtro no seu
+retorno. Extração pura do **filtro da mensagem atual**
+(`apps/frontrest/api/src/ai/financial-retrieval/financial-filter.extractor.ts`,
+novo) — `resolveStatusFilter(message): InvoiceStatus | undefined`,
+síncrona, sem I/O, sem conhecimento de intenção nem de histórico;
+exige sempre um sinal explícito (`quantas`/`quantos`/`número de`/
+`contagem`/`mostra(r)`/`lista(r)`/`só`/`apenas`) imediatamente antes de
+uma palavra de estado — nunca um estado isolado, para nunca criar um
+falso positivo a partir de "Isto já está pago." `PENDING` incluído sem
+exclusão artificial; a distinção com `OUTSTANDING_BALANCE` (Pendente +
+Vencida combinado) depende só da presença do sinal, nunca da palavra
+"pendente" em si. Dependência estritamente unidirecional —
+`financial-intent.resolver.ts → financial-filter.extractor.ts`, nunca
+o inverso — para o extrator poder ser reutilizado no futuro sem
+acoplamento a lógica de intenção.
+
+Herança do **contexto anterior** (`FinancialRetrievalService`)
+mantém-se estruturalmente igual à Fase 8.4 (filtro herdado só em
+continuações explícitas, `hasContinuationSignal()`), mas passou a
+chamar `resolveStatusFilter()` diretamente — tanto para a mensagem
+atual como para cada mensagem do histórico em `recoverFilters()` —
+nunca através de `FinancialIntentResolution`. O filtro de estado que a
+mensagem atual resolve por si tem sempre prioridade absoluta sobre o
+herdado, por dimensão independente do fornecedor/categoria.
+
+`FinancialIntentResolution.statusFilter` foi removido diretamente
+(não mantido por compatibilidade) — confirmado por pesquisa exaustiva
+como tendo exatamente 2 consumidores internos (o próprio ficheiro e
+`financial-retrieval.service.ts`), ambos alterados na mesma fase,
+nenhum consumidor externo (tipo interno, nunca exposto por HTTP);
+remoção protegida por `pnpm typecheck` (0 erros) — decisão justificada
+em detalhe em
+`docs/phases/phase-8.5-conversational-filter-continuity-foundation.md`.
+
 ## Relatórios financeiros mensais
 
 Desde a Fase 9, `apps/frontrest/api/src/reports/` (`ReportsModule`,

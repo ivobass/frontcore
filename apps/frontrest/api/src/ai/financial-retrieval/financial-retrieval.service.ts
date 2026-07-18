@@ -9,6 +9,7 @@ import type { FinancialIntentResolution, FinancialIntentType } from './financial
 import { resolveFinancialPeriod } from './financial-period.resolver';
 import type { FinancialPeriodResolution } from './financial-period.resolver';
 import { hasContinuationSignal } from './continuation-signal';
+import { resolveStatusFilter } from './financial-filter.extractor';
 
 /** "Por pagar" = Pendente + Vencida — nunca inclui Paga. Mesma definição já usada pelo contexto do Chat IA (Fase 8). */
 const OUTSTANDING_STATUSES = new Set<string>(['PENDING', 'OVERDUE']);
@@ -73,11 +74,20 @@ export type FinancialRetrievalResult =
  * Fase 8.4 — filtros (estado/fornecedor/categoria) são resolvidos
  * sempre a partir da mensagem atual; só recuperados do histórico
  * quando a mensagem atual sinaliza explicitamente uma continuação
- * (`CONTINUATION_SIGNAL_PATTERN`) — nunca herdados silenciosamente numa
+ * (`hasContinuationSignal()`) — nunca herdados silenciosamente numa
  * pergunta nova e independente. Quando a mensagem atual já resolve o
  * seu próprio filtro numa dimensão (ex. menciona outro fornecedor),
  * esse valor substitui sempre o herdado dessa mesma dimensão — nunca
  * combina dois filtros incompatíveis na mesma dimensão.
+ *
+ * Fase 8.5 — o filtro de estado deixou de depender da resolução de
+ * intenção: `resolveStatusFilter()` (`financial-filter.extractor.ts`)
+ * é a única fonte de verdade, aplicada diretamente sobre a mensagem
+ * atual e sobre cada mensagem do histórico na recuperação — nunca lida
+ * a partir de `FinancialIntentResolution`, que já não a transporta.
+ * Isto garante que uma continuação sem verbo de contagem nem intenção
+ * própria (ex. "só as pagas") ainda assim aplica o estado da mensagem
+ * atual, nunca o herdado.
  */
 @Injectable()
 export class FinancialRetrievalService {
@@ -121,7 +131,7 @@ export class FinancialRetrievalService {
       }
     }
 
-    const filters = await this.resolveFilters(organizationId, message, intentResolution, recentUserMessages, isContinuation);
+    const filters = await this.resolveFilters(organizationId, message, recentUserMessages, isContinuation);
     if (filters === 'AMBIGUOUS') {
       return { kind: 'ENTITY_AMBIGUOUS' };
     }
@@ -217,22 +227,28 @@ export class FinancialRetrievalService {
   }
 
   /**
-   * Resolve os filtros (Fase 8.4) da mensagem atual — `statusFilter` já
-   * vem da resolução de intenção (regex, sem I/O); fornecedor/categoria
+   * Resolve os filtros (Fase 8.4, extração de estado separada da
+   * intenção na Fase 8.5) da mensagem atual — `status` vem sempre
+   * diretamente de `resolveStatusFilter(message)` (nunca de
+   * `intentResolution`, que já não o transporta); fornecedor/categoria
    * exigem uma consulta real (`FinancialEntityResolverService`). Só
    * recupera do histórico quando a mensagem atual sinaliza uma
-   * continuação explícita — nunca por omissão.
+   * continuação explícita — nunca por omissão. O filtro de cada
+   * dimensão que a mensagem atual já resolve por si (estado, fornecedor
+   * ou categoria) tem sempre prioridade sobre o herdado — nunca é
+   * substituído, só complementado nas dimensões que a mensagem atual
+   * não menciona.
    */
   private async resolveFilters(
     organizationId: string,
     message: string,
-    intentResolution: Extract<FinancialIntentResolution, { kind: 'SUPPORTED' }>,
     recentUserMessages: string[],
     hasContinuationSignal: boolean,
   ): Promise<ResolvedFinancialFilters | 'AMBIGUOUS'> {
     const filters: ResolvedFinancialFilters = {};
-    if (intentResolution.statusFilter) {
-      filters.status = intentResolution.statusFilter;
+    const currentStatus = resolveStatusFilter(message);
+    if (currentStatus) {
+      filters.status = currentStatus;
     }
 
     const [supplierMention, categoryMention] = await Promise.all([
@@ -330,8 +346,7 @@ export class FinancialRetrievalService {
    */
   private async recoverFilters(organizationId: string, recentUserMessages: string[]): Promise<ResolvedFinancialFilters> {
     for (const pastMessage of recentUserMessages) {
-      const pastIntent = resolveFinancialIntent(pastMessage);
-      const status = pastIntent.kind === 'SUPPORTED' ? pastIntent.statusFilter : undefined;
+      const status = resolveStatusFilter(pastMessage);
       const [supplierMention, categoryMention] = await Promise.all([
         this.entityResolver.resolveSupplierMention(organizationId, pastMessage),
         this.entityResolver.resolveCategoryMention(organizationId, pastMessage),

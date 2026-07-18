@@ -310,6 +310,27 @@
   (o fornecedor prevalece). Sem RAG, embeddings, agentes autónomos,
   package novo, migration, alteração ao frontend
   (`docs/phases/phase-8.4-hybrid-ai-routing-conversational-financial-queries-foundation.md`).
+- **Fase 8.5 — Conversational Filter Continuity Foundation**: corrige e
+  consolida a aplicação de filtros explícitos em mensagens de
+  continuação ("só as pagas", "apenas as canceladas", "só as vencidas",
+  "só as pendentes", "e dessas, quantas estão pagas?"), garantindo que
+  substituem sempre o filtro herdado, mesmo sem verbo ou intenção
+  financeira completa. Separação explícita em três responsabilidades:
+  resolução de intenção (`financial-intent.resolver.ts`, inalterada na
+  sua responsabilidade); extração pura do filtro de estado da mensagem
+  atual (`financial-filter.extractor.ts`, novo,
+  `resolveStatusFilter()`, dependência unidirecional
+  `financial-intent.resolver.ts → financial-filter.extractor.ts`,
+  nunca o inverso); herança de contexto do histórico
+  (`FinancialRetrievalService`, inalterada na estrutura, só na fonte
+  do filtro). `PENDING` incluído sem exclusão artificial.
+  `FinancialIntentResolution` deixa de transportar `statusFilter`
+  (removido diretamente, decisão justificada — só 2 consumidores
+  internos, ambos alterados nesta fase, garantia do compilador
+  confirmada). Sem comparação de períodos (candidata a Fase 8.6, não
+  iniciada), sem alteração ao Dashboard, Reports, frontend, memória
+  persistente ou OCR
+  (`docs/phases/phase-8.5-conversational-filter-continuity-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify.
 

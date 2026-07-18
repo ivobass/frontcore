@@ -67,4 +67,9 @@ describe('classifyMessageRelevance', () => {
   it('escrita/alteração combinada com vocabulário financeiro continua FINANCIAL — nunca escapa para o caminho geral', () => {
     expect(classifyMessageRelevance('Aprova o pagamento desta fatura.', [])).toBe('FINANCIAL');
   });
+
+  it('Fase 8.5 — uma palavra de estado isolada ("pago"/"vencida"), mesmo sem contexto financeiro nem continuação, continua FINANCIAL por desenho (FINANCIAL_ADJACENT_PATTERN inclui-a deliberadamente); nunca cria um falso positivo de INTENÇÃO — isso é filtrado à parte por resolveStatusFilter()/resolveFinancialIntent() (ver financial-intent.resolver.spec.ts), nunca por este classificador de relevância', () => {
+    expect(classifyMessageRelevance('Isto já está pago.', [])).toBe('FINANCIAL');
+    expect(classifyMessageRelevance('A fatura está vencida.', [])).toBe('FINANCIAL');
+  });
 });

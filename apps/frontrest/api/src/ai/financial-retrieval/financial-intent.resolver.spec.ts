@@ -75,23 +75,26 @@ describe('resolveFinancialIntent', () => {
     });
   });
 
-  describe('Fase 8.4 — contagem/filtro por estado específico', () => {
+  describe('Fase 8.4/8.5 — contagem/filtro por estado específico', () => {
     it.each([
-      ['Quantas faturas pagas este mês?', 'PAID'],
-      ['Quantas vencidas?', 'OVERDUE'],
-      ['Quantas pendentes existem?', 'PENDING'],
-      ['Mostra apenas as vencidas.', 'OVERDUE'],
-      ['Lista as canceladas deste mês.', 'CANCELLED'],
-    ] as const)('reconhece "%s" como FINANCIAL_SUMMARY com statusFilter=%s', (message, status) => {
-      expect(resolveFinancialIntent(message)).toEqual({
+      'Quantas faturas pagas este mês?',
+      'Quantas vencidas?',
+      'Quantas pendentes existem?',
+      'Mostra apenas as vencidas.',
+      'Lista as canceladas deste mês.',
+    ])('reconhece "%s" como FINANCIAL_SUMMARY (o filtro de estado já não é transportado por este tipo — ver financial-filter.extractor.ts)', (message) => {
+      expect(resolveFinancialIntent(message)).toEqual({ kind: 'SUPPORTED', intent: 'FINANCIAL_SUMMARY' });
+    });
+
+    it('"Existem faturas pendentes?" (regressão real Fase 8.3) continua OUTSTANDING_BALANCE — sem sinal explícito de filtro', () => {
+      expect(resolveFinancialIntent('Existem faturas pendentes?')).toEqual({
         kind: 'SUPPORTED',
-        intent: 'FINANCIAL_SUMMARY',
-        statusFilter: status,
+        intent: 'OUTSTANDING_BALANCE',
       });
     });
 
-    it('"Existem faturas pendentes?" (regressão real Fase 8.3) continua OUTSTANDING_BALANCE — sem verbo de contagem/filtro', () => {
-      expect(resolveFinancialIntent('Existem faturas pendentes?')).toEqual({
+    it('"quanto tenho por pagar" (regressão real) continua OUTSTANDING_BALANCE — sem sinal explícito de filtro', () => {
+      expect(resolveFinancialIntent('quanto tenho por pagar')).toEqual({
         kind: 'SUPPORTED',
         intent: 'OUTSTANDING_BALANCE',
       });
@@ -101,8 +104,16 @@ describe('resolveFinancialIntent', () => {
       expect(resolveFinancialIntent('Quantas faturas pendentes tenho este mês?')).toEqual({
         kind: 'SUPPORTED',
         intent: 'FINANCIAL_SUMMARY',
-        statusFilter: 'PENDING',
       });
+    });
+
+    it('Fase 8.5 — "só as pendentes"/"só as vencidas" (sinal explícito sem verbo de contagem) resolvem FINANCIAL_SUMMARY', () => {
+      expect(resolveFinancialIntent('só as pendentes')).toEqual({ kind: 'SUPPORTED', intent: 'FINANCIAL_SUMMARY' });
+      expect(resolveFinancialIntent('só as vencidas')).toEqual({ kind: 'SUPPORTED', intent: 'FINANCIAL_SUMMARY' });
+    });
+
+    it('Fase 8.5 — uma palavra de estado isolada, sem sinal de filtro e sem contexto financeiro, nunca cria uma intenção falsa', () => {
+      expect(resolveFinancialIntent('Isto já está pago.')).toEqual({ kind: 'UNSUPPORTED' });
     });
   });
 

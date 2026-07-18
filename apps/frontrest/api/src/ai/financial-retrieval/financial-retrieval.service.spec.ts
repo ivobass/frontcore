@@ -437,6 +437,163 @@ describe('FinancialRetrievalService', () => {
     });
   });
 
+  describe('Fase 8.5 — continuidade de filtros explícitos (prioridade absoluta da mensagem atual)', () => {
+    it.each([
+      ['só as pagas', 'PAID'],
+      ['apenas as canceladas', 'CANCELLED'],
+      ['só as vencidas', 'OVERDUE'],
+      ['só as pendentes', 'PENDING'],
+      ['e dessas, quantas estão pagas?', 'PAID'],
+    ] as const)('"%s" como continuação aplica status=%s da mensagem atual, nunca o herdado', async (message, expectedStatus) => {
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      // Histórico com um filtro de estado DIFERENTE do pedido pela mensagem atual —
+      // prova que o estado herdado nunca sobrevive quando a mensagem atual tem o seu próprio.
+      const result = await service.retrieve('org-1', message, ['Quantas faturas pagas este mês?'], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {
+        from: '2026-07-01',
+        to: '2026-07-31',
+        status: expectedStatus,
+      });
+      expect(result).toMatchObject({ kind: 'DATA', filters: { status: expectedStatus } });
+    });
+
+    it('substituição explícita do ESTADO herdado — mensagem atual muda só o estado, fornecedor/categoria herdados mantêm-se', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
+      const resolveCategoryMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'cat-1', name: 'Hosting' });
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), {
+        resolveSupplierMention,
+        resolveCategoryMention,
+      });
+
+      const result = await service.retrieve(
+        'org-1',
+        'só as canceladas',
+        ['Quanto gastei em Hosting com a Hetzner este mês, das pagas?'],
+        NOW,
+      );
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {
+        from: '2026-07-01',
+        to: '2026-07-31',
+        status: 'CANCELLED',
+        supplierId: 'sup-1',
+        categoryId: 'cat-1',
+      });
+      expect(result).toMatchObject({
+        filters: { status: 'CANCELLED', supplierId: 'sup-1', categoryId: 'cat-1' },
+      });
+    });
+
+    it('substituição explícita do FORNECEDOR herdado — mensagem atual menciona outro fornecedor, estado herdado mantém-se', async () => {
+      const resolveSupplierMention = jest
+        .fn()
+        .mockResolvedValueOnce({ kind: 'RESOLVED', id: 'sup-nos', name: 'NOS' }) // mensagem atual
+        .mockResolvedValueOnce({ kind: 'RESOLVED', id: 'sup-hetzner', name: 'Hetzner' }); // recuperação do histórico
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), {
+        resolveSupplierMention,
+      });
+
+      const result = await service.retrieve(
+        'org-1',
+        'e da NOS?',
+        ['Quantas faturas pagas da Hetzner este mês?'],
+        NOW,
+      );
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {
+        from: '2026-07-01',
+        to: '2026-07-31',
+        status: 'PAID',
+        supplierId: 'sup-nos',
+      });
+      expect(result).toMatchObject({ filters: { status: 'PAID', supplierId: 'sup-nos', supplierName: 'NOS' } });
+    });
+
+    it('substituição explícita da CATEGORIA herdada — mensagem atual menciona outra categoria, estado herdado mantém-se', async () => {
+      const resolveCategoryMention = jest
+        .fn()
+        .mockResolvedValueOnce({ kind: 'RESOLVED', id: 'cat-eletricidade', name: 'Eletricidade' }) // mensagem atual
+        .mockResolvedValueOnce({ kind: 'RESOLVED', id: 'cat-hosting', name: 'Hosting' }); // recuperação do histórico
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), {
+        resolveCategoryMention,
+      });
+
+      const result = await service.retrieve(
+        'org-1',
+        'e em Eletricidade?',
+        ['Quantas faturas pagas em Hosting este mês?'],
+        NOW,
+      );
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {
+        from: '2026-07-01',
+        to: '2026-07-31',
+        status: 'PAID',
+        categoryId: 'cat-eletricidade',
+      });
+      expect(result).toMatchObject({
+        filters: { status: 'PAID', categoryId: 'cat-eletricidade', categoryName: 'Eletricidade' },
+      });
+    });
+
+    it('herança por dimensão independente — substitui só o estado, herda fornecedor E categoria, nunca troca o objeto inteiro', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
+      const resolveCategoryMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'cat-1', name: 'Hosting' });
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), {
+        resolveSupplierMention,
+        resolveCategoryMention,
+      });
+
+      const result = await service.retrieve(
+        'org-1',
+        'só as vencidas',
+        ['Quanto gastei em Hosting com a Hetzner este mês, das pagas?'],
+        NOW,
+      );
+
+      expect(result).toMatchObject({
+        filters: {
+          status: 'OVERDUE', // substituído pela mensagem atual
+          supplierId: 'sup-1', // herdado, mensagem atual não menciona fornecedor
+          categoryId: 'cat-1', // herdado, mensagem atual não menciona categoria
+        },
+      });
+    });
+
+    it('mensagem não financeira fora de continuação com palavra de estado isolada nunca cria filtro nem intenção falsos', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn());
+
+      const result = await service.retrieve('org-1', 'Isto já está pago.', [], NOW);
+
+      expect(result).toEqual({ kind: 'UNSUPPORTED' });
+      expect(getFinancialSummary).not.toHaveBeenCalled();
+    });
+
+    it('recuperação de intenção E filtro do histórico via extractor — mensagem atual sem intenção nem estado próprios', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      // "e essas?" não resolve nenhuma intenção, período nem estado por si só —
+      // recupera os três do histórico: intenção via recoverIntent(), período via
+      // recoverPeriod(), estado via resolveStatusFilter() aplicado a cada mensagem
+      // anterior (recoverFilters()), nunca via FinancialIntentResolution.statusFilter
+      // (removido nesta fase).
+      const result = await service.retrieve('org-1', 'e essas?', ['Quantas vencidas este mês?'], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {
+        from: '2026-07-01',
+        to: '2026-07-31',
+        status: 'OVERDUE',
+      });
+      expect(result).toMatchObject({
+        kind: 'DATA',
+        data: { intent: 'FINANCIAL_SUMMARY' },
+        filters: { status: 'OVERDUE' },
+      });
+    });
+  });
+
   describe('Fase 8.3 — retrieveForIntent (usado pelas AI Tools)', () => {
     it('intenção já conhecida + período em texto livre devolve DATA, mesma fonte que o caminho principal', async () => {
       const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
