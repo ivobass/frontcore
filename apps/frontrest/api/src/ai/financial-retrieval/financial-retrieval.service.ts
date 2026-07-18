@@ -8,8 +8,11 @@ import { resolveFinancialIntent } from './financial-intent.resolver';
 import type { FinancialIntentResolution, FinancialIntentType } from './financial-intent.resolver';
 import { resolveFinancialPeriod } from './financial-period.resolver';
 import type { FinancialPeriodResolution } from './financial-period.resolver';
+import { resolveFinancialPeriodPair } from './financial-period-pair.resolver';
 import { hasContinuationSignal } from './continuation-signal';
 import { resolveStatusFilter } from './financial-filter.extractor';
+import { compareAmount, compareCount } from '../../dashboard/period-comparison.util';
+import type { PeriodComparisonValue } from '../../dashboard/period-comparison.util';
 
 /** "Por pagar" = Pendente + Vencida — nunca inclui Paga. Mesma definição já usada pelo contexto do Chat IA (Fase 8). */
 const OUTSTANDING_STATUSES = new Set<string>(['PENDING', 'OVERDUE']);
@@ -34,7 +37,13 @@ export type FinancialIntentData =
   | { intent: 'BY_CATEGORY'; byCategory: FinancialDashboardSummary['byCategory'] }
   | { intent: 'TOP_SUPPLIERS'; topSuppliers: FinancialDashboardSummary['topSuppliers'] }
   | { intent: 'MONTHLY_TREND'; monthlyTrend: FinancialDashboardSummary['monthlyTrend'] }
-  | { intent: 'LARGEST_INVOICES'; invoices: LargestInvoice[] };
+  | { intent: 'LARGEST_INVOICES'; invoices: LargestInvoice[] }
+  | {
+      intent: 'PERIOD_COMPARISON';
+      current: { period: { from: string; to: string }; totals: FinancialDashboardSummary['totals'] };
+      previous: { period: { from: string; to: string }; totals: FinancialDashboardSummary['totals'] };
+      comparison: { totalAmount: PeriodComparisonValue; activeInvoiceCount: PeriodComparisonValue };
+    };
 
 /** Filtros combinados resolvidos (Fase 8.4) — nomes já prontos para texto (nunca ids expostos ao provider). */
 export interface ResolvedFinancialFilters {
@@ -88,6 +97,12 @@ export type FinancialRetrievalResult =
  * Isto garante que uma continuação sem verbo de contagem nem intenção
  * própria (ex. "só as pagas") ainda assim aplica o estado da mensagem
  * atual, nunca o herdado.
+ *
+ * Fase 8.6 — comparação entre dois períodos explicitamente nomeados na
+ * mesma mensagem (`PERIOD_COMPARISON`, `resolvePeriodComparison()`) —
+ * fluxo próprio, à parte de `resolveDataForPeriod()`, nunca recupera por
+ * histórico (comparação relativa a um período discutido antes fica fora
+ * do âmbito, candidata a fase futura).
  */
 @Injectable()
 export class FinancialRetrievalService {
@@ -123,17 +138,26 @@ export class FinancialRetrievalService {
       return { kind: 'UNSUPPORTED' };
     }
 
+    const filters = await this.resolveFilters(organizationId, message, recentUserMessages, isContinuation);
+    if (filters === 'AMBIGUOUS') {
+      return { kind: 'ENTITY_AMBIGUOUS' };
+    }
+
+    // Fase 8.6 — fluxo próprio, nunca `resolveDataForPeriod()`: precisa de
+    // dois períodos resolvidos a partir do texto da mensagem, nunca de um
+    // único `FinancialPeriodResolution` já calculado acima. Nunca recupera
+    // por histórico (decisão desta fase — comparação relativa a um
+    // período discutido antes fica fora do âmbito).
+    if (intentResolution.intent === 'PERIOD_COMPARISON') {
+      return this.resolvePeriodComparison(organizationId, message, filters, now);
+    }
+
     let periodResolution = currentPeriodResolution;
     if (periodResolution.kind !== 'RESOLVED') {
       const recoveredPeriod = this.recoverPeriod(recentUserMessages, now);
       if (recoveredPeriod) {
         periodResolution = recoveredPeriod;
       }
-    }
-
-    const filters = await this.resolveFilters(organizationId, message, recentUserMessages, isContinuation);
-    if (filters === 'AMBIGUOUS') {
-      return { kind: 'ENTITY_AMBIGUOUS' };
     }
 
     return this.resolveDataForPeriod(organizationId, intentResolution.intent, periodResolution, filters);
@@ -148,11 +172,15 @@ export class FinancialRetrievalService {
    * `DashboardService`/`selectData()` do caminho principal — nunca uma
    * segunda fonte de verdade. Nunca recupera por histórico (a tool já
    * recebeu os argumentos que o modelo decidiu passar; recuperação por
-   * histórico é só para o caminho de regex sem tools).
+   * histórico é só para o caminho de regex sem tools). `intent` exclui
+   * `PERIOD_COMPARISON` (Fase 8.6) — sem tool associada nesta fase (ver
+   * `docs/phases/phase-8.6-financial-period-comparison-foundation.md`,
+   * "fora do âmbito"); precisa de dois períodos de texto, não um, por
+   * isso não cabe na forma desta variante.
    */
   async retrieveForIntent(
     organizationId: string,
-    intent: FinancialIntentType,
+    intent: Exclude<FinancialIntentType, 'PERIOD_COMPARISON'>,
     periodText: string,
     rawFilters: { status?: InvoiceStatus; supplierName?: string; categoryName?: string } = {},
     now: Date = new Date(),
@@ -167,7 +195,7 @@ export class FinancialRetrievalService {
 
   private async resolveDataForPeriod(
     organizationId: string,
-    intent: FinancialIntentType,
+    intent: Exclude<FinancialIntentType, 'PERIOD_COMPARISON'>,
     periodResolution: FinancialPeriodResolution,
     filters: ResolvedFinancialFilters,
   ): Promise<FinancialRetrievalResult> {
@@ -197,6 +225,70 @@ export class FinancialRetrievalService {
         kind: 'DATA',
         period: { from: summary.period.from, to: summary.period.to },
         data: this.selectData(intent, summary),
+        filters,
+      };
+    } catch {
+      return { kind: 'ERROR' };
+    }
+  }
+
+  /**
+   * Comparação entre dois períodos explicitamente nomeados na mesma
+   * mensagem (Fase 8.6) — nunca `resolveDataForPeriod()`: precisa de
+   * dois períodos, não um. Reutiliza exclusivamente
+   * `resolveFinancialPeriodPair()` (Fase 8.6, dois lados resolvidos por
+   * `resolveFinancialPeriod()`, a mesma fonte de verdade de período do
+   * caminho principal) e `DashboardService.getFinancialSummary()` (Fase
+   * 7, chamado duas vezes, nunca uma segunda query de agregação). A
+   * matemática da comparação (`compareAmount()`/`compareCount()`,
+   * extraída de `ReportsService` na mesma fase) nunca é recalculada nem
+   * estimada pelo LLM — os dois totais e a diferença já vêm prontos no
+   * bloco `DATA`, o provider só os apresenta em texto.
+   */
+  private async resolvePeriodComparison(
+    organizationId: string,
+    message: string,
+    filters: ResolvedFinancialFilters,
+    now: Date,
+  ): Promise<FinancialRetrievalResult> {
+    const pairResolution = resolveFinancialPeriodPair(message, now);
+    if (pairResolution.kind === 'MISSING') {
+      return { kind: 'PERIOD_MISSING' };
+    }
+    if (pairResolution.kind === 'AMBIGUOUS') {
+      return { kind: 'PERIOD_AMBIGUOUS' };
+    }
+
+    const dashboardFilters = { status: filters.status, supplierId: filters.supplierId, categoryId: filters.categoryId };
+    try {
+      const [currentSummary, previousSummary] = await Promise.all([
+        this.dashboardService.getFinancialSummary(organizationId, {
+          from: pairResolution.current.from,
+          to: pairResolution.current.to,
+          ...dashboardFilters,
+        }),
+        this.dashboardService.getFinancialSummary(organizationId, {
+          from: pairResolution.previous.from,
+          to: pairResolution.previous.to,
+          ...dashboardFilters,
+        }),
+      ]);
+
+      return {
+        kind: 'DATA',
+        period: { from: currentSummary.period.from, to: currentSummary.period.to },
+        data: {
+          intent: 'PERIOD_COMPARISON',
+          current: { period: currentSummary.period, totals: currentSummary.totals },
+          previous: { period: previousSummary.period, totals: previousSummary.totals },
+          comparison: {
+            totalAmount: compareAmount(currentSummary.totals.totalAmount, previousSummary.totals.totalAmount),
+            activeInvoiceCount: compareCount(
+              currentSummary.totals.activeInvoiceCount,
+              previousSummary.totals.activeInvoiceCount,
+            ),
+          },
+        },
         filters,
       };
     } catch {
@@ -367,7 +459,10 @@ export class FinancialRetrievalService {
   }
 
   /** Seleciona só o subconjunto de `summary` relevante para a intenção — nunca envia ao provider blocos que a pergunta não pediu. */
-  private selectData(intent: Exclude<FinancialIntentType, 'LARGEST_INVOICES'>, summary: FinancialDashboardSummary): FinancialIntentData {
+  private selectData(
+    intent: Exclude<FinancialIntentType, 'LARGEST_INVOICES' | 'PERIOD_COMPARISON'>,
+    summary: FinancialDashboardSummary,
+  ): FinancialIntentData {
     switch (intent) {
       case 'FINANCIAL_SUMMARY':
         return { intent, totals: summary.totals };

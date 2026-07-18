@@ -72,4 +72,14 @@ describe('classifyMessageRelevance', () => {
     expect(classifyMessageRelevance('Isto já está pago.', [])).toBe('FINANCIAL');
     expect(classifyMessageRelevance('A fatura está vencida.', [])).toBe('FINANCIAL');
   });
+
+  it('Fase 8.6 — mensagens de comparação de períodos sem nenhum vocabulário financeiro-adjacente continuam FINANCIAL', () => {
+    // Nenhuma destas três mensagens contém uma palavra de
+    // FINANCIAL_ADJACENT_PATTERN — sem o reconhecimento explícito da
+    // forma de comparação, cairiam incorretamente em GENERAL e nunca
+    // chegariam ao retrieval financeiro.
+    expect(classifyMessageRelevance('Compara maio com junho.', [])).toBe('FINANCIAL');
+    expect(classifyMessageRelevance('Compara janeiro com fevereiro.', [])).toBe('FINANCIAL');
+    expect(classifyMessageRelevance('Este mês versus o mês passado.', [])).toBe('FINANCIAL');
+  });
 });

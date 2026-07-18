@@ -1,4 +1,5 @@
-import type { FinancialRetrievalResult } from './financial-retrieval.service';
+import type { FinancialIntentData, FinancialRetrievalResult } from './financial-retrieval.service';
+import type { PeriodComparisonValue } from '../../dashboard/period-comparison.util';
 
 const NO_INVOICES_LINE = 'Sem faturas confirmadas neste período.';
 
@@ -24,7 +25,15 @@ const SUPPORTED_QUERIES_HINT =
  * chegam a esta função nem ao provider — ver `buildDeterministicReply()`).
  */
 export function buildFinancialContextMessage(result: Extract<FinancialRetrievalResult, { kind: 'DATA' }>): string {
-  const { period, data, filters } = result;
+  const { data, filters } = result;
+
+  // Fase 8.6 — dois períodos, nunca cabe na linha genérica "Período
+  // consultado" (pensada para um único período) — bloco próprio.
+  if (data.intent === 'PERIOD_COMPARISON') {
+    return buildPeriodComparisonMessage(data, filters);
+  }
+
+  const { period } = result;
   const lines: string[] = [`Período consultado: ${period.from} a ${period.to}.`];
   const filtersLine = buildFiltersLine(filters);
   if (filtersLine) {
@@ -115,6 +124,47 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
   }
 
   return `Dados financeiros disponíveis:\n${lines.join('\n')}`;
+}
+
+const DIRECTION_LABELS: Record<PeriodComparisonValue['direction'], string> = {
+  increase: 'aumento',
+  decrease: 'diminuição',
+  unchanged: 'sem alteração',
+};
+
+/**
+ * Bloco de dados de uma comparação entre dois períodos (Fase 8.6) —
+ * `current`/`previous`/`absoluteChange`/`percentageChange`/`direction`
+ * já vêm calculados por `compareAmount()`/`compareCount()` (nunca
+ * recalculados aqui nem pelo modelo); esta função só traduz para texto
+ * pt-PT, nunca expõe `direction` em inglês, nunca omite um valor zero.
+ */
+function buildPeriodComparisonMessage(
+  data: Extract<FinancialIntentData, { intent: 'PERIOD_COMPARISON' }>,
+  filters: Extract<FinancialRetrievalResult, { kind: 'DATA' }>['filters'],
+): string {
+  const { current, previous, comparison } = data;
+  const lines: string[] = [
+    `Período atual: ${current.period.from} a ${current.period.to} (total: ${current.totals.totalAmount} EUR; ${current.totals.activeInvoiceCount} fatura(s) ativa(s)).`,
+    `Período anterior: ${previous.period.from} a ${previous.period.to} (total: ${previous.totals.totalAmount} EUR; ${previous.totals.activeInvoiceCount} fatura(s) ativa(s)).`,
+  ];
+  const filtersLine = buildFiltersLine(filters);
+  if (filtersLine) {
+    lines.push(filtersLine);
+  }
+  lines.push(describeComparison('Valor total', comparison.totalAmount, 'EUR'));
+  lines.push(describeComparison('Número de faturas ativas', comparison.activeInvoiceCount, null));
+
+  return `Dados financeiros disponíveis:\n${lines.join('\n')}`;
+}
+
+function describeComparison(label: string, value: PeriodComparisonValue, unit: string | null): string {
+  const suffix = unit ? ` ${unit}` : '';
+  const percentagePart =
+    value.percentageChange === null
+      ? 'variação percentual não aplicável (período anterior é zero)'
+      : `${value.percentageChange}% de ${DIRECTION_LABELS[value.direction]}`;
+  return `${label}: ${value.current}${suffix} (período anterior: ${value.previous}${suffix}; diferença: ${value.absoluteChange}${suffix}; ${percentagePart}).`;
 }
 
 /**

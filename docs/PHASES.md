@@ -331,6 +331,26 @@
   iniciada), sem alteração ao Dashboard, Reports, frontend, memória
   persistente ou OCR
   (`docs/phases/phase-8.5-conversational-filter-continuity-foundation.md`).
+- **Fase 8.6 — Financial Period Comparison Foundation**: comparação
+  entre dois períodos financeiros explicitamente nomeados na mesma
+  mensagem do Chat IA ("compara maio com junho", "compara janeiro com
+  fevereiro", "este mês versus o mês passado"). Matemática de
+  comparação (`compareAmount()`/`compareCount()`, `percentageChange`
+  sempre `null` — nunca `Infinity`/`NaN` — quando o período anterior é
+  zero) extraída de `ReportsService` (Fase 9) para
+  `dashboard/period-comparison.util.ts`, partilhada, sem alteração de
+  comportamento nos relatórios; novo `financial-period-pair.resolver.ts`
+  divide a mensagem em dois períodos e reutiliza
+  `resolveFinancialPeriod()` (Fase 8.1) para cada lado, sem segunda
+  semântica de datas; novo `FinancialIntentType = 'PERIOD_COMPARISON'`;
+  router híbrido (Fase 8.4) reconhece a forma da comparação mesmo sem
+  vocabulário financeiro-adjacente; `DashboardService.getFinancialSummary()`
+  chamado duas vezes (Fase 7, sem alteração); nunca recupera por
+  histórico (comparação relativa a um período discutido antes fica
+  fora do âmbito); sem tool associada (`compare_periods` fica para
+  fase futura); validado com dados reais via `POST /api/ai/chat`
+  (Docker, OpenRouter, autorizado explicitamente)
+  (`docs/phases/phase-8.6-financial-period-comparison-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify.
 

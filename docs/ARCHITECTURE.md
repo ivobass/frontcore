@@ -615,6 +615,56 @@ remoção protegida por `pnpm typecheck` (0 erros) — decisão justificada
 em detalhe em
 `docs/phases/phase-8.5-conversational-filter-continuity-foundation.md`.
 
+### Comparação entre períodos (Fase 8.6)
+
+Comparação entre dois períodos explicitamente nomeados na mesma
+mensagem ("compara maio com junho", "compara janeiro com fevereiro",
+"este mês versus o mês passado") — a única dimensão de consulta ainda
+não coberta pelo retrieval determinístico até à Fase 8.5, e que já
+existia do lado dos Relatórios (Fase 9) sem estar disponível na
+conversa. `compareAmount()`/`compareCount()` (`PeriodComparisonValue`
+— `percentageChange` sempre `null`, nunca `Infinity`/`NaN`, quando o
+período anterior é zero), antes privados a `ReportsService`, foram
+extraídos para `dashboard/period-comparison.util.ts`, partilhados por
+`ReportsService` e pelo Chat IA — sem alteração de comportamento nos
+relatórios (testes de `reports.service.spec.ts` inalterados).
+
+`financial-period-pair.resolver.ts` (novo) divide a mensagem nos dois
+lados da comparação (`splitComparisonPeriods()`, forma "compara X com
+Y" ou "X versus/vs Y", pura, sem resolver datas) e resolve cada lado
+através de `resolveFinancialPeriod()` (Fase 8.1, reutilizada sem
+alteração) — nunca uma segunda semântica de datas. O primeiro período
+mencionado é sempre `current` (sujeito da pergunta), o segundo é
+sempre `previous` (referência) — sem ordem cronológica implícita.
+Novo `FinancialIntentType = 'PERIOD_COMPARISON'`; `resolveFinancialIntent()`
+verifica a forma da comparação antes do padrão de exclusão existente
+— uma mensagem com essa forma mas cujos dois lados não são períodos
+(ex. comparação de categorias) resolve a intenção a este nível, sem
+nunca fabricar dados: a segurança está na resolução do par
+(`resolveFinancialPeriodPair()`), que devolve `PERIOD_MISSING` quando
+um dos lados não é um período reconhecível. `classifyMessageRelevance()`
+(router híbrido, Fase 8.4) reconhece a mesma forma como `FINANCIAL`
+mesmo sem vocabulário financeiro-adjacente ("compara maio com junho"
+não contém nenhuma palavra desse vocabulário).
+
+`FinancialRetrievalService` ganha `resolvePeriodComparison()` — fluxo
+próprio, à parte de `resolveDataForPeriod()` (que continua só para
+período único); chama `DashboardService.getFinancialSummary()` (Fase
+7, inalterado) duas vezes, com os mesmos filtros combinados (Fase 8.4)
+aplicados a ambos os períodos; nunca recupera por histórico —
+comparação relativa a um período discutido antes na conversa fica
+fora do âmbito, candidata a fase futura. Sem tool associada nesta fase
+(`retrieveForIntent()`/`TOOL_NAME_TO_INTENT` estreitados por tipo para
+excluir `PERIOD_COMPARISON`); `compare_periods` fica também candidata
+a fase futura. `buildFinancialContextMessage()` desvia para um bloco
+próprio para este caso — nunca a linha genérica "Período consultado" —
+descrevendo os dois períodos e a variação (diferença absoluta,
+percentual e direção, sempre traduzida para pt-PT); os valores vêm
+sempre pré-calculados, o LLM só interpreta e apresenta, nunca calcula.
+Validado com dados reais via `POST /api/ai/chat` (Docker, OpenRouter,
+autorizado explicitamente) — ver
+`docs/phases/phase-8.6-financial-period-comparison-foundation.md`.
+
 ## Relatórios financeiros mensais
 
 Desde a Fase 9, `apps/frontrest/api/src/reports/` (`ReportsModule`,
@@ -634,7 +684,11 @@ construção UTC — sem lógica de datas duplicada.
 `MonthlyFinancialReport`, nunca queries diferentes por formato. A
 comparação com o mês anterior é `Infinity`/`NaN`-impossível por
 construção: `percentageChange` fica `null` antes de qualquer divisão
-quando o período anterior é zero, nunca calculado e depois validado.
+quando o período anterior é zero, nunca calculado e depois validado —
+desde a Fase 8.6, esta matemática (`compareAmount()`/`compareCount()`)
+vive em `dashboard/period-comparison.util.ts`, partilhada com a
+comparação de períodos do Chat IA, sem alteração de comportamento
+aqui.
 Exportação sem armazenamento (sem `StorageObject`/MinIO) — CSV escrito
 à mão (RFC4180, delimitador `;` e BOM UTF-8 para compatibilidade com
 Excel em `pt-PT`, mitigação OWASP contra CSV injection) e PDF via

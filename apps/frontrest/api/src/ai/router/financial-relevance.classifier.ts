@@ -1,4 +1,5 @@
 import { hasContinuationSignal } from '../financial-retrieval/continuation-signal';
+import { splitComparisonPeriods } from '../financial-retrieval/financial-period-pair.resolver';
 
 export type MessageRelevance = 'FINANCIAL' | 'GENERAL';
 
@@ -38,6 +39,14 @@ export function classifyMessageRelevance(message: string, recentUserMessages: st
   const normalized = normalize(message);
 
   if (FINANCIAL_ADJACENT_PATTERN.test(normalized)) {
+    return 'FINANCIAL';
+  }
+
+  // Fase 8.6 — "compara maio com junho"/"este mês versus o mês passado"
+  // não contêm nenhuma palavra do vocabulário financeiro-adjacente
+  // acima, mas são financeiras por forma (dois períodos a comparar).
+  // Mesma disciplina determinística, nunca o LLM a decidir.
+  if (splitComparisonPeriods(message) !== null) {
     return 'FINANCIAL';
   }
 

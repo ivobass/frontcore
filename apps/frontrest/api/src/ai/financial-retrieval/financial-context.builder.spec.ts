@@ -208,6 +208,83 @@ describe('buildFinancialContextMessage', () => {
       expect(buildFinancialContextMessage(result)).not.toContain('Filtros aplicados');
     });
   });
+
+  describe('Fase 8.6 — DATA/PERIOD_COMPARISON', () => {
+    const COMPARISON_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+      kind: 'DATA',
+      period: { from: '2026-05-01', to: '2026-05-31' },
+      data: {
+        intent: 'PERIOD_COMPARISON',
+        current: {
+          period: { from: '2026-05-01', to: '2026-05-31' },
+          totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 0, totalAmount: '400.00', averageAmount: '100.00' },
+        },
+        previous: {
+          period: { from: '2026-06-01', to: '2026-06-30' },
+          totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '200.00', averageAmount: '100.00' },
+        },
+        comparison: {
+          totalAmount: { current: '400.00', previous: '200.00', absoluteChange: '200.00', percentageChange: 100, direction: 'increase' },
+          activeInvoiceCount: { current: '4', previous: '2', absoluteChange: '2', percentageChange: 100, direction: 'increase' },
+        },
+      },
+      filters: {},
+    };
+
+    it('descreve os dois períodos e a variação — nunca a linha genérica "Período consultado" (pensada para um único período)', () => {
+      const text = buildFinancialContextMessage(COMPARISON_RESULT);
+
+      expect(text).not.toContain('Período consultado');
+      expect(text).toContain('Período atual: 2026-05-01 a 2026-05-31 (total: 400.00 EUR; 4 fatura(s) ativa(s)).');
+      expect(text).toContain('Período anterior: 2026-06-01 a 2026-06-30 (total: 200.00 EUR; 2 fatura(s) ativa(s)).');
+    });
+
+    it('inclui diferença absoluta e percentual, com a direção traduzida — nunca "increase" em inglês', () => {
+      const text = buildFinancialContextMessage(COMPARISON_RESULT);
+
+      expect(text).toContain('Valor total: 400.00 EUR (período anterior: 200.00 EUR; diferença: 200.00 EUR; 100% de aumento).');
+      expect(text).not.toMatch(/\bincrease\b|\bdecrease\b|\bunchanged\b/);
+    });
+
+    it('período anterior zero → nunca expõe percentagem fabricada (Infinity/NaN), frase explícita em vez disso', () => {
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: { from: '2026-05-01', to: '2026-05-31' },
+        data: {
+          intent: 'PERIOD_COMPARISON',
+          current: {
+            period: { from: '2026-05-01', to: '2026-05-31' },
+            totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '150.00', averageAmount: '50.00' },
+          },
+          previous: {
+            period: { from: '2026-06-01', to: '2026-06-30' },
+            totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
+          },
+          comparison: {
+            totalAmount: { current: '150.00', previous: '0.00', absoluteChange: '150.00', percentageChange: null, direction: 'increase' },
+            activeInvoiceCount: { current: '3', previous: '0', absoluteChange: '3', percentageChange: null, direction: 'increase' },
+          },
+        },
+        filters: {},
+      };
+
+      const text = buildFinancialContextMessage(result);
+
+      expect(text).toContain('variação percentual não aplicável (período anterior é zero)');
+      expect(text).not.toMatch(/\bInfinity\b|\bNaN\b/);
+    });
+
+    it('respeita os filtros aplicados (Fase 8.4), aplicados igualmente aos dois períodos', () => {
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: COMPARISON_RESULT.period,
+        data: COMPARISON_RESULT.data,
+        filters: { supplierName: 'Hetzner' },
+      };
+
+      expect(buildFinancialContextMessage(result)).toContain('Filtros aplicados: fornecedor Hetzner.');
+    });
+  });
 });
 
 /**

@@ -1,4 +1,5 @@
 import { resolveStatusFilter } from './financial-filter.extractor';
+import { splitComparisonPeriods } from './financial-period-pair.resolver';
 
 /**
  * Resolução determinística da intenção financeira de uma mensagem do chat
@@ -6,9 +7,14 @@ import { resolveStatusFilter } from './financial-filter.extractor';
  * sobre texto normalizado (minúsculas, sem acentos), nunca uma completion.
  * Conjunto fechado e tipado: uma mensagem produz no máximo uma intenção
  * suportada, ou `UNSUPPORTED` (nunca uma consulta livre/arbitrária).
- * Padrões de exclusão (escrita, detalhe de fatura, comparação) são
- * verificados antes dos de inclusão, para nunca classificar um pedido de
- * alteração como uma consulta válida.
+ * Padrões de exclusão (escrita, detalhe de fatura) são verificados antes
+ * dos de inclusão, para nunca classificar um pedido de alteração como
+ * uma consulta válida. Comparação (`compara(r)?`/`versus`/`vs`, Fase 8.6)
+ * é um caso à parte: só suportada quando a mensagem tem a forma exata de
+ * dois períodos nomeados (`splitComparisonPeriods()`,
+ * `financial-period-pair.resolver.ts`) — qualquer outra menção a
+ * "comparar" (ex. entre fornecedores) continua `UNSUPPORTED`, fora do
+ * âmbito desta fase.
  *
  * Fase 8.5 — responsabilidade estreitada só a decidir a **intenção**
  * (`FinancialIntentType`), nunca a transportar um filtro de estado no
@@ -28,7 +34,8 @@ export type FinancialIntentType =
   | 'BY_CATEGORY'
   | 'TOP_SUPPLIERS'
   | 'MONTHLY_TREND'
-  | 'LARGEST_INVOICES';
+  | 'LARGEST_INVOICES'
+  | 'PERIOD_COMPARISON';
 
 export type FinancialIntentResolution =
   | { kind: 'SUPPORTED'; intent: FinancialIntentType }
@@ -84,11 +91,22 @@ const LARGEST_INVOICES_PATTERN =
 export function resolveFinancialIntent(text: string): FinancialIntentResolution {
   const normalized = normalize(text);
 
-  if (
-    WRITE_ACTION_PATTERN.test(normalized) ||
-    INVOICE_DETAIL_PATTERN.test(normalized) ||
-    COMPARISON_PATTERN.test(normalized)
-  ) {
+  if (WRITE_ACTION_PATTERN.test(normalized) || INVOICE_DETAIL_PATTERN.test(normalized)) {
+    return { kind: 'UNSUPPORTED' };
+  }
+
+  // Fase 8.6 — comparação explícita de dois períodos na mesma mensagem
+  // ("compara maio com junho", "este mês versus o mês passado").
+  // Checado antes de COMPARISON_PATTERN: só a forma sintática
+  // reconhecida por `splitComparisonPeriods()` conta como suportada —
+  // "compara os fornecedores" continua UNSUPPORTED (comparação de
+  // entidades fica fora do âmbito, ver
+  // docs/phases/phase-8.6-financial-period-comparison-foundation.md).
+  if (splitComparisonPeriods(text) !== null) {
+    return { kind: 'SUPPORTED', intent: 'PERIOD_COMPARISON' };
+  }
+
+  if (COMPARISON_PATTERN.test(normalized)) {
     return { kind: 'UNSUPPORTED' };
   }
 

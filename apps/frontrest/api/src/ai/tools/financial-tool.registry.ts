@@ -81,8 +81,13 @@ export const FINANCIAL_TOOL_DEFINITIONS: AiToolDefinition[] = [
   },
 ];
 
-/** Allow-list fechada — um nome de tool fora deste mapa nunca é executado, mesmo que o modelo o invente. */
-export const TOOL_NAME_TO_INTENT: Readonly<Record<string, FinancialIntentType>> = {
+/**
+ * Allow-list fechada — um nome de tool fora deste mapa nunca é
+ * executado, mesmo que o modelo o invente. Exclui `PERIOD_COMPARISON`
+ * (Fase 8.6) — sem tool associada nesta fase, ver
+ * `docs/phases/phase-8.6-financial-period-comparison-foundation.md`.
+ */
+export const TOOL_NAME_TO_INTENT: Readonly<Record<string, Exclude<FinancialIntentType, 'PERIOD_COMPARISON'>>> = {
   get_financial_summary: 'FINANCIAL_SUMMARY',
   get_outstanding_balance: 'OUTSTANDING_BALANCE',
   get_invoices_by_status: 'BY_STATUS',

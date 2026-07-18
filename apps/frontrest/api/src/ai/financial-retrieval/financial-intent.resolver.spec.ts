@@ -22,7 +22,7 @@ describe('resolveFinancialIntent', () => {
 
   it.each([
     ['Qual é a melhor receita para bacalhau?', 'pergunta não financeira'],
-    ['Compara maio com junho.', 'comparação entre períodos'],
+    ['Compara os fornecedores mais caros.', 'comparação sem forma de dois períodos'],
     ['Mostra a fatura FT 123.', 'detalhe de fatura individual'],
     ['Marca esta fatura como paga.', 'escrita/alteração de dados'],
     ['Cria um novo fornecedor.', 'escrita/alteração de dados'],
@@ -121,6 +121,47 @@ describe('resolveFinancialIntent', () => {
     expect(resolveFinancialIntent('Qual é a média das faturas deste mês?')).toEqual({
       kind: 'SUPPORTED',
       intent: 'FINANCIAL_SUMMARY',
+    });
+  });
+
+  describe('Fase 8.6 — PERIOD_COMPARISON (comparação de dois períodos nomeados)', () => {
+    it.each([
+      'Compara maio com junho.',
+      'Compara janeiro com fevereiro.',
+      'Este mês versus o mês passado.',
+      'Janeiro vs fevereiro',
+    ])('reconhece "%s" como PERIOD_COMPARISON', (message) => {
+      expect(resolveFinancialIntent(message)).toEqual({ kind: 'SUPPORTED', intent: 'PERIOD_COMPARISON' });
+    });
+
+    it('uma comparação sem a forma sintática "X com Y"/"X versus Y" continua UNSUPPORTED', () => {
+      expect(resolveFinancialIntent('Compara os fornecedores mais caros.')).toEqual({ kind: 'UNSUPPORTED' });
+    });
+
+    // "Compara a categoria Hosting com a Manutenção" tem a mesma forma
+    // sintática de uma comparação de períodos ("X com Y") — este módulo só
+    // decide a intenção pela forma da frase, nunca sabe se X/Y são
+    // períodos ou entidades. É por isso `SUPPORTED`/`PERIOD_COMPARISON`
+    // aqui; a garantia de nunca comparar categorias/fornecedores está na
+    // camada seguinte (`resolveFinancialPeriodPair()` não reconhece nem
+    // "Hosting" nem "Manutenção" como período, devolvendo `PERIOD_MISSING`
+    // em vez de qualquer dado fabricado) — coberto em
+    // `financial-retrieval.service.spec.ts`.
+    it('forma "X com Y" sem serem períodos ainda resolve a intenção (a segurança está na resolução do par)', () => {
+      expect(resolveFinancialIntent('Compara a categoria Hosting com a Manutenção.')).toEqual({
+        kind: 'SUPPORTED',
+        intent: 'PERIOD_COMPARISON',
+      });
+    });
+
+    it('regressão Fase 8.3 preservada — "compara" combinado com outra intenção sem forma de dois períodos continua UNSUPPORTED', () => {
+      expect(resolveFinancialIntent('Compara onde gasto mais entre maio e junho.')).toEqual({ kind: 'UNSUPPORTED' });
+    });
+
+    it('nunca confunde um pedido de escrita com uma comparação, mesmo mencionando "com"', () => {
+      expect(resolveFinancialIntent('Marca esta fatura como paga com o fornecedor certo.')).toEqual({
+        kind: 'UNSUPPORTED',
+      });
     });
   });
 });

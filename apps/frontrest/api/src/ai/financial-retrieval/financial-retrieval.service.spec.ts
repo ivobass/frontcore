@@ -28,6 +28,18 @@ const EMPTY_SUMMARY: FinancialDashboardSummary = {
 
 const NONE: EntityMentionResolution = { kind: 'NONE' };
 
+/** Fase 8.6 — resumo mínimo com período e totais próprios, para os testes de PERIOD_COMPARISON (dois períodos, cada um com o seu próprio resumo). */
+function summaryWith(
+  period: { from: string; to: string },
+  totals: Partial<FinancialDashboardSummary['totals']>,
+): FinancialDashboardSummary {
+  return {
+    ...EMPTY_SUMMARY,
+    period,
+    totals: { ...EMPTY_SUMMARY.totals, ...totals },
+  };
+}
+
 describe('FinancialRetrievalService', () => {
   function buildService(
     getFinancialSummary: jest.Mock,
@@ -655,6 +667,148 @@ describe('FinancialRetrievalService', () => {
 
       expect(result).toEqual({ kind: 'ENTITY_AMBIGUOUS' });
       expect(getFinancialSummary).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Fase 8.6 — PERIOD_COMPARISON (comparação de dois períodos nomeados)', () => {
+    it('"Compara maio com junho" chama DashboardService duas vezes e devolve a comparação determinística', async () => {
+      const getFinancialSummary = jest
+        .fn()
+        .mockResolvedValueOnce(summaryWith({ from: '2026-05-01', to: '2026-05-31' }, { totalAmount: '400.00', activeInvoiceCount: 4 }))
+        .mockResolvedValueOnce(summaryWith({ from: '2026-06-01', to: '2026-06-30' }, { totalAmount: '200.00', activeInvoiceCount: 2 }));
+      const { service } = buildService(getFinancialSummary);
+
+      const result = await service.retrieve('org-1', 'Compara maio com junho.', [], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledTimes(2);
+      expect(getFinancialSummary).toHaveBeenNthCalledWith(1, 'org-1', { from: '2026-05-01', to: '2026-05-31' });
+      expect(getFinancialSummary).toHaveBeenNthCalledWith(2, 'org-1', { from: '2026-06-01', to: '2026-06-30' });
+      expect(result).toEqual({
+        kind: 'DATA',
+        period: { from: '2026-05-01', to: '2026-05-31' },
+        data: {
+          intent: 'PERIOD_COMPARISON',
+          current: { period: { from: '2026-05-01', to: '2026-05-31' }, totals: expect.objectContaining({ totalAmount: '400.00' }) },
+          previous: { period: { from: '2026-06-01', to: '2026-06-30' }, totals: expect.objectContaining({ totalAmount: '200.00' }) },
+          comparison: {
+            totalAmount: {
+              current: '400.00',
+              previous: '200.00',
+              absoluteChange: '200.00',
+              percentageChange: 100,
+              direction: 'increase',
+            },
+            activeInvoiceCount: expect.objectContaining({ direction: 'increase' }),
+          },
+        },
+        filters: {},
+      });
+    });
+
+    it('"Este mês versus o mês passado" resolve os dois períodos relativos à data de referência', async () => {
+      const getFinancialSummary = jest.fn().mockResolvedValue(EMPTY_SUMMARY);
+      const { service } = buildService(getFinancialSummary);
+
+      const result = await service.retrieve('org-1', 'Este mês versus o mês passado.', [], NOW);
+
+      expect(getFinancialSummary).toHaveBeenNthCalledWith(1, 'org-1', { from: '2026-07-01', to: '2026-07-31' });
+      expect(getFinancialSummary).toHaveBeenNthCalledWith(2, 'org-1', { from: '2026-06-01', to: '2026-06-30' });
+      expect(result).toMatchObject({ kind: 'DATA', data: { intent: 'PERIOD_COMPARISON' } });
+    });
+
+    it('período anterior com total zero → percentageChange null, nunca uma divisão por zero', async () => {
+      const getFinancialSummary = jest
+        .fn()
+        .mockResolvedValueOnce(summaryWith({ from: '2026-05-01', to: '2026-05-31' }, { totalAmount: '150.00', activeInvoiceCount: 3 }))
+        .mockResolvedValueOnce(summaryWith({ from: '2026-06-01', to: '2026-06-30' }, { totalAmount: '0.00', activeInvoiceCount: 0 }));
+      const { service } = buildService(getFinancialSummary);
+
+      const result = await service.retrieve('org-1', 'Compara maio com junho.', [], NOW);
+
+      expect(result).toMatchObject({
+        data: {
+          comparison: {
+            totalAmount: { percentageChange: null, direction: 'increase' },
+            activeInvoiceCount: { percentageChange: null, direction: 'increase' },
+          },
+        },
+      });
+    });
+
+    it('filtros (estado/fornecedor/categoria) aplicam-se aos dois períodos, sem uma segunda lógica de filtros', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
+      const getFinancialSummary = jest.fn().mockResolvedValue(EMPTY_SUMMARY);
+      const { service } = buildService(getFinancialSummary, { resolveSupplierMention });
+
+      const result = await service.retrieve('org-1', 'Compara maio com junho da Hetzner.', [], NOW);
+
+      expect(getFinancialSummary).toHaveBeenNthCalledWith(1, 'org-1', {
+        from: '2026-05-01',
+        to: '2026-05-31',
+        status: undefined,
+        supplierId: 'sup-1',
+        categoryId: undefined,
+      });
+      expect(getFinancialSummary).toHaveBeenNthCalledWith(2, 'org-1', {
+        from: '2026-06-01',
+        to: '2026-06-30',
+        status: undefined,
+        supplierId: 'sup-1',
+        categoryId: undefined,
+      });
+      expect(result).toMatchObject({ filters: { supplierId: 'sup-1', supplierName: 'Hetzner' } });
+    });
+
+    it('um lado da comparação sem período reconhecível (ex. comparação de categorias, fora do âmbito) devolve PERIOD_MISSING, nunca dados fabricados', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn());
+
+      const result = await service.retrieve('org-1', 'Compara a categoria Hosting com a Manutenção.', [], NOW);
+
+      expect(result).toEqual({ kind: 'PERIOD_MISSING' });
+      expect(getFinancialSummary).not.toHaveBeenCalled();
+    });
+
+    it('PERIOD_COMPARISON nunca é recuperado do histórico — só a mensagem atual decide, ao contrário de intenção/período nos outros intents (Fase 8.3)', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn());
+
+      // A mensagem anterior tem a forma de uma comparação, mas a mensagem
+      // atual, sozinha, não tem nenhum sinal financeiro nem de
+      // comparação — nunca deve "herdar" PERIOD_COMPARISON do histórico
+      // (esse mecanismo, que existe para intenção/período singular desde
+      // a Fase 8.3, não se estende a esta fase — decisão explícita, ver
+      // "fora do âmbito" em
+      // docs/phases/phase-8.6-financial-period-comparison-foundation.md).
+      const result = await service.retrieve('org-1', 'Qual é a capital de Portugal?', ['Compara maio com junho.'], NOW);
+
+      expect(result).toEqual({ kind: 'UNSUPPORTED' });
+      expect(getFinancialSummary).not.toHaveBeenCalled();
+    });
+
+    it('"E comparado com o mês passado?" (comparação relativa a contexto, fora do âmbito) nunca produz um resultado PERIOD_COMPARISON', async () => {
+      // Esta frase não tem a forma sintática "X com/versus Y" (só um
+      // período nomeado, "mês passado", nunca dois) — resolveFinancialIntent()
+      // continua UNSUPPORTED para ela (ver financial-intent.resolver.spec.ts);
+      // o mecanismo de recuperação de intenção por histórico, já existente
+      // desde a Fase 8.3 para outros intents, pode recuperar uma intenção
+      // diferente de PERIOD_COMPARISON a partir de uma mensagem anterior —
+      // o único comportamento que esta fase garante é nunca fabricar uma
+      // comparação de dois períodos a partir disto.
+      const { service } = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+
+      const result = await service.retrieve('org-1', 'E comparado com o mês passado?', ['Quanto gastei em junho?'], NOW);
+
+      if (result.kind === 'DATA') {
+        expect(result.data.intent).not.toBe('PERIOD_COMPARISON');
+      }
+    });
+
+    it('erro do DashboardService devolve ERROR, nunca lança', async () => {
+      const getFinancialSummary = jest.fn().mockRejectedValue(new Error('db down'));
+      const { service } = buildService(getFinancialSummary);
+
+      const result = await service.retrieve('org-1', 'Compara maio com junho.', [], NOW);
+
+      expect(result).toEqual({ kind: 'ERROR' });
     });
   });
 });

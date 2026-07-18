@@ -3,7 +3,11 @@ import { PrismaService, Prisma } from '@frontcore/database';
 import type { InvoiceStatus } from '@frontcore/database';
 import { DashboardService } from '../dashboard/dashboard.service';
 import type { FinancialDashboardSummary } from '../dashboard/dashboard.service';
+import { compareAmount, compareCount } from '../dashboard/period-comparison.util';
+import type { PeriodComparisonValue } from '../dashboard/period-comparison.util';
 import { resolveMonth, previousMonth } from './month.util';
+
+export type { PeriodComparisonValue } from '../dashboard/period-comparison.util';
 
 const SEM_CATEGORIA = 'Sem categoria';
 
@@ -11,14 +15,6 @@ export interface MonthlyReportPeriod {
   month: string;
   from: string;
   to: string;
-}
-
-export interface PeriodComparisonValue {
-  current: string;
-  previous: string;
-  absoluteChange: string;
-  percentageChange: number | null;
-  direction: 'increase' | 'decrease' | 'unchanged';
 }
 
 export interface MonthlyReportInvoiceDetail {
@@ -76,8 +72,8 @@ export class ReportsService {
       previousPeriod: { month: previous.month, from: previous.from, to: previous.to },
       totals: summary.totals,
       comparison: {
-        totalAmount: this.compareAmount(summary.totals.totalAmount, previousSummary.totals.totalAmount),
-        activeInvoiceCount: this.compareCount(
+        totalAmount: compareAmount(summary.totals.totalAmount, previousSummary.totals.totalAmount),
+        activeInvoiceCount: compareCount(
           summary.totals.activeInvoiceCount,
           previousSummary.totals.activeInvoiceCount,
         ),
@@ -125,32 +121,5 @@ export class ReportsService {
       status: invoice.status,
       totalAmount: new Prisma.Decimal(invoice.totalAmount).toFixed(2),
     }));
-  }
-
-  private compareAmount(current: string, previous: string): PeriodComparisonValue {
-    const currentDecimal = new Prisma.Decimal(current);
-    const previousDecimal = new Prisma.Decimal(previous);
-    const absoluteChange = currentDecimal.minus(previousDecimal);
-    return {
-      current: currentDecimal.toFixed(2),
-      previous: previousDecimal.toFixed(2),
-      absoluteChange: absoluteChange.toFixed(2),
-      percentageChange: previousDecimal.isZero()
-        ? null
-        : Number(absoluteChange.dividedBy(previousDecimal.abs()).times(100).toFixed(2)),
-      direction: absoluteChange.isZero() ? 'unchanged' : absoluteChange.isPositive() ? 'increase' : 'decrease',
-    };
-  }
-
-  private compareCount(current: number, previous: number): PeriodComparisonValue {
-    const absoluteChange = current - previous;
-    return {
-      current: String(current),
-      previous: String(previous),
-      absoluteChange: String(absoluteChange),
-      percentageChange:
-        previous === 0 ? null : Number((((current - previous) / Math.abs(previous)) * 100).toFixed(2)),
-      direction: absoluteChange === 0 ? 'unchanged' : absoluteChange > 0 ? 'increase' : 'decrease',
-    };
   }
 }
