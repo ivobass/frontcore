@@ -288,6 +288,28 @@
   sem refresh. Sem RAG, embeddings, agentes autónomos, streaming,
   escrita financeira, package novo
   (`docs/phases/phase-8.3-ai-tools-function-calling-foundation.md`).
+- **Fase 8.4 — Hybrid AI Routing & Conversational Financial Queries
+  Foundation**: router híbrido determinístico
+  (`classifyMessageRelevance()`) — perguntas genuinamente gerais
+  passam a ser respondidas diretamente pelo provider, por um `system
+  prompt` mínimo e separado, sem tools nem dados da organização;
+  perguntas financeiras nunca são tratadas como gerais só por um regex
+  de intenção falhar (vocabulário financeiro-adjacente deliberadamente
+  amplo). `DashboardService` ganha 3 filtros fechados e aditivos
+  (`status`/`supplierId`/`categoryId`) e um primitivo novo
+  (`getLargestInvoices()`, faturas individuais de maior valor).
+  `FinancialEntityResolverService` resolve nomes de fornecedor/
+  categoria de forma segura (nunca escolhe arbitrariamente quando
+  ambíguo), reutilizando `SuppliersService`/`ExpenseCategoriesService`.
+  Continuidade conversacional estruturada — filtros herdados só em
+  continuações explícitas, sempre substituídos pela mensagem atual
+  quando esta indica o seu próprio filtro. 6 tools existentes ganham
+  filtros opcionais + 1 tool nova (`get_largest_expenses`). Bug real
+  encontrado e corrigido na validação manual: fornecedor e categoria
+  com o mesmo nome nunca são combinados como filtro AND independente
+  (o fornecedor prevalece). Sem RAG, embeddings, agentes autónomos,
+  package novo, migration, alteração ao frontend
+  (`docs/phases/phase-8.4-hybrid-ai-routing-conversational-financial-queries-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify.
 

@@ -524,6 +524,57 @@ padrão de Fornecedores/Categorias/Faturas) — sem componente novo em
 `@frontcore/ui`; lista atualizada localmente após eliminação, sem
 `listConversations()` nem refresh da página.
 
+### Router híbrido e consultas financeiras combinadas (Fase 8.4)
+
+`classifyMessageRelevance()` (`apps/frontrest/api/src/ai/router/`,
+determinístico, sem LLM) decide, **antes** de qualquer retrieval
+financeiro, se uma mensagem é `GENERAL` ou financeira. Vocabulário
+financeiro-adjacente deliberadamente amplo — falsos positivos
+permanecem no caminho financeiro seguro, nunca o inverso. Regra
+estrutural: a ausência de correspondência a uma intenção específica
+(Fase 8.1) nunca classifica `GENERAL` — só a ausência de qualquer
+vocabulário financeiro-adjacente, sem sinal de continuação apoiado em
+contexto financeiro recente. `GENERAL` → `AiChatService` chama o
+provider diretamente com um `system prompt` mínimo e separado
+(`AiTenantContextService.buildGeneralSystemMessage()` — nunca o mesmo
+texto de `ASSISTANT_RULES`), sem tools nem dados da organização,
+resposta confiada e persistida com provider/model/tokens reais. A
+garantia "nunca confiar sem `DATA`" (Fase 8.3) mantém-se integralmente
+para qualquer alegação financeira — o caminho `GENERAL` nunca faz
+nenhuma.
+
+`DashboardService.getFinancialSummary()` ganha 3 filtros fechados e
+aditivos (`status`/`supplierId`/`categoryId` — nunca uma API de
+consulta genérica); `status` explícito substitui a exclusão por
+omissão de `CANCELLED`. Novo `getLargestInvoices()` (`findMany`/
+`orderBy: totalAmount desc`, estrutura distinta de `groupBy`) para
+"maiores faturas individuais" — "maiores despesas" resolve-se conforme
+a pergunta (faturas individuais → este primitivo; fornecedor agregado
+→ `TOP_SUPPLIERS`; categoria agregada → `BY_CATEGORY`, agora
+ordenado). `FinancialEntityResolverService`
+(`apps/frontrest/api/src/ai/financial-retrieval/entity-resolver.service.ts`)
+resolve nomes de fornecedor/categoria mencionados na mensagem
+reutilizando `SuppliersService`/`ExpenseCategoriesService` (nunca uma
+query Prisma duplicada) — `AMBIGUOUS` quando mais do que uma entidade
+distinta corresponde, nunca escolhido arbitrariamente
+(`FinancialRetrievalResult.kind === 'ENTITY_AMBIGUOUS'`, tratado como
+`ERROR` por `AiChatService`). **Regra de prioridade confirmada
+necessária por um bug real** (fornecedor e categoria com o mesmo nome
+real, ex. "Hetzner", nunca são combinados como filtro `AND`
+independente — o fornecedor prevalece).
+
+Continuidade conversacional (`FinancialRetrievalService.retrieve()`):
+filtros (estado/fornecedor/categoria) resolvidos sempre a partir da
+mensagem atual; só recuperados do histórico quando a mensagem atual
+sinaliza uma continuação explícita (`hasContinuationSignal()`,
+partilhado com o classificador do router) — nunca herdados
+silenciosamente numa pergunta nova. Um filtro que a mensagem atual já
+resolve por si substitui sempre o herdado dessa dimensão. As 6 tools
+da Fase 8.3 ganham os mesmos 3 filtros como parâmetros opcionais + 1
+tool nova (`get_largest_expenses`) — `AiToolDefinition.parameters`
+já suficientemente genérico, sem alteração a `packages/ai`. Ver
+`docs/phases/phase-8.4-hybrid-ai-routing-conversational-financial-queries-foundation.md`.
+
 ## Relatórios financeiros mensais
 
 Desde a Fase 9, `apps/frontrest/api/src/reports/` (`ReportsModule`,

@@ -20,6 +20,7 @@ import { AiTenantContextService } from './ai-tenant-context.service';
 import { FinancialRetrievalService } from './financial-retrieval/financial-retrieval.service';
 import { buildDeterministicReply } from './financial-retrieval/financial-context.builder';
 import { AiToolOrchestratorService } from './tools/ai-tool-orchestrator.service';
+import { classifyMessageRelevance } from './router/financial-relevance.classifier';
 import { loadAiChatConfig, type AiChatConfig } from './ai-chat.config';
 import { SendChatMessageDto } from './dto/send-chat-message.dto';
 import { ListConversationsDto } from './dto/list-conversations.dto';
@@ -70,17 +71,26 @@ interface AssistantReply {
  * isolamento por organização/utilizador acontece nas queries Prisma
  * abaixo, antes de qualquer dado ser construído para o provider.
  *
- * Fase 8.3 — o provider só é chamado a confiar na resposta como final
- * em duas situações: (1) `FinancialRetrievalService.retrieve()`
- * devolveu `DATA` (dados reais já resolvidos); (2)
+ * Fase 8.4 — router híbrido antes de qualquer retrieval financeiro:
+ * `classifyMessageRelevance()` decide `GENERAL` (sem nenhum sinal
+ * financeiro-adjacente, defensivo — nunca só por um regex de intenção
+ * falhar) vs. o caminho financeiro. Para conteúdo financeiro, o
+ * provider só é chamado a confiar na resposta como final em duas
+ * situações: (1) `FinancialRetrievalService.retrieve()` devolveu
+ * `DATA` (dados reais já resolvidos, com filtros combinados —
+ * estado/fornecedor/categoria — quando aplicáveis); (2)
  * `AiToolOrchestratorService.run()` devolveu `ANSWERED` (uma tool
  * read-only foi chamada e devolveu dados reais, o que só acontece
  * quando `retrieveForIntent()` também devolve `DATA` — ver
- * `AiToolOrchestratorService`). `ERROR` nunca tenta o orquestrador nem
- * o provider — vai direto ao fallback determinístico. Em qualquer
- * outro caso, a resposta é o texto determinístico de
- * `buildDeterministicReply()` — nunca texto livre do modelo sem dados
- * estruturados reais por trás.
+ * `AiToolOrchestratorService`). `ERROR`/`ENTITY_AMBIGUOUS` nunca
+ * tentam o orquestrador nem o provider — vão direto ao fallback
+ * determinístico. Em qualquer outro caso financeiro, a resposta é o
+ * texto determinístico de `buildDeterministicReply()` — nunca texto
+ * livre do modelo sem dados estruturados reais por trás. Para
+ * `GENERAL`, o provider é chamado diretamente com um `system prompt`
+ * mínimo e separado, sem tools nem dados da organização — nunca faz
+ * nenhuma alegação financeira, por isso a garantia "nunca confiar sem
+ * `DATA`" (que é sobre alegações financeiras) não se aplica aqui.
  */
 @Injectable()
 export class AiChatService {
@@ -100,16 +110,18 @@ export class AiChatService {
   /**
    * Fluxo: valida → resolve/cria conversa (sempre organizationId+userId
    * autenticados, nunca vindos do pedido) → persiste USER → carrega
-   * histórico → resolve retrieval financeiro (Fase 8.1, reforçado na
-   * Fase 8.3) → `DATA` chama o provider com contexto real;
-   * `UNSUPPORTED`/`PERIOD_MISSING`/`PERIOD_AMBIGUOUS` tentam o
-   * orquestrador de tools (Fase 8.3) antes de cair no fallback
-   * determinístico; `ERROR` vai direto ao fallback determinístico, sem
-   * tentar o orquestrador nem o provider → persiste ASSISTANT. Se o
-   * provider falhar no caminho `DATA`, a mensagem USER já persistida
-   * fica (nunca apagada) e nenhuma mensagem ASSISTANT falsa é criada —
-   * o erro devolvido ao cliente é sempre sanitizado (ver
-   * `mapProviderError`).
+   * histórico → classifica a mensagem (Fase 8.4, `GENERAL` vs.
+   * financeira) → `GENERAL` chama o provider com o `system prompt`
+   * mínimo, sem retrieval nem tools; caso contrário resolve retrieval
+   * financeiro (Fase 8.1, reforçado nas Fases 8.3/8.4) → `DATA` chama o
+   * provider com contexto real; `UNSUPPORTED`/`PERIOD_MISSING`/`PERIOD_AMBIGUOUS`
+   * tentam o orquestrador de tools (Fase 8.3) antes de cair no fallback
+   * determinístico; `ERROR`/`ENTITY_AMBIGUOUS` vão direto ao fallback
+   * determinístico, sem tentar o orquestrador nem o provider → persiste
+   * ASSISTANT. Se o provider falhar (caminho `GENERAL` ou `DATA`), a
+   * mensagem USER já persistida fica (nunca apagada) e nenhuma
+   * mensagem ASSISTANT falsa é criada — o erro devolvido ao cliente é
+   * sempre sanitizado (ver `mapProviderError`).
    */
   async sendMessage(
     organizationId: string,
@@ -142,6 +154,31 @@ export class AiChatService {
     const history = await this.loadHistoryMessages(conversation.id);
     const recentUserMessages = this.extractRecentUserMessages(history);
 
+    // Fase 8.4 — router híbrido: classifica antes de tentar qualquer
+    // retrieval financeiro. `GENERAL` só quando não existe nenhum sinal
+    // financeiro-adjacente (defensivo — nunca por o regex de intenção
+    // falhar, ver `classifyMessageRelevance()`) — caminho totalmente
+    // separado, sem tools financeiras, sem dados da organização, com um
+    // `system prompt` mínimo próprio. A garantia "nunca confiar sem
+    // `DATA`" continua absoluta para qualquer alegação financeira — este
+    // caminho nunca faz nenhuma.
+    if (classifyMessageRelevance(content, recentUserMessages) === 'GENERAL') {
+      const systemMessage = this.tenantContext.buildGeneralSystemMessage();
+      let response;
+      try {
+        response = await this.provider.complete({ messages: [systemMessage, ...history] });
+      } catch (error) {
+        throw this.mapProviderError(error);
+      }
+      return this.persistAssistantReply(conversation.id, {
+        content: response.content,
+        provider: response.provider,
+        model: response.model,
+        inputTokens: response.usage?.inputTokens,
+        outputTokens: response.usage?.outputTokens,
+      });
+    }
+
     const retrievalResult = await this.financialRetrieval.retrieve(organizationId, content, recentUserMessages);
 
     if (retrievalResult.kind === 'DATA') {
@@ -164,14 +201,15 @@ export class AiChatService {
     // Fase 8.3 — antes do fallback determinístico, tenta uma oportunidade
     // adicional via tool calling (bounded, read-only), mas só quando faz
     // sentido: `UNSUPPORTED`/`PERIOD_MISSING`/`PERIOD_AMBIGUOUS` podem
-    // beneficiar de uma tool escolhida pelo modelo; `ERROR` é uma falha
-    // interna (ex.: `DashboardService`) sem nenhuma relação com "talvez
-    // uma tool ajude" — nunca chama o orquestrador nem o provider nesse
-    // caso, vai direto ao fallback determinístico. Nunca reabre a
-    // possibilidade de alucinação: `AiToolOrchestratorService` só devolve
-    // `ANSWERED` quando uma tool real foi executada com sucesso — texto
-    // livre do modelo sem tool nunca chega até aqui.
-    if (retrievalResult.kind !== 'ERROR') {
+    // beneficiar de uma tool escolhida pelo modelo; `ERROR`/`ENTITY_AMBIGUOUS`
+    // (Fase 8.4 — nome de fornecedor/categoria ambíguo) já são problemas
+    // bem compreendidos que uma tool não resolveria melhor — nunca chamam
+    // o orquestrador nem o provider, vão direto ao fallback determinístico.
+    // Nunca reabre a possibilidade de alucinação:
+    // `AiToolOrchestratorService` só devolve `ANSWERED` quando uma tool
+    // real foi executada com sucesso — texto livre do modelo sem tool
+    // nunca chega até aqui.
+    if (retrievalResult.kind !== 'ERROR' && retrievalResult.kind !== 'ENTITY_AMBIGUOUS') {
       const toolResult = await this.toolOrchestrator.run(organizationId, history);
       if (toolResult.kind === 'ANSWERED') {
         return this.persistAssistantReply(conversation.id, toolResult);

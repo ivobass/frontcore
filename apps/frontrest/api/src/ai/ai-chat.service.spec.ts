@@ -17,11 +17,13 @@ import { createMockPrismaService } from '../../test/utils/mock-prisma';
 import type { MockPrismaService } from '../../test/utils/mock-prisma';
 
 const SYSTEM_MESSAGE: AiMessage = { role: 'system', content: 'regras + dados da organização' };
+const GENERAL_SYSTEM_MESSAGE: AiMessage = { role: 'system', content: 'regras gerais, sem dados da organização' };
 
 const DEFAULT_DATA_RESULT: FinancialRetrievalResult = {
   kind: 'DATA',
   period: { from: '2026-07-01', to: '2026-07-31' },
   data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' } },
+  filters: {},
 };
 
 function buildService(overrides: {
@@ -40,6 +42,7 @@ function buildService(overrides: {
   };
   const tenantContext = {
     buildSystemMessage: jest.fn().mockReturnValue(SYSTEM_MESSAGE),
+    buildGeneralSystemMessage: jest.fn().mockReturnValue(GENERAL_SYSTEM_MESSAGE),
   } as unknown as AiTenantContextService;
   const financialRetrieval = {
     retrieve: jest.fn().mockResolvedValue(overrides.retrievalResult ?? DEFAULT_DATA_RESULT),
@@ -180,14 +183,14 @@ describe('AiChatService', () => {
       prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1' });
       // Carregadas descendente (mais recente primeiro) — o service tem de inverter.
       prisma.aiMessage.findMany.mockResolvedValue([
-        { id: 'm2', role: 'USER', content: 'pergunta atual', createdAt: new Date('2026-07-16T10:01:00Z') },
+        { id: 'm2', role: 'USER', content: 'Quanto gastei este mês?', createdAt: new Date('2026-07-16T10:01:00Z') },
         { id: 'm1', role: 'ASSISTANT', content: 'resposta anterior', createdAt: new Date('2026-07-16T10:00:00Z') },
       ]);
       (provider.complete as jest.Mock).mockResolvedValue({ content: 'resposta', provider: 'mock', model: 'mock-echo-1' });
       prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
       prisma.aiMessage.create.mockResolvedValue({ id: 'msg-3', role: 'ASSISTANT', content: 'resposta', createdAt: new Date() });
 
-      await service.sendMessage('org-1', 'user-1', { message: 'pergunta atual' });
+      await service.sendMessage('org-1', 'user-1', { message: 'Quanto gastei este mês?' });
 
       expect(prisma.aiMessage.findMany).toHaveBeenCalledWith({
         where: { conversationId: 'conv-1' },
@@ -198,7 +201,7 @@ describe('AiChatService', () => {
       expect(request.messages).toEqual([
         SYSTEM_MESSAGE,
         { role: 'assistant', content: 'resposta anterior' },
-        { role: 'user', content: 'pergunta atual' },
+        { role: 'user', content: 'Quanto gastei este mês?' },
       ]);
     });
   });
@@ -228,6 +231,7 @@ describe('AiChatService', () => {
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
         data: { intent: 'TOP_SUPPLIERS', topSuppliers: [] },
+        filters: {},
       };
       const { service, prisma, provider, tenantContext, financialRetrieval } = buildService({ retrievalResult: dataResult });
       prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1' });
@@ -255,7 +259,10 @@ describe('AiChatService', () => {
         Promise.resolve({ id: 'msg-2', createdAt: new Date(), ...data }),
       );
 
-      const result = await service.sendMessage('org-1', 'user-1', { message: 'Qual é a melhor receita para bacalhau?' });
+      // Vocabulário financeiro-adjacente ("financeira") presente — nunca
+      // classificada GENERAL (Fase 8.4) mesmo sem corresponder a nenhuma
+      // intenção específica; permanece no caminho financeiro seguro.
+      const result = await service.sendMessage('org-1', 'user-1', { message: 'Como está a situação financeira geral?' });
 
       expect(toolOrchestrator.run).toHaveBeenCalledWith('org-1', expect.any(Array));
       expect(tenantContext.buildSystemMessage).not.toHaveBeenCalled();
@@ -335,6 +342,80 @@ describe('AiChatService', () => {
         ([arg]: [{ data: { role: string } }]) => arg.data.role === 'ASSISTANT',
       );
       expect(assistantCall[0].data).toMatchObject({ provider: 'deterministic', model: 'financial-retrieval-fallback' });
+    });
+  });
+
+  describe('Fase 8.4 — router híbrido (GENERAL vs. financeiro)', () => {
+    it('pergunta genuinamente geral chama o provider com o system prompt geral, nunca chama o retrieval financeiro', async () => {
+      const { service, prisma, provider, tenantContext, financialRetrieval } = buildService();
+      prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1' });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({ content: 'Lisboa é a capital de Portugal.', provider: 'mock', model: 'mock-echo-1' });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'Lisboa é a capital de Portugal.', createdAt: new Date() });
+
+      const result = await service.sendMessage('org-1', 'user-1', { message: 'Qual é a capital de Portugal?' });
+
+      expect(tenantContext.buildGeneralSystemMessage).toHaveBeenCalledTimes(1);
+      expect(tenantContext.buildSystemMessage).not.toHaveBeenCalled();
+      expect(financialRetrieval.retrieve).not.toHaveBeenCalled();
+      const request = (provider.complete as jest.Mock).mock.calls[0][0];
+      expect(request.messages[0]).toEqual(GENERAL_SYSTEM_MESSAGE);
+      expect(request.tools).toBeUndefined();
+      expect(result.message.content).toBe('Lisboa é a capital de Portugal.');
+    });
+
+    it('resposta geral é persistida com o provider/model/tokens reais — nunca marcada como determinística', async () => {
+      const { service, prisma, provider } = buildService();
+      prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1' });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({
+        content: 'Resposta geral real.',
+        provider: 'openrouter',
+        model: 'google/gemini-2.5-flash',
+        usage: { inputTokens: 50, outputTokens: 12 },
+      });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'Resposta geral real.', createdAt: new Date() });
+
+      await service.sendMessage('org-1', 'user-1', { message: 'Como estás hoje?' });
+
+      const assistantCall = prisma.aiMessage.create.mock.calls.find(
+        ([arg]: [{ data: { role: string } }]) => arg.data.role === 'ASSISTANT',
+      );
+      expect(assistantCall[0].data).toMatchObject({
+        provider: 'openrouter',
+        model: 'google/gemini-2.5-flash',
+        inputTokens: 50,
+        outputTokens: 12,
+      });
+    });
+
+    it('falha do provider no caminho GERAL é sanitizada da mesma forma que no caminho DATA, mensagem USER preservada', async () => {
+      const { service, prisma, provider } = buildService();
+      prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1' });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-1', role: 'USER', content: 'Que horas são?', createdAt: new Date() });
+      (provider.complete as jest.Mock).mockRejectedValue(new AiProviderError('mensagem interna nunca exposta', 'timeout'));
+
+      const error = await service.sendMessage('org-1', 'user-1', { message: 'Que horas são?' }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(GatewayTimeoutException);
+      expect(prisma.aiMessage.create).toHaveBeenCalledTimes(1);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('uma continuação sem contexto financeiro recente ("Só isso.") é tratada como geral, nunca força o caminho financeiro', async () => {
+      const { service, prisma, provider, financialRetrieval } = buildService();
+      prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1' });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({ content: 'ok', provider: 'mock', model: 'mock-echo-1' });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'ok', createdAt: new Date() });
+
+      await service.sendMessage('org-1', 'user-1', { message: 'Só isso.' });
+
+      expect(financialRetrieval.retrieve).not.toHaveBeenCalled();
     });
   });
 

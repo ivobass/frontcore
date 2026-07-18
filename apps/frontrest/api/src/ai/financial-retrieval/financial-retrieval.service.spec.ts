@@ -1,6 +1,7 @@
 import { FinancialRetrievalService } from './financial-retrieval.service';
 import type { DashboardService } from '../../dashboard/dashboard.service';
-import type { FinancialDashboardSummary } from '../../dashboard/dashboard.service';
+import type { FinancialDashboardSummary, LargestInvoice } from '../../dashboard/dashboard.service';
+import type { FinancialEntityResolverService, EntityMentionResolution } from './entity-resolver.service';
 
 const NOW = new Date('2026-07-16T12:00:00Z');
 
@@ -25,10 +26,26 @@ const EMPTY_SUMMARY: FinancialDashboardSummary = {
   topSuppliers: [],
 };
 
+const NONE: EntityMentionResolution = { kind: 'NONE' };
+
 describe('FinancialRetrievalService', () => {
-  function buildService(getFinancialSummary: jest.Mock) {
-    const dashboardService = { getFinancialSummary } as unknown as DashboardService;
-    return { service: new FinancialRetrievalService(dashboardService), getFinancialSummary };
+  function buildService(
+    getFinancialSummary: jest.Mock,
+    options: {
+      getLargestInvoices?: jest.Mock;
+      resolveSupplierMention?: jest.Mock;
+      resolveCategoryMention?: jest.Mock;
+    } = {},
+  ) {
+    const dashboardService = {
+      getFinancialSummary,
+      getLargestInvoices: options.getLargestInvoices ?? jest.fn(),
+    } as unknown as DashboardService;
+    const entityResolver = {
+      resolveSupplierMention: options.resolveSupplierMention ?? jest.fn().mockResolvedValue(NONE),
+      resolveCategoryMention: options.resolveCategoryMention ?? jest.fn().mockResolvedValue(NONE),
+    } as unknown as FinancialEntityResolverService;
+    return { service: new FinancialRetrievalService(dashboardService, entityResolver), getFinancialSummary, entityResolver };
   }
 
   it('UNSUPPORTED nunca chama o DashboardService', async () => {
@@ -75,6 +92,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'FINANCIAL_SUMMARY', totals: FILLED_SUMMARY.totals },
+      filters: {},
     });
   });
 
@@ -87,6 +105,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'OUTSTANDING_BALANCE', outstandingCount: 4, outstandingAmount: '370.00' },
+      filters: {},
     });
   });
 
@@ -103,6 +122,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'OUTSTANDING_BALANCE', outstandingCount: 0, outstandingAmount: '0.00' },
+      filters: {},
     });
   });
 
@@ -115,6 +135,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'BY_STATUS', byStatus: FILLED_SUMMARY.byStatus },
+      filters: {},
     });
   });
 
@@ -127,6 +148,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'BY_CATEGORY', byCategory: FILLED_SUMMARY.byCategory },
+      filters: {},
     });
   });
 
@@ -139,6 +161,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'TOP_SUPPLIERS', topSuppliers: FILLED_SUMMARY.topSuppliers },
+      filters: {},
     });
   });
 
@@ -151,6 +174,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'MONTHLY_TREND', monthlyTrend: FILLED_SUMMARY.monthlyTrend },
+      filters: {},
     });
   });
 
@@ -163,6 +187,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'FINANCIAL_SUMMARY', totals: EMPTY_SUMMARY.totals },
+      filters: {},
     });
   });
 
@@ -183,7 +208,7 @@ describe('FinancialRetrievalService', () => {
     expect(getFinancialSummary).toHaveBeenCalledWith('org-only-this-one', expect.any(Object));
   });
 
-  describe('Fase 8.3 — recuperação por histórico', () => {
+  describe('Fase 8.3 — recuperação por histórico (intenção/período)', () => {
     it('"sim este mês" recupera a intenção da mensagem anterior (regressão real)', async () => {
       const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
@@ -198,6 +223,7 @@ describe('FinancialRetrievalService', () => {
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
         data: { intent: 'FINANCIAL_SUMMARY', totals: FILLED_SUMMARY.totals },
+        filters: {},
       });
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
     });
@@ -216,6 +242,7 @@ describe('FinancialRetrievalService', () => {
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
         data: { intent: 'TOP_SUPPLIERS', topSuppliers: FILLED_SUMMARY.topSuppliers },
+        filters: {},
       });
     });
 
@@ -269,16 +296,158 @@ describe('FinancialRetrievalService', () => {
     });
   });
 
+  describe('Fase 8.4 — LARGEST_INVOICES (maiores faturas individuais)', () => {
+    it('devolve as faturas individuais reais, via DashboardService.getLargestInvoices', async () => {
+      const invoices: LargestInvoice[] = [
+        { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '500.00' },
+      ];
+      const getLargestInvoices = jest.fn().mockResolvedValue({ period: { from: '2026-07-01', to: '2026-07-31' }, invoices });
+      const { service } = buildService(jest.fn(), { getLargestInvoices });
+
+      const result = await service.retrieve('org-1', 'Quais são as maiores faturas deste mês?', [], NOW);
+
+      expect(result).toEqual({
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: { intent: 'LARGEST_INVOICES', invoices },
+        filters: {},
+      });
+      expect(getLargestInvoices).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
+    });
+
+    it('erro do DashboardService devolve ERROR, nunca propaga', async () => {
+      const getLargestInvoices = jest.fn().mockRejectedValue(new Error('falha'));
+      const { service } = buildService(jest.fn(), { getLargestInvoices });
+
+      const result = await service.retrieve('org-1', 'Quais são as maiores faturas deste mês?', [], NOW);
+
+      expect(result).toEqual({ kind: 'ERROR' });
+    });
+  });
+
+  describe('Fase 8.4 — filtro por estado específico ("quantas pagas/vencidas/pendentes")', () => {
+    it('encaminha o status resolvido pela intenção para DashboardService, e devolve-o em filters', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      const result = await service.retrieve('org-1', 'Quantas faturas pagas este mês?', [], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31', status: 'PAID' });
+      expect(result).toMatchObject({ kind: 'DATA', filters: { status: 'PAID' } });
+    });
+  });
+
+  describe('Fase 8.4 — filtro por fornecedor/categoria nomeado', () => {
+    it('resolve o fornecedor mencionado e encaminha o id para DashboardService', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), { resolveSupplierMention });
+
+      const result = await service.retrieve('org-1', 'Quanto gastei com a Hetzner este mês?', [], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31', supplierId: 'sup-1' });
+      expect(result).toMatchObject({ kind: 'DATA', filters: { supplierId: 'sup-1', supplierName: 'Hetzner' } });
+    });
+
+    it('entidade ambígua (duas correspondências distintas) devolve ENTITY_AMBIGUOUS, nunca escolhe uma arbitrariamente', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'AMBIGUOUS' });
+      const { service, getFinancialSummary } = buildService(jest.fn(), { resolveSupplierMention });
+
+      const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
+
+      expect(result).toEqual({ kind: 'ENTITY_AMBIGUOUS' });
+      expect(getFinancialSummary).not.toHaveBeenCalled();
+    });
+
+    it('regressão real: fornecedor e categoria com o mesmo nome (ex. "Hetzner") nunca são combinados como filtro AND — o fornecedor prevalece', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
+      const resolveCategoryMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'cat-hetzner', name: 'Hetzner' });
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), {
+        resolveSupplierMention,
+        resolveCategoryMention,
+      });
+
+      const result = await service.retrieve('org-1', 'Quanto gastei com a Hetzner este mês?', [], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31', supplierId: 'sup-1' });
+      expect(result).toMatchObject({ kind: 'DATA', filters: { supplierId: 'sup-1', supplierName: 'Hetzner' } });
+      expect((result as { filters: object }).filters).not.toHaveProperty('categoryId');
+    });
+
+    it('fornecedor e categoria com nomes DIFERENTES continuam combinados normalmente (nunca afetado pela regra de colisão)', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
+      const resolveCategoryMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'cat-1', name: 'Hosting' });
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), {
+        resolveSupplierMention,
+        resolveCategoryMention,
+      });
+
+      const result = await service.retrieve('org-1', 'Quanto gastei em Hosting com a Hetzner este mês?', [], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {
+        from: '2026-07-01',
+        to: '2026-07-31',
+        supplierId: 'sup-1',
+        categoryId: 'cat-1',
+      });
+      expect(result).toMatchObject({
+        kind: 'DATA',
+        filters: { supplierId: 'sup-1', supplierName: 'Hetzner', categoryId: 'cat-1', categoryName: 'Hosting' },
+      });
+    });
+  });
+
+  describe('Fase 8.4 — continuidade conversacional estruturada (filtros)', () => {
+    it('"E só da Hetzner?" (continuação) recupera intenção/período do histórico e aplica o fornecedor da mensagem atual', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), { resolveSupplierMention });
+
+      const result = await service.retrieve('org-1', 'E só da Hetzner?', ['Quantas faturas pagas este mês?'], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {
+        from: '2026-07-01',
+        to: '2026-07-31',
+        status: 'PAID',
+        supplierId: 'sup-1',
+      });
+      expect(result).toMatchObject({ filters: { status: 'PAID', supplierId: 'sup-1', supplierName: 'Hetzner' } });
+    });
+
+    it('"Mostra apenas as vencidas." substitui o estado herdado pelo indicado na mensagem atual', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), { resolveSupplierMention });
+
+      // Histórico: pergunta anterior tinha filtro de fornecedor (Hetzner, resolvido pelo mesmo mock aqui por simplicidade).
+      const result = await service.retrieve('org-1', 'Mostra apenas as vencidas.', ['Quanto gastei com a Hetzner este mês?'], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {
+        from: '2026-07-01',
+        to: '2026-07-31',
+        status: 'OVERDUE',
+        supplierId: 'sup-1',
+      });
+      expect(result).toMatchObject({ filters: { status: 'OVERDUE', supplierId: 'sup-1' } });
+    });
+
+    it('sem sinal de continuação, uma pergunta financeira nova NUNCA herda filtros de uma mensagem anterior não relacionada', async () => {
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      const result = await service.retrieve('org-1', 'Quanto gastei este mês?', ['Quantas faturas pagas este mês?'], NOW);
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
+      expect(result).toMatchObject({ filters: {} });
+    });
+  });
+
   describe('Fase 8.3 — retrieveForIntent (usado pelas AI Tools)', () => {
     it('intenção já conhecida + período em texto livre devolve DATA, mesma fonte que o caminho principal', async () => {
       const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
 
-      const result = await service.retrieveForIntent('org-1', 'TOP_SUPPLIERS', 'este mês', NOW);
+      const result = await service.retrieveForIntent('org-1', 'TOP_SUPPLIERS', 'este mês', {}, NOW);
 
       expect(result).toEqual({
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
         data: { intent: 'TOP_SUPPLIERS', topSuppliers: FILLED_SUMMARY.topSuppliers },
+        filters: {},
       });
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
     });
@@ -286,7 +455,7 @@ describe('FinancialRetrievalService', () => {
     it('período em texto livre não resolvível devolve PERIOD_AMBIGUOUS, nunca lança', async () => {
       const { service } = buildService(jest.fn());
 
-      const result = await service.retrieveForIntent('org-1', 'FINANCIAL_SUMMARY', 'no Natal', NOW);
+      const result = await service.retrieveForIntent('org-1', 'FINANCIAL_SUMMARY', 'no Natal', {}, NOW);
 
       expect(result).toEqual({ kind: 'PERIOD_AMBIGUOUS' });
     });
@@ -294,9 +463,40 @@ describe('FinancialRetrievalService', () => {
     it('nunca recupera por histórico — só usa o período explícito da tool', async () => {
       const { service, getFinancialSummary } = buildService(jest.fn());
 
-      const result = await service.retrieveForIntent('org-1', 'FINANCIAL_SUMMARY', '', NOW);
+      const result = await service.retrieveForIntent('org-1', 'FINANCIAL_SUMMARY', '', {}, NOW);
 
       expect(result).toEqual({ kind: 'PERIOD_MISSING' });
+      expect(getFinancialSummary).not.toHaveBeenCalled();
+    });
+
+    it('Fase 8.4 — filtros opcionais da tool (status/supplierName/categoryName) resolvidos e encaminhados', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
+      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), { resolveSupplierMention });
+
+      const result = await service.retrieveForIntent(
+        'org-1',
+        'FINANCIAL_SUMMARY',
+        'este mês',
+        { status: 'PAID', supplierName: 'Hetzner' },
+        NOW,
+      );
+
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', {
+        from: '2026-07-01',
+        to: '2026-07-31',
+        status: 'PAID',
+        supplierId: 'sup-1',
+      });
+      expect(result).toMatchObject({ filters: { status: 'PAID', supplierId: 'sup-1', supplierName: 'Hetzner' } });
+    });
+
+    it('Fase 8.4 — nome de fornecedor ambíguo devolve ENTITY_AMBIGUOUS, nunca escolhe arbitrariamente', async () => {
+      const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'AMBIGUOUS' });
+      const { service, getFinancialSummary } = buildService(jest.fn(), { resolveSupplierMention });
+
+      const result = await service.retrieveForIntent('org-1', 'FINANCIAL_SUMMARY', 'este mês', { supplierName: 'H' }, NOW);
+
+      expect(result).toEqual({ kind: 'ENTITY_AMBIGUOUS' });
       expect(getFinancialSummary).not.toHaveBeenCalled();
     });
   });

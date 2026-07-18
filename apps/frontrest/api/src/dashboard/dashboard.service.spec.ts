@@ -219,6 +219,157 @@ describe('DashboardService', () => {
     });
   });
 
+  describe('filtros fechados (Fase 8.4) — status/supplierId/categoryId', () => {
+    it('sem filtros: comportamento idêntico ao anterior (status != CANCELLED)', async () => {
+      await service.getFinancialSummary('org-1', {});
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ status: { not: 'CANCELLED' } }) }),
+      );
+    });
+
+    it('com status explícito, substitui a exclusão de CANCELLED — filtra exatamente esse estado', async () => {
+      await service.getFinancialSummary('org-1', { status: 'PAID' });
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ status: 'PAID' }) }),
+      );
+    });
+
+    it('status explícito CANCELLED é aceite — nunca bloqueado pela exclusão por omissão', async () => {
+      await service.getFinancialSummary('org-1', { status: 'CANCELLED' });
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ status: 'CANCELLED' }) }),
+      );
+    });
+
+    it('supplierId filtra todas as agregações relevantes (AND ao período+organização)', async () => {
+      await service.getFinancialSummary('org-1', { supplierId: 'sup-1' });
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ supplierId: 'sup-1' }) }),
+      );
+      expect(prisma.invoice.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({ by: ['status'], where: expect.objectContaining({ supplierId: 'sup-1' }) }),
+      );
+    });
+
+    it('categoryId filtra todas as agregações relevantes (AND ao período+organização)', async () => {
+      await service.getFinancialSummary('org-1', { categoryId: 'cat-1' });
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ categoryId: 'cat-1' }) }),
+      );
+    });
+
+    it('status + supplierId combinados (ex. "faturas pagas do fornecedor X")', async () => {
+      await service.getFinancialSummary('org-1', { status: 'PAID', supplierId: 'sup-1' });
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ status: 'PAID', supplierId: 'sup-1' }) }),
+      );
+    });
+
+    it('cancelledInvoiceCount respeita supplierId/categoryId, nunca o filtro de status', async () => {
+      await service.getFinancialSummary('org-1', { status: 'PAID', supplierId: 'sup-1' });
+
+      const call = prisma.invoice.count.mock.calls[0][0];
+      expect(call.where).toMatchObject({ supplierId: 'sup-1', status: 'CANCELLED' });
+    });
+
+    it('byStatus nunca é pré-filtrado por status (mantém-se a distribuição completa, só com entidade aplicada)', async () => {
+      await service.getFinancialSummary('org-1', { status: 'PAID', categoryId: 'cat-1' });
+
+      const call = prisma.invoice.groupBy.mock.calls.find((c) => c[0].by[0] === 'status')![0];
+      expect(call.where).toMatchObject({ categoryId: 'cat-1' });
+      expect(call.where.status).toBeUndefined();
+    });
+  });
+
+  describe('byCategory ordenado por totalAmount desc (Fase 8.4)', () => {
+    it('pede ordenado por totalAmount desc diretamente ao Prisma', async () => {
+      await service.getFinancialSummary('org-1', {});
+
+      expect(prisma.invoice.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({ by: ['categoryId'], orderBy: { _sum: { totalAmount: 'desc' } } }),
+      );
+    });
+  });
+
+  describe('getLargestInvoices (Fase 8.4)', () => {
+    it('devolve faturas ordenadas por totalAmount desc, limitadas por omissão a 5', async () => {
+      prisma.invoice.findMany.mockResolvedValue([
+        {
+          id: 'inv-1',
+          issueDate: new Date('2026-07-10T00:00:00.000Z'),
+          status: 'PAID',
+          totalAmount: '500.00',
+          supplier: { name: 'Hetzner' },
+          category: { name: 'Hosting' },
+        },
+      ]);
+
+      const result = await service.getLargestInvoices('org-1', {});
+
+      expect(prisma.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { totalAmount: 'desc' }, take: 5 }),
+      );
+      expect(result.invoices).toEqual([
+        {
+          id: 'inv-1',
+          supplierName: 'Hetzner',
+          categoryName: 'Hosting',
+          issueDate: '2026-07-10',
+          status: 'PAID',
+          totalAmount: '500.00',
+        },
+      ]);
+    });
+
+    it('sem categoria, devolve "Sem categoria" — nunca null nem omitido', async () => {
+      prisma.invoice.findMany.mockResolvedValue([
+        {
+          id: 'inv-1',
+          issueDate: new Date('2026-07-10T00:00:00.000Z'),
+          status: 'PENDING',
+          totalAmount: '100.00',
+          supplier: { name: 'Hetzner' },
+          category: null,
+        },
+      ]);
+
+      const result = await service.getLargestInvoices('org-1', {});
+
+      expect(result.invoices[0].categoryName).toBe('Sem categoria');
+    });
+
+    it('respeita organizationId, período e filtros fechados (status/supplierId/categoryId)', async () => {
+      prisma.invoice.findMany.mockResolvedValue([]);
+
+      await service.getLargestInvoices('org-1', { from: '2026-07-01', to: '2026-07-31', status: 'PAID', supplierId: 'sup-1' });
+
+      expect(prisma.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            organizationId: 'org-1',
+            status: 'PAID',
+            supplierId: 'sup-1',
+            issueDate: { gte: new Date('2026-07-01T00:00:00.000Z'), lt: new Date('2026-08-01T00:00:00.000Z') },
+          }),
+        }),
+      );
+    });
+
+    it('limit explícito sobrepõe o valor por omissão', async () => {
+      prisma.invoice.findMany.mockResolvedValue([]);
+
+      await service.getLargestInvoices('org-1', { limit: 3 });
+
+      expect(prisma.invoice.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 3 }));
+    });
+  });
+
   describe('tendência mensal', () => {
     it('agrega por mês (YYYY-MM) a partir de issueDate, soma via Decimal sem perder precisão', async () => {
       prisma.invoice.findMany.mockResolvedValue([

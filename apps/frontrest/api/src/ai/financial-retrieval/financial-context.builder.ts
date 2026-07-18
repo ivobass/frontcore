@@ -24,8 +24,12 @@ const SUPPORTED_QUERIES_HINT =
  * chegam a esta função nem ao provider — ver `buildDeterministicReply()`).
  */
 export function buildFinancialContextMessage(result: Extract<FinancialRetrievalResult, { kind: 'DATA' }>): string {
-  const { period, data } = result;
+  const { period, data, filters } = result;
   const lines: string[] = [`Período consultado: ${period.from} a ${period.to}.`];
+  const filtersLine = buildFiltersLine(filters);
+  if (filtersLine) {
+    lines.push(filtersLine);
+  }
 
   switch (data.intent) {
     case 'FINANCIAL_SUMMARY': {
@@ -93,21 +97,60 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
       }
       break;
     }
+    case 'LARGEST_INVOICES': {
+      if (data.invoices.length === 0) {
+        lines.push(NO_INVOICES_LINE);
+      } else {
+        lines.push(
+          `Maiores faturas: ${data.invoices
+            .map(
+              (invoice) =>
+                `${invoice.issueDate} — ${invoice.supplierName} (${invoice.categoryName}, ${translateStatus(invoice.status)}): ${invoice.totalAmount} EUR`,
+            )
+            .join('; ')}.`,
+        );
+      }
+      break;
+    }
   }
 
   return `Dados financeiros disponíveis:\n${lines.join('\n')}`;
 }
 
 /**
- * Resposta final, pt-PT, para os 4 `kind` que nunca chegam ao provider
- * (Fase 8.3) — texto já pronto para ser persistido diretamente como a
- * mensagem `ASSISTANT`, não uma instrução para o modelo. Elimina
- * estruturalmente a possibilidade de alucinação nestes caminhos: sem
- * dados financeiros estruturados, não há chamada ao LLM nenhuma.
- * Compromisso assumido: uma pergunta genuinamente fora do domínio
- * financeiro recebe sempre este mesmo texto fixo, nunca uma recusa
- * "conversacional" gerada pelo modelo — ver
- * `docs/phases/phase-8.3-ai-tools-function-calling-foundation.md`.
+ * Descreve os filtros combinados aplicados (Fase 8.4) — estado/
+ * fornecedor/categoria, sempre nomes já traduzidos/resolvidos, nunca
+ * ids nem enums em inglês. `undefined` (sem nenhum filtro) não produz
+ * nenhuma linha — o texto de dados fica idêntico ao anterior a esta
+ * fase quando nenhum filtro é usado.
+ */
+function buildFiltersLine(filters: Extract<FinancialRetrievalResult, { kind: 'DATA' }>['filters']): string | null {
+  const parts: string[] = [];
+  if (filters.status) {
+    parts.push(`estado ${translateStatus(filters.status)}`);
+  }
+  if (filters.supplierName) {
+    parts.push(`fornecedor ${filters.supplierName}`);
+  }
+  if (filters.categoryName) {
+    parts.push(`categoria ${filters.categoryName}`);
+  }
+  if (parts.length === 0) {
+    return null;
+  }
+  return `Filtros aplicados: ${parts.join('; ')}.`;
+}
+
+/**
+ * Resposta final, pt-PT, para os `kind` que nunca chegam ao provider
+ * (Fase 8.3, `ENTITY_AMBIGUOUS` na Fase 8.4) — texto já pronto para ser
+ * persistido diretamente como a mensagem `ASSISTANT`, não uma instrução
+ * para o modelo. Elimina estruturalmente a possibilidade de
+ * alucinação nestes caminhos: sem dados financeiros estruturados, não
+ * há chamada ao LLM nenhuma. Compromisso assumido: uma pergunta
+ * genuinamente fora do domínio financeiro recebe sempre este mesmo
+ * texto fixo, nunca uma recusa "conversacional" gerada pelo modelo —
+ * ver `docs/phases/phase-8.3-ai-tools-function-calling-foundation.md`.
  */
 export function buildDeterministicReply(result: Exclude<FinancialRetrievalResult, { kind: 'DATA' }>): string {
   switch (result.kind) {
@@ -117,6 +160,8 @@ export function buildDeterministicReply(result: Exclude<FinancialRetrievalResult
       return 'Preciso que indiques um período concreto para responder (ex.: "este mês", "junho de 2026", "este ano").';
     case 'PERIOD_AMBIGUOUS':
       return 'Não consegui perceber o período que indicaste. Podes reformular de forma mais concreta (ex.: "este mês", "junho de 2026", "este ano")?';
+    case 'ENTITY_AMBIGUOUS':
+      return 'Encontrei mais do que um fornecedor ou categoria com esse nome. Podes indicar o nome completo?';
     case 'ERROR':
       return 'Não foi possível obter os dados financeiros de momento. Tenta novamente.';
   }

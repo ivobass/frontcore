@@ -12,6 +12,7 @@ describe('buildFinancialContextMessage', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' },
       },
+      filters: {},
     };
 
     const text = buildFinancialContextMessage(result);
@@ -31,6 +32,7 @@ describe('buildFinancialContextMessage', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
       },
+      filters: {},
     };
 
     expect(buildFinancialContextMessage(result)).toContain('Sem faturas confirmadas neste período.');
@@ -41,6 +43,7 @@ describe('buildFinancialContextMessage', () => {
       kind: 'DATA',
       period: PERIOD,
       data: { intent: 'OUTSTANDING_BALANCE', outstandingCount: 0, outstandingAmount: '0.00' },
+      filters: {},
     };
 
     expect(buildFinancialContextMessage(result)).toContain('Por pagar (Pendente + Vencida): 0 fatura(s), 0.00 EUR.');
@@ -57,6 +60,7 @@ describe('buildFinancialContextMessage', () => {
           { status: 'OVERDUE', count: 2, totalAmount: '54.00' },
         ],
       },
+      filters: {},
     };
 
     const text = buildFinancialContextMessage(result);
@@ -75,6 +79,7 @@ describe('buildFinancialContextMessage', () => {
         intent: 'BY_CATEGORY',
         byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 3, totalAmount: '354.00' }],
       },
+      filters: {},
     };
 
     const text = buildFinancialContextMessage(result);
@@ -91,6 +96,7 @@ describe('buildFinancialContextMessage', () => {
         intent: 'TOP_SUPPLIERS',
         topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '354.00' }],
       },
+      filters: {},
     };
 
     const text = buildFinancialContextMessage(result);
@@ -104,6 +110,7 @@ describe('buildFinancialContextMessage', () => {
       kind: 'DATA',
       period: PERIOD,
       data: { intent: 'MONTHLY_TREND', monthlyTrend: [{ month: '2026-07', count: 4, totalAmount: '370.00' }] },
+      filters: {},
     };
 
     const text = buildFinancialContextMessage(result);
@@ -117,9 +124,89 @@ describe('buildFinancialContextMessage', () => {
       kind: 'DATA',
       period: PERIOD,
       data: { intent: 'TOP_SUPPLIERS', topSuppliers: [] },
+      filters: {},
     };
 
     expect(buildFinancialContextMessage(result)).toContain('Sem faturas confirmadas neste período.');
+  });
+
+  it('DATA/LARGEST_INVOICES inclui só o bloco de faturas individuais, com estado traduzido', () => {
+    const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+      kind: 'DATA',
+      period: PERIOD,
+      data: {
+        intent: 'LARGEST_INVOICES',
+        invoices: [
+          { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '500.00' },
+        ],
+      },
+      filters: {},
+    };
+
+    const text = buildFinancialContextMessage(result);
+
+    expect(text).toContain('Maiores faturas: 2026-07-10 — Hetzner (Hosting, Paga): 500.00 EUR.');
+    expect(text).not.toMatch(/\bPAID\b/);
+  });
+
+  it('DATA/LARGEST_INVOICES vazio produz nota explícita', () => {
+    const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+      kind: 'DATA',
+      period: PERIOD,
+      data: { intent: 'LARGEST_INVOICES', invoices: [] },
+      filters: {},
+    };
+
+    expect(buildFinancialContextMessage(result)).toContain('Sem faturas confirmadas neste período.');
+  });
+
+  describe('Fase 8.4 — filtros combinados descritos no texto', () => {
+    it('estado aplicado é traduzido, nunca o enum interno', () => {
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '50.00' },
+        },
+        filters: { status: 'PAID' },
+      };
+
+      const text = buildFinancialContextMessage(result);
+
+      expect(text).toContain('Filtros aplicados: estado Paga.');
+      expect(text).not.toMatch(/\bPAID\b/);
+    });
+
+    it('fornecedor e categoria aplicados aparecem combinados, separados por ";"', () => {
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '50.00', averageAmount: '50.00' },
+        },
+        filters: { supplierName: 'Hetzner', categoryName: 'Hosting' },
+      };
+
+      const text = buildFinancialContextMessage(result);
+
+      expect(text).toContain('Filtros aplicados: fornecedor Hetzner; categoria Hosting.');
+    });
+
+    it('sem nenhum filtro, nenhuma linha "Filtros aplicados" é incluída — texto idêntico ao anterior à Fase 8.4', () => {
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '50.00', averageAmount: '50.00' },
+        },
+        filters: {},
+      };
+
+      expect(buildFinancialContextMessage(result)).not.toContain('Filtros aplicados');
+    });
   });
 });
 
@@ -158,11 +245,18 @@ describe('buildDeterministicReply', () => {
     expect(text).toContain('Tenta novamente');
   });
 
+  it('Fase 8.4 — ENTITY_AMBIGUOUS pede o nome completo, nunca escolhe uma entidade arbitrariamente', () => {
+    const text = buildDeterministicReply({ kind: 'ENTITY_AMBIGUOUS' });
+
+    expect(text).toContain('mais do que um fornecedor ou categoria');
+  });
+
   it('nunca expõe dados técnicos (stack, queries, ids) em nenhum kind', () => {
     const results: Exclude<FinancialRetrievalResult, { kind: 'DATA' }>[] = [
       { kind: 'UNSUPPORTED' },
       { kind: 'PERIOD_MISSING' },
       { kind: 'PERIOD_AMBIGUOUS' },
+      { kind: 'ENTITY_AMBIGUOUS' },
       { kind: 'ERROR' },
     ];
 
@@ -179,6 +273,7 @@ describe('buildDeterministicReply', () => {
       { kind: 'UNSUPPORTED' },
       { kind: 'PERIOD_MISSING' },
       { kind: 'PERIOD_AMBIGUOUS' },
+      { kind: 'ENTITY_AMBIGUOUS' },
       { kind: 'ERROR' },
     ];
 

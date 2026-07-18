@@ -50,4 +50,66 @@ describe('resolveFinancialIntent', () => {
     expect(resolveFinancialIntent('Elimina as faturas pendentes.')).toEqual({ kind: 'UNSUPPORTED' });
     expect(resolveFinancialIntent('Compara onde gasto mais entre maio e junho.')).toEqual({ kind: 'UNSUPPORTED' });
   });
+
+  describe('Fase 8.4 — LARGEST_INVOICES (maiores faturas individuais)', () => {
+    it.each([
+      ['Quais são as maiores faturas deste mês?', 'LARGEST_INVOICES'],
+      ['Mostra as faturas de maior valor.', 'LARGEST_INVOICES'],
+      ['Qual foi a fatura mais cara este ano?', 'LARGEST_INVOICES'],
+    ] as const)('reconhece "%s" como %s', (message, expected) => {
+      expect(resolveFinancialIntent(message)).toEqual({ kind: 'SUPPORTED', intent: expected });
+    });
+
+    it('"maior despesa" sozinho continua BY_CATEGORY (decisão da Fase 8.3, preservada)', () => {
+      expect(resolveFinancialIntent('Qual foi a maior despesa este mês?')).toEqual({
+        kind: 'SUPPORTED',
+        intent: 'BY_CATEGORY',
+      });
+    });
+
+    it('"fornecedor" isolado (sem "maior despesa") continua TOP_SUPPLIERS — padrão inalterado', () => {
+      expect(resolveFinancialIntent('Qual foi o fornecedor com mais gastos este mês?')).toEqual({
+        kind: 'SUPPORTED',
+        intent: 'TOP_SUPPLIERS',
+      });
+    });
+  });
+
+  describe('Fase 8.4 — contagem/filtro por estado específico', () => {
+    it.each([
+      ['Quantas faturas pagas este mês?', 'PAID'],
+      ['Quantas vencidas?', 'OVERDUE'],
+      ['Quantas pendentes existem?', 'PENDING'],
+      ['Mostra apenas as vencidas.', 'OVERDUE'],
+      ['Lista as canceladas deste mês.', 'CANCELLED'],
+    ] as const)('reconhece "%s" como FINANCIAL_SUMMARY com statusFilter=%s', (message, status) => {
+      expect(resolveFinancialIntent(message)).toEqual({
+        kind: 'SUPPORTED',
+        intent: 'FINANCIAL_SUMMARY',
+        statusFilter: status,
+      });
+    });
+
+    it('"Existem faturas pendentes?" (regressão real Fase 8.3) continua OUTSTANDING_BALANCE — sem verbo de contagem/filtro', () => {
+      expect(resolveFinancialIntent('Existem faturas pendentes?')).toEqual({
+        kind: 'SUPPORTED',
+        intent: 'OUTSTANDING_BALANCE',
+      });
+    });
+
+    it('"quantas pendentes" tem prioridade sobre OUTSTANDING_BALANCE — PENDING isolado, nunca Pendente+Vencida', () => {
+      expect(resolveFinancialIntent('Quantas faturas pendentes tenho este mês?')).toEqual({
+        kind: 'SUPPORTED',
+        intent: 'FINANCIAL_SUMMARY',
+        statusFilter: 'PENDING',
+      });
+    });
+  });
+
+  it('Fase 8.4 — "média das faturas" reconhecida como FINANCIAL_SUMMARY', () => {
+    expect(resolveFinancialIntent('Qual é a média das faturas deste mês?')).toEqual({
+      kind: 'SUPPORTED',
+      intent: 'FINANCIAL_SUMMARY',
+    });
+  });
 });

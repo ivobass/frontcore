@@ -469,6 +469,174 @@ describe('AI Chat (e2e)', () => {
     });
   });
 
+  /**
+   * Router híbrido (Fase 8.4) — o `MockAiProvider` ecoa a última mensagem
+   * (`[mock] <conteúdo>`) quando não há `tools`/tool call, o que permite
+   * distinguir os 3 caminhos possíveis num teste e2e real: `GENERAL`
+   * (eco da própria pergunta — nunca chega a `tools`), financeiro via
+   * tool call (eco do resultado real da tool, nunca da pergunta), e
+   * financeiro via `DATA` direto (sem eco, resposta construída a partir
+   * do `system prompt`).
+   */
+  describe('Fase 8.4 — router híbrido (GERAL vs. financeiro)', () => {
+    it('pergunta genuinamente geral é respondida diretamente pelo provider — nunca chama DashboardService nem tools', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Qual é a capital de Portugal?' })
+        .expect(201);
+
+      // Eco direto da pergunta (Mock sem tools) — prova que a mensagem chegou ao provider sem nenhum retrieval financeiro.
+      expect(response.body.message.content).toBe('[mock] Qual é a capital de Portugal?');
+      expect(prisma.invoice.aggregate).not.toHaveBeenCalled();
+      expect(prisma.invoice.groupBy).not.toHaveBeenCalled();
+    });
+
+    it('pergunta financeira com vocabulário não reconhecido por nenhuma intenção específica nunca é tratada como geral — resolvida via tool call real', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Como está a situação financeira geral da empresa?' })
+        .expect(201);
+
+      // Nunca o eco direto da pergunta (isso seria o caminho GERAL, proibido aqui) — o Mock chama sempre a
+      // primeira tool oferecida, por isso a resposta final eco a o resultado real da tool, nunca a pergunta.
+      expect(response.body.message.content).not.toBe('[mock] Como está a situação financeira geral da empresa?');
+      expect(prisma.invoice.aggregate).toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Filtros combinados e resolução de entidades (Fase 8.4) — confirma
+   * que a árvore de injeção com `FinancialEntityResolverService`
+   * arranca e liga corretamente (`SuppliersModule`/`ExpenseCategoriesModule`
+   * reutilizados por `AiModule`), e que o isolamento por organização se
+   * mantém também na resolução de nomes de fornecedor.
+   */
+  describe('Fase 8.4 — filtros combinados e resolução de entidades', () => {
+    it('menção a um fornecedor real da organização resolve o id e filtra o DashboardService por esse fornecedor', async () => {
+      prisma.supplier.findMany.mockImplementation(({ where }: { where: { organizationId: string } }) =>
+        Promise.resolve(where.organizationId === 'org-1' ? [{ id: 'sup-1', name: 'Hetzner' }] : []),
+      );
+
+      await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .send({ message: 'Quanto gastei com a Hetzner este mês?' })
+        .expect(201);
+
+      const aggregateCall = prisma.invoice.aggregate.mock.calls.find((call) => call[0].where.supplierId === 'sup-1');
+      expect(aggregateCall).toBeDefined();
+    });
+
+    it('um fornecedor com o mesmo nome noutra organização nunca é usado para filtrar — isolamento também na resolução de entidades', async () => {
+      // "Hetzner" só existe registado para "org-b" — org-a não deve resolver nenhum fornecedor com esse nome.
+      prisma.supplier.findMany.mockImplementation(({ where }: { where: { organizationId: string } }) =>
+        Promise.resolve(where.organizationId === 'org-b' ? [{ id: 'sup-other-org', name: 'Hetzner' }] : []),
+      );
+
+      await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader({ organizationId: 'org-a', userId: 'user-a' }))
+        .send({ message: 'Quanto gastei com a Hetzner este mês?' })
+        .expect(201);
+
+      const aggregateCall = prisma.invoice.aggregate.mock.calls.find((call) => call[0].where.supplierId === 'sup-other-org');
+      expect(aggregateCall).toBeUndefined();
+    });
+
+    it('"quantas faturas pagas este mês?" filtra o DashboardService por status=PAID', async () => {
+      await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quantas faturas pagas este mês?' })
+        .expect(201);
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: 'PAID' }) }));
+    });
+
+    it('"maiores faturas deste mês" chama o primitivo novo (findMany ordenado por totalAmount), nunca os agregados existentes', async () => {
+      prisma.invoice.findMany.mockResolvedValueOnce([]);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quais são as maiores faturas deste mês?' })
+        .expect(201);
+
+      expect(prisma.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { totalAmount: 'desc' } }),
+      );
+      expect(response.body.message.role).toBe('ASSISTANT');
+    });
+  });
+
+  /**
+   * OCR/promoção (Fase 8.4) — confirma o fluxo completo
+   * `Upload → InvoiceDraft → ... → Promote → Invoice → Chat financeiro`:
+   * antes da promoção, um `InvoiceDraft` nunca aparece nas respostas
+   * financeiras (`DashboardService` só consulta `Invoice`, nunca
+   * `InvoiceDraft` — nenhuma alteração de código necessária, só a
+   * confirmação ponta a ponta pedida). Depois da promoção, a nova
+   * `Invoice` aparece automaticamente, sem nenhuma integração paralela.
+   */
+  describe('Fase 8.4 — OCR e promoção: InvoiceDraft nunca aparece, Invoice promovida aparece automaticamente', () => {
+    it('antes da promoção: o draft nunca é consultado pelo Chat; depois: a Invoice promovida entra na mesma agregação, sem alteração de código', async () => {
+      // Antes da promoção — nenhuma Invoice real ainda.
+      prisma.invoice.aggregate.mockResolvedValueOnce({ _count: 0, _sum: { totalAmount: null }, _avg: { totalAmount: null } });
+
+      await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .send({ message: 'Quanto gastei este mês?' })
+        .expect(201);
+
+      // Prova estrutural: `DashboardService`/`FinancialRetrievalService` nunca consultam `InvoiceDraft` —
+      // só `Invoice`. Confirmado real aqui, não só por inspeção de código.
+      expect(prisma.invoice.aggregate).toHaveBeenCalledTimes(1);
+      expect(prisma.invoiceDraft.findMany).not.toHaveBeenCalled();
+      expect(prisma.invoiceDraft.findFirst).not.toHaveBeenCalled();
+
+      // Promove o draft a Invoice real — mesmo padrão de invoice-drafts.e2e-spec.ts.
+      prisma.invoiceDraft.findFirst.mockResolvedValue({
+        id: 'draft-1',
+        organizationId: 'org-1',
+        storageObjectId: 'obj-1',
+        supplierId: 'sup-1',
+        categoryId: 'cat-1',
+        number: 'F-1',
+        issueDate: new Date('2026-07-10'),
+        dueDate: null,
+        totalAmount: 120,
+        notes: null,
+      });
+      prisma.supplier.findFirst.mockResolvedValue({ id: 'sup-1', organizationId: 'org-1' });
+      prisma.expenseCategory.findFirst.mockResolvedValue({ id: 'cat-1', organizationId: 'org-1' });
+      prisma.invoice.create.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: 'inv-1', ...data }));
+      prisma.invoiceAttachment.create.mockResolvedValue({ id: 'att-1' });
+      prisma.invoiceDraft.delete.mockResolvedValue({ id: 'draft-1' });
+
+      await request(app.getHttpServer())
+        .post('/api/invoices/drafts/draft-1/promote')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+        .expect(201);
+
+      // Depois da promoção — a Invoice real (120.00 EUR) já entra na mesma agregação, sem nenhuma
+      // integração paralela nem alteração ao Chat IA (a mesma query real de sempre, com dados diferentes).
+      prisma.invoice.aggregate.mockResolvedValueOnce({ _count: 1, _sum: { totalAmount: '120.00' }, _avg: { totalAmount: '120.00' } });
+
+      const after = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .send({ message: 'Quanto gastei este mês?' })
+        .expect(201);
+
+      expect(after.body.message.role).toBe('ASSISTANT');
+      expect(prisma.invoice.aggregate).toHaveBeenCalledTimes(2);
+      expect(prisma.invoiceDraft.findMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Fase 8.3 — DELETE /api/ai/conversations/:id', () => {
     it('elimina uma conversa própria (204) — deixa de aparecer na listagem e no detalhe (404)', async () => {
       const created = await request(app.getHttpServer())

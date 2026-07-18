@@ -1,14 +1,30 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@frontcore/database';
+import type { InvoiceStatus } from '@frontcore/database';
 import { DashboardService } from '../../dashboard/dashboard.service';
-import type { FinancialDashboardSummary } from '../../dashboard/dashboard.service';
+import type { FinancialDashboardSummary, LargestInvoice } from '../../dashboard/dashboard.service';
+import { FinancialEntityResolverService } from './entity-resolver.service';
 import { resolveFinancialIntent } from './financial-intent.resolver';
 import type { FinancialIntentResolution, FinancialIntentType } from './financial-intent.resolver';
 import { resolveFinancialPeriod } from './financial-period.resolver';
 import type { FinancialPeriodResolution } from './financial-period.resolver';
+import { hasContinuationSignal } from './continuation-signal';
 
 /** "Por pagar" = Pendente + Vencida — nunca inclui Paga. Mesma definição já usada pelo contexto do Chat IA (Fase 8). */
 const OUTSTANDING_STATUSES = new Set<string>(['PENDING', 'OVERDUE']);
+
+/**
+ * Compara dois nomes de entidade (fornecedor/categoria) de forma
+ * insensível a maiúsculas/acentos — usado só para detetar a colisão
+ * real confirmada empiricamente (Fase 8.4): uma organização pode ter um
+ * fornecedor e uma categoria com o mesmo nome (ex. "Hetzner" como
+ * fornecedor e como categoria), nunca deve resultar num filtro AND
+ * (fornecedor=X **e** categoria=X) que nenhum utilizador pediu.
+ */
+function sameEntityName(a: string, b: string): boolean {
+  const normalize = (text: string) => text.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').trim();
+  return normalize(a) === normalize(b);
+}
 
 export type FinancialIntentData =
   | { intent: 'FINANCIAL_SUMMARY'; totals: FinancialDashboardSummary['totals'] }
@@ -16,37 +32,59 @@ export type FinancialIntentData =
   | { intent: 'BY_STATUS'; byStatus: FinancialDashboardSummary['byStatus'] }
   | { intent: 'BY_CATEGORY'; byCategory: FinancialDashboardSummary['byCategory'] }
   | { intent: 'TOP_SUPPLIERS'; topSuppliers: FinancialDashboardSummary['topSuppliers'] }
-  | { intent: 'MONTHLY_TREND'; monthlyTrend: FinancialDashboardSummary['monthlyTrend'] };
+  | { intent: 'MONTHLY_TREND'; monthlyTrend: FinancialDashboardSummary['monthlyTrend'] }
+  | { intent: 'LARGEST_INVOICES'; invoices: LargestInvoice[] };
+
+/** Filtros combinados resolvidos (Fase 8.4) — nomes já prontos para texto (nunca ids expostos ao provider). */
+export interface ResolvedFinancialFilters {
+  status?: InvoiceStatus;
+  supplierId?: string;
+  supplierName?: string;
+  categoryId?: string;
+  categoryName?: string;
+}
 
 export type FinancialRetrievalResult =
   | { kind: 'UNSUPPORTED' }
   | { kind: 'PERIOD_MISSING' }
   | { kind: 'PERIOD_AMBIGUOUS' }
+  | { kind: 'ENTITY_AMBIGUOUS' }
   | { kind: 'ERROR' }
-  | { kind: 'DATA'; period: { from: string; to: string }; data: FinancialIntentData };
+  | { kind: 'DATA'; period: { from: string; to: string }; data: FinancialIntentData; filters: ResolvedFinancialFilters };
 
 /**
  * Retrieval financeiro estruturado do Chat IA (Fase 8.1, reforçado na
- * Fase 8.3) — substitui o resumo fixo do período por omissão (Fase 8)
- * por uma consulta deterministicamente selecionada com base na intenção
- * e no período da mensagem do utilizador. Nunca conhece o provider,
- * nunca aceita `organizationId` do pedido do utilizador (só do chamador
- * autenticado), nunca acede ao Prisma diretamente — reutiliza
- * exclusivamente `DashboardService.getFinancialSummary()` (Fase 7).
+ * Fase 8.3, com filtros combinados e continuidade conversacional
+ * estruturada na Fase 8.4) — substitui o resumo fixo do período por
+ * omissão (Fase 8) por uma consulta deterministicamente selecionada
+ * com base na intenção, período e filtros da mensagem do utilizador.
+ * Nunca conhece o provider, nunca aceita `organizationId` do pedido do
+ * utilizador (só do chamador autenticado), nunca acede ao Prisma
+ * diretamente — reutiliza exclusivamente `DashboardService` (Fase 7,
+ * filtros fechados na Fase 8.4) e `FinancialEntityResolverService`
+ * (Fase 8.4, nome de fornecedor/categoria → id).
  *
  * Fase 8.3 — recuperação por histórico: quando a mensagem atual não
  * tem intenção OU período resolvíveis sozinha, mas o outro dos dois
  * resolve com sucesso, procura na janela de mensagens recentes já
  * carregada (a mesma enviada ao provider, nunca mais longe) uma
- * mensagem anterior que resolva a peça em falta — sem persistir nada
- * novo, sem chamar o LLM para isto. Resolve casos de continuação como
- * "sim este mês" (intenção da mensagem anterior + período da atual) ou
- * uma pergunta nova sem período repetido (intenção da atual + período
- * de uma mensagem anterior).
+ * mensagem anterior que resolva a peça em falta.
+ *
+ * Fase 8.4 — filtros (estado/fornecedor/categoria) são resolvidos
+ * sempre a partir da mensagem atual; só recuperados do histórico
+ * quando a mensagem atual sinaliza explicitamente uma continuação
+ * (`CONTINUATION_SIGNAL_PATTERN`) — nunca herdados silenciosamente numa
+ * pergunta nova e independente. Quando a mensagem atual já resolve o
+ * seu próprio filtro numa dimensão (ex. menciona outro fornecedor),
+ * esse valor substitui sempre o herdado dessa mesma dimensão — nunca
+ * combina dois filtros incompatíveis na mesma dimensão.
  */
 @Injectable()
 export class FinancialRetrievalService {
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    private readonly dashboardService: DashboardService,
+    private readonly entityResolver: FinancialEntityResolverService,
+  ) {}
 
   async retrieve(
     organizationId: string,
@@ -56,11 +94,15 @@ export class FinancialRetrievalService {
   ): Promise<FinancialRetrievalResult> {
     let intentResolution = resolveFinancialIntent(message);
     const currentPeriodResolution = resolveFinancialPeriod(message, now);
+    const isContinuation = hasContinuationSignal(message);
 
-    // Só tenta recuperar a intenção de uma mensagem anterior quando a
+    // Tenta recuperar a intenção de uma mensagem anterior quando a
     // mensagem atual, sozinha, já tem um período válido (ex. "sim este
-    // mês") — nunca quando a mensagem atual não dá nenhum sinal.
-    if (intentResolution.kind === 'UNSUPPORTED' && currentPeriodResolution.kind === 'RESOLVED') {
+    // mês", Fase 8.3) OU quando sinaliza explicitamente uma continuação
+    // (ex. "E só da Hetzner?", Fase 8.4 — nem intenção nem período
+    // próprios, mas depende inteiramente do histórico). Nunca quando a
+    // mensagem atual não dá nenhum sinal.
+    if (intentResolution.kind === 'UNSUPPORTED' && (currentPeriodResolution.kind === 'RESOLVED' || isContinuation)) {
       const recoveredIntent = this.recoverIntent(recentUserMessages);
       if (recoveredIntent) {
         intentResolution = recoveredIntent;
@@ -79,33 +121,45 @@ export class FinancialRetrievalService {
       }
     }
 
-    return this.resolveDataForPeriod(organizationId, intentResolution.intent, periodResolution);
+    const filters = await this.resolveFilters(organizationId, message, intentResolution, recentUserMessages, isContinuation);
+    if (filters === 'AMBIGUOUS') {
+      return { kind: 'ENTITY_AMBIGUOUS' };
+    }
+
+    return this.resolveDataForPeriod(organizationId, intentResolution.intent, periodResolution, filters);
   }
 
   /**
-   * Variante usada pelas AI Tools (Fase 8.3) — a intenção já é conhecida
-   * (qual tool foi chamada), só o período vem em texto livre (o
-   * argumento estruturado da tool, ex. `{ period: "este mês" }`).
+   * Variante usada pelas AI Tools (Fase 8.3, filtros opcionais na Fase
+   * 8.4) — a intenção já é conhecida (qual tool foi chamada), o período
+   * e os filtros vêm em texto livre (argumentos estruturados da tool,
+   * ex. `{ period: "este mês", status: "PAID", supplierName: "Hetzner" }`).
    * Reutiliza exatamente o mesmo resolvedor de período e o mesmo
    * `DashboardService`/`selectData()` do caminho principal — nunca uma
    * segunda fonte de verdade. Nunca recupera por histórico (a tool já
-   * recebeu o período que o modelo decidiu passar; recuperação por
+   * recebeu os argumentos que o modelo decidiu passar; recuperação por
    * histórico é só para o caminho de regex sem tools).
    */
   async retrieveForIntent(
     organizationId: string,
     intent: FinancialIntentType,
     periodText: string,
+    rawFilters: { status?: InvoiceStatus; supplierName?: string; categoryName?: string } = {},
     now: Date = new Date(),
   ): Promise<FinancialRetrievalResult> {
     const periodResolution = resolveFinancialPeriod(periodText, now);
-    return this.resolveDataForPeriod(organizationId, intent, periodResolution);
+    const filters = await this.resolveNamedFilters(organizationId, rawFilters);
+    if (filters === 'AMBIGUOUS') {
+      return { kind: 'ENTITY_AMBIGUOUS' };
+    }
+    return this.resolveDataForPeriod(organizationId, intent, periodResolution, filters);
   }
 
   private async resolveDataForPeriod(
     organizationId: string,
     intent: FinancialIntentType,
     periodResolution: FinancialPeriodResolution,
+    filters: ResolvedFinancialFilters,
   ): Promise<FinancialRetrievalResult> {
     if (periodResolution.kind === 'MISSING') {
       return { kind: 'PERIOD_MISSING' };
@@ -114,21 +168,30 @@ export class FinancialRetrievalService {
       return { kind: 'PERIOD_AMBIGUOUS' };
     }
 
-    let summary: FinancialDashboardSummary;
+    const dashboardQuery = {
+      from: periodResolution.period.from,
+      to: periodResolution.period.to,
+      status: filters.status,
+      supplierId: filters.supplierId,
+      categoryId: filters.categoryId,
+    };
+
     try {
-      summary = await this.dashboardService.getFinancialSummary(organizationId, {
-        from: periodResolution.period.from,
-        to: periodResolution.period.to,
-      });
+      if (intent === 'LARGEST_INVOICES') {
+        const { period, invoices } = await this.dashboardService.getLargestInvoices(organizationId, dashboardQuery);
+        return { kind: 'DATA', period, data: { intent, invoices }, filters };
+      }
+
+      const summary = await this.dashboardService.getFinancialSummary(organizationId, dashboardQuery);
+      return {
+        kind: 'DATA',
+        period: { from: summary.period.from, to: summary.period.to },
+        data: this.selectData(intent, summary),
+        filters,
+      };
     } catch {
       return { kind: 'ERROR' };
     }
-
-    return {
-      kind: 'DATA',
-      period: { from: summary.period.from, to: summary.period.to },
-      data: this.selectData(intent, summary),
-    };
   }
 
   /** Mensagem anterior mais recente (ordem: mais recente primeiro) cuja intenção resolve com sucesso — nunca a mais antiga. */
@@ -153,8 +216,143 @@ export class FinancialRetrievalService {
     return null;
   }
 
+  /**
+   * Resolve os filtros (Fase 8.4) da mensagem atual — `statusFilter` já
+   * vem da resolução de intenção (regex, sem I/O); fornecedor/categoria
+   * exigem uma consulta real (`FinancialEntityResolverService`). Só
+   * recupera do histórico quando a mensagem atual sinaliza uma
+   * continuação explícita — nunca por omissão.
+   */
+  private async resolveFilters(
+    organizationId: string,
+    message: string,
+    intentResolution: Extract<FinancialIntentResolution, { kind: 'SUPPORTED' }>,
+    recentUserMessages: string[],
+    hasContinuationSignal: boolean,
+  ): Promise<ResolvedFinancialFilters | 'AMBIGUOUS'> {
+    const filters: ResolvedFinancialFilters = {};
+    if (intentResolution.statusFilter) {
+      filters.status = intentResolution.statusFilter;
+    }
+
+    const [supplierMention, categoryMention] = await Promise.all([
+      this.entityResolver.resolveSupplierMention(organizationId, message),
+      this.entityResolver.resolveCategoryMention(organizationId, message),
+    ]);
+    if (supplierMention.kind === 'AMBIGUOUS' || categoryMention.kind === 'AMBIGUOUS') {
+      return 'AMBIGUOUS';
+    }
+    if (supplierMention.kind === 'RESOLVED') {
+      filters.supplierId = supplierMention.id;
+      filters.supplierName = supplierMention.name;
+    }
+    // Um fornecedor e uma categoria com o mesmo nome real (confirmado
+    // empiricamente: organizações reais podem ter ambos, ex. "Hetzner"
+    // como fornecedor e como categoria) nunca são combinados como dois
+    // filtros AND independentes a partir da mesma menção — isso
+    // restringiria silenciosamente a um subconjunto que o utilizador
+    // nunca pediu (faturas do fornecedor X *e também* da categoria X).
+    // O fornecedor prevalece — é a leitura mais provável de uma única
+    // menção nomeada, mesma prioridade já usada por
+    // `TOP_SUPPLIERS_PATTERN` sobre `BY_CATEGORY_PATTERN`.
+    if (
+      categoryMention.kind === 'RESOLVED' &&
+      !(supplierMention.kind === 'RESOLVED' && sameEntityName(supplierMention.name, categoryMention.name))
+    ) {
+      filters.categoryId = categoryMention.id;
+      filters.categoryName = categoryMention.name;
+    }
+
+    if (hasContinuationSignal) {
+      const recovered = await this.recoverFilters(organizationId, recentUserMessages);
+      // A mensagem atual, quando indica o seu próprio filtro numa
+      // dimensão, substitui sempre o herdado dessa mesma dimensão —
+      // nunca combina dois valores incompatíveis na mesma dimensão.
+      if (!filters.status && recovered.status) {
+        filters.status = recovered.status;
+      }
+      if (!filters.supplierId && recovered.supplierId) {
+        filters.supplierId = recovered.supplierId;
+        filters.supplierName = recovered.supplierName;
+      }
+      if (!filters.categoryId && recovered.categoryId) {
+        filters.categoryId = recovered.categoryId;
+        filters.categoryName = recovered.categoryName;
+      }
+    }
+
+    return filters;
+  }
+
+  /**
+   * Nomes de fornecedor/categoria vindos de uma tool (Fase 8.3/8.4) —
+   * texto livre decidido pelo modelo, nunca um id (o `organizationId`
+   * nunca é declarado nem lido dos argumentos da tool; nomes de
+   * entidade têm sempre de passar pela mesma resolução segura, nunca
+   * confiados diretamente).
+   */
+  private async resolveNamedFilters(
+    organizationId: string,
+    rawFilters: { status?: InvoiceStatus; supplierName?: string; categoryName?: string },
+  ): Promise<ResolvedFinancialFilters | 'AMBIGUOUS'> {
+    const filters: ResolvedFinancialFilters = { status: rawFilters.status };
+
+    if (rawFilters.supplierName) {
+      const resolution = await this.entityResolver.resolveSupplierMention(organizationId, rawFilters.supplierName);
+      if (resolution.kind === 'AMBIGUOUS') return 'AMBIGUOUS';
+      if (resolution.kind === 'RESOLVED') {
+        filters.supplierId = resolution.id;
+        filters.supplierName = resolution.name;
+      }
+    }
+    // Mesma regra de prioridade do caminho por regex — nunca combinar um
+    // fornecedor e uma categoria com o mesmo nome real como dois filtros
+    // AND independentes.
+    if (rawFilters.categoryName && !(filters.supplierName && sameEntityName(filters.supplierName, rawFilters.categoryName))) {
+      const resolution = await this.entityResolver.resolveCategoryMention(organizationId, rawFilters.categoryName);
+      if (resolution.kind === 'AMBIGUOUS') return 'AMBIGUOUS';
+      if (resolution.kind === 'RESOLVED') {
+        filters.categoryId = resolution.id;
+        filters.categoryName = resolution.name;
+      }
+    }
+
+    return filters;
+  }
+
+  /**
+   * Filtros de uma mensagem anterior (Fase 8.4) — para na primeira
+   * (mais recente) que resolve pelo menos um filtro, nunca combina
+   * filtros de mensagens diferentes (mantém o custo de I/O previsível:
+   * no máximo `recentUserMessages.length` pares de consultas, tipico
+   * 1 iteração numa continuação real). Documentado como limitação
+   * conhecida — ver `docs/phases/phase-8.4-*.md`.
+   */
+  private async recoverFilters(organizationId: string, recentUserMessages: string[]): Promise<ResolvedFinancialFilters> {
+    for (const pastMessage of recentUserMessages) {
+      const pastIntent = resolveFinancialIntent(pastMessage);
+      const status = pastIntent.kind === 'SUPPORTED' ? pastIntent.statusFilter : undefined;
+      const [supplierMention, categoryMention] = await Promise.all([
+        this.entityResolver.resolveSupplierMention(organizationId, pastMessage),
+        this.entityResolver.resolveCategoryMention(organizationId, pastMessage),
+      ]);
+      const supplier = supplierMention.kind === 'RESOLVED' ? supplierMention : undefined;
+      const category = categoryMention.kind === 'RESOLVED' ? categoryMention : undefined;
+      if (status || supplier || category) {
+        return {
+          status,
+          supplierId: supplier?.id,
+          supplierName: supplier?.name,
+          categoryId: category?.id,
+          categoryName: category?.name,
+        };
+      }
+    }
+    return {};
+  }
+
   /** Seleciona só o subconjunto de `summary` relevante para a intenção — nunca envia ao provider blocos que a pergunta não pediu. */
-  private selectData(intent: FinancialIntentType, summary: FinancialDashboardSummary): FinancialIntentData {
+  private selectData(intent: Exclude<FinancialIntentType, 'LARGEST_INVOICES'>, summary: FinancialDashboardSummary): FinancialIntentData {
     switch (intent) {
       case 'FINANCIAL_SUMMARY':
         return { intent, totals: summary.totals };

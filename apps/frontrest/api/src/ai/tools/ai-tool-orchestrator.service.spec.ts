@@ -9,6 +9,7 @@ const FILLED_DATA_RESULT: FinancialRetrievalResult = {
   kind: 'DATA',
   period: { from: '2026-07-01', to: '2026-07-31' },
   data: { intent: 'TOP_SUPPLIERS', topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '354.00' }] },
+  filters: {},
 };
 
 function toolCallResponse(name: string, args: unknown, id = 'call-1') {
@@ -44,7 +45,7 @@ describe('AiToolOrchestratorService', () => {
     await service.run('org-1', HISTORY);
 
     const request = complete.mock.calls[0][0];
-    expect(request.tools).toHaveLength(6);
+    expect(request.tools).toHaveLength(7);
     expect(request.tools.map((t: { name: string }) => t.name)).toEqual([
       'get_financial_summary',
       'get_outstanding_balance',
@@ -52,6 +53,7 @@ describe('AiToolOrchestratorService', () => {
       'get_expenses_by_category',
       'get_top_suppliers',
       'get_monthly_trend',
+      'get_largest_expenses',
     ]);
   });
 
@@ -101,7 +103,7 @@ describe('AiToolOrchestratorService', () => {
 
     const result = await service.run('org-1', HISTORY);
 
-    expect(retrieveForIntent).toHaveBeenCalledWith('org-1', 'TOP_SUPPLIERS', 'este mês');
+    expect(retrieveForIntent).toHaveBeenCalledWith('org-1', 'TOP_SUPPLIERS', 'este mês', { status: undefined, supplierName: undefined, categoryName: undefined });
     expect(result).toEqual({
       kind: 'ANSWERED',
       content: 'O fornecedor onde mais gastou foi a Hetzner.',
@@ -164,6 +166,7 @@ describe('AiToolOrchestratorService', () => {
     ['PERIOD_MISSING', { kind: 'PERIOD_MISSING' } satisfies FinancialRetrievalResult],
     ['ERROR', { kind: 'ERROR' } satisfies FinancialRetrievalResult],
     ['UNSUPPORTED', { kind: 'UNSUPPORTED' } satisfies FinancialRetrievalResult],
+    ['ENTITY_AMBIGUOUS', { kind: 'ENTITY_AMBIGUOUS' } satisfies FinancialRetrievalResult],
   ])(
     'tool call válida mas retrieveForIntent devolve %s (não-DATA): devolve NOT_ANSWERED de imediato, nunca faz a 2ª chamada ao provider',
     async (_label, nonDataResult) => {
@@ -177,6 +180,75 @@ describe('AiToolOrchestratorService', () => {
       expect(complete).toHaveBeenCalledTimes(1);
     },
   );
+
+  describe('Fase 8.4 — filtros opcionais (status/supplierName/categoryName)', () => {
+    it('encaminha status/supplierName/categoryName válidos para retrieveForIntent', async () => {
+      const complete = jest
+        .fn()
+        .mockResolvedValueOnce(toolCallResponse('get_financial_summary', { period: 'este mês', status: 'PAID', supplierName: 'Hetzner', categoryName: 'Hosting' }))
+        .mockResolvedValueOnce(textResponse('ok'));
+      const retrieveForIntent = jest.fn().mockResolvedValue(FILLED_DATA_RESULT);
+      const { service } = buildService(complete, retrieveForIntent);
+
+      await service.run('org-1', HISTORY);
+
+      expect(retrieveForIntent).toHaveBeenCalledWith('org-1', 'FINANCIAL_SUMMARY', 'este mês', {
+        status: 'PAID',
+        supplierName: 'Hetzner',
+        categoryName: 'Hosting',
+      });
+    });
+
+    it('um status fora do enum real (inventado pelo modelo) nunca é encaminhado — tratado como ausente', async () => {
+      const complete = jest
+        .fn()
+        .mockResolvedValueOnce(toolCallResponse('get_financial_summary', { period: 'este mês', status: 'INVENTED_STATUS' }))
+        .mockResolvedValueOnce(textResponse('ok'));
+      const retrieveForIntent = jest.fn().mockResolvedValue(FILLED_DATA_RESULT);
+      const { service } = buildService(complete, retrieveForIntent);
+
+      await service.run('org-1', HISTORY);
+
+      expect(retrieveForIntent).toHaveBeenCalledWith('org-1', 'FINANCIAL_SUMMARY', 'este mês', {
+        status: undefined,
+        supplierName: undefined,
+        categoryName: undefined,
+      });
+    });
+
+    it('ENTITY_AMBIGUOUS (nome de fornecedor ambíguo) devolve NOT_ANSWERED, nunca escolhe arbitrariamente', async () => {
+      const complete = jest.fn().mockResolvedValueOnce(toolCallResponse('get_financial_summary', { period: 'este mês', supplierName: 'H' }));
+      const retrieveForIntent = jest.fn().mockResolvedValue({ kind: 'ENTITY_AMBIGUOUS' } satisfies FinancialRetrievalResult);
+      const { service } = buildService(complete, retrieveForIntent);
+
+      const result = await service.run('org-1', HISTORY);
+
+      expect(result).toEqual({ kind: 'NOT_ANSWERED' });
+      expect(complete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('primeira chamada oferece a tool nova get_largest_expenses', async () => {
+    const complete = jest
+      .fn()
+      .mockResolvedValueOnce(toolCallResponse('get_largest_expenses', { period: 'este mês' }))
+      .mockResolvedValueOnce(textResponse('ok'));
+    const retrieveForIntent = jest.fn().mockResolvedValue({
+      kind: 'DATA',
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      data: { intent: 'LARGEST_INVOICES', invoices: [] },
+      filters: {},
+    } satisfies FinancialRetrievalResult);
+    const { service } = buildService(complete, retrieveForIntent);
+
+    await service.run('org-1', HISTORY);
+
+    expect(retrieveForIntent).toHaveBeenCalledWith('org-1', 'LARGEST_INVOICES', 'este mês', {
+      status: undefined,
+      supplierName: undefined,
+      categoryName: undefined,
+    });
+  });
 
   it('falha do provider na 1ª chamada devolve NOT_ANSWERED, nunca propaga a exceção', async () => {
     const complete = jest.fn().mockRejectedValue(new Error('falha de rede'));
@@ -230,6 +302,6 @@ describe('AiToolOrchestratorService', () => {
     await service.run('org-1', HISTORY);
 
     expect(retrieveForIntent).toHaveBeenCalledTimes(1);
-    expect(retrieveForIntent).toHaveBeenCalledWith('org-1', 'TOP_SUPPLIERS', 'este mês');
+    expect(retrieveForIntent).toHaveBeenCalledWith('org-1', 'TOP_SUPPLIERS', 'este mês', { status: undefined, supplierName: undefined, categoryName: undefined });
   });
 });

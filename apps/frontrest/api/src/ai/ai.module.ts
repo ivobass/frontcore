@@ -2,11 +2,14 @@ import { Module } from '@nestjs/common';
 import { createAiProvider, loadAiConfig } from '@frontcore/ai';
 import type { AiCompletionProvider } from '@frontcore/ai';
 import { DashboardModule } from '../dashboard/dashboard.module';
+import { SuppliersModule } from '../suppliers/suppliers.module';
+import { ExpenseCategoriesModule } from '../expense-categories/expense-categories.module';
 import { AiController } from './ai.controller';
 import { AiChatService } from './ai-chat.service';
 import { AiTenantContextService } from './ai-tenant-context.service';
 import { AI_COMPLETION_PROVIDER } from './ai-completion-provider.token';
 import { FinancialRetrievalService } from './financial-retrieval/financial-retrieval.service';
+import { FinancialEntityResolverService } from './financial-retrieval/entity-resolver.service';
 import { AiToolOrchestratorService } from './tools/ai-tool-orchestrator.service';
 
 /**
@@ -18,15 +21,19 @@ import { AiToolOrchestratorService } from './tools/ai-tool-orchestrator.service'
  * real hoje (`AiChatService`) e sem ciclo de vida a fechar no shutdown
  * (`OllamaAiProvider` usa `fetch` por pedido, sem ligação persistente —
  * ao contrário de `QueueProducer`, que por isso vive no seu próprio
- * `QueueModule` com `OnModuleDestroy`).
+ * `QueueModule` com `OnModuleDestroy`). `SuppliersModule`/`ExpenseCategoriesModule`
+ * (Fase 8.4) reutilizados só para `FinancialEntityResolverService`
+ * resolver nomes de fornecedor/categoria mencionados na mensagem —
+ * nunca uma segunda query Prisma duplicada.
  */
 @Module({
-  imports: [DashboardModule],
+  imports: [DashboardModule, SuppliersModule, ExpenseCategoriesModule],
   controllers: [AiController],
   providers: [
     AiChatService,
     AiTenantContextService,
     FinancialRetrievalService,
+    FinancialEntityResolverService,
     AiToolOrchestratorService,
     {
       provide: AI_COMPLETION_PROVIDER,

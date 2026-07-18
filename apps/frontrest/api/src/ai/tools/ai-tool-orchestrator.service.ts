@@ -1,18 +1,30 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { AiCompletionProvider, AiCompletionResponse, AiMessage } from '@frontcore/ai';
+import type { InvoiceStatus } from '@frontcore/database';
 import { AI_COMPLETION_PROVIDER } from '../ai-completion-provider.token';
 import { FinancialRetrievalService } from '../financial-retrieval/financial-retrieval.service';
 import { buildFinancialContextMessage } from '../financial-retrieval/financial-context.builder';
 import { FINANCIAL_TOOL_DEFINITIONS, TOOL_NAME_TO_INTENT } from './financial-tool.registry';
 
+const VALID_STATUSES = new Set<string>(['PENDING', 'PAID', 'OVERDUE', 'CANCELLED']);
+
+interface ParsedToolArguments {
+  period?: unknown;
+  status?: unknown;
+  supplierName?: unknown;
+  categoryName?: unknown;
+}
+
 /**
  * Regras fixas da tentativa assistida por tools — nunca dependem de
  * dados de nenhuma organização (mesma disciplina de `ASSISTANT_RULES`
  * em `ai-tenant-context.service.ts`). Só usada quando o retrieval
- * determinístico (Fase 8.1, reforçado na Fase 8.3) já não conseguiu
- * resolver a pergunta sozinho — a tool, quando chamada, devolve sempre
- * dados reais e já calculados (`FinancialRetrievalService.retrieveForIntent()`),
- * nunca um espaço para o modelo inventar.
+ * determinístico (Fase 8.1, reforçado nas Fases 8.3/8.4) já não
+ * conseguiu resolver a pergunta sozinho — a tool, quando chamada,
+ * devolve sempre dados reais e já calculados
+ * (`FinancialRetrievalService.retrieveForIntent()`, com os mesmos
+ * filtros fechados de estado/fornecedor/categoria da Fase 8.4), nunca
+ * um espaço para o modelo inventar.
  */
 const TOOL_ATTEMPT_RULES = `És o assistente financeiro do FrontRest, a responder a um utilizador autenticado de uma organização específica.
 
@@ -94,8 +106,17 @@ export class AiToolOrchestratorService {
     // organizationId vem sempre do chamador autenticado — nunca de
     // `args`, mesmo que o modelo tente incluir um campo semelhante (o
     // schema da tool nunca declara esse parâmetro, e mesmo que
-    // estivesse presente aqui, seria ignorado).
-    const retrievalResult = await this.financialRetrieval.retrieveForIntent(organizationId, intent, args.period);
+    // estivesse presente aqui, seria ignorado). Filtros opcionais (Fase
+    // 8.4) — `status` só aceite se corresponder exatamente a um dos 4
+    // estados reais, nunca uma string arbitrária do modelo; nomes de
+    // fornecedor/categoria são sempre resolvidos de forma segura dentro
+    // de `retrieveForIntent()` (nunca confiados como um id).
+    const rawFilters = {
+      status: this.parseStatusArgument(args.status),
+      supplierName: typeof args.supplierName === 'string' ? args.supplierName : undefined,
+      categoryName: typeof args.categoryName === 'string' ? args.categoryName : undefined,
+    };
+    const retrievalResult = await this.financialRetrieval.retrieveForIntent(organizationId, intent, args.period, rawFilters);
     if (retrievalResult.kind !== 'DATA') {
       // Nunca converter um resultado não-DATA numa mensagem `tool` para
       // depois confiar na resposta textual do modelo — a 2ª chamada ao
@@ -132,11 +153,15 @@ export class AiToolOrchestratorService {
     };
   }
 
-  private parseToolArguments(raw: string): { period?: unknown } | null {
+  private parseToolArguments(raw: string): ParsedToolArguments | null {
     try {
-      return JSON.parse(raw) as { period?: unknown };
+      return JSON.parse(raw) as ParsedToolArguments;
     } catch {
       return null;
     }
+  }
+
+  private parseStatusArgument(value: unknown): InvoiceStatus | undefined {
+    return typeof value === 'string' && VALID_STATUSES.has(value) ? (value as InvoiceStatus) : undefined;
   }
 }

@@ -29,15 +29,36 @@ Regras obrigatórias:
 - Usa sempre os nomes traduzidos dos estados das faturas (Pendente, Paga, Vencida, Cancelada) — nunca os nomes internos em inglês (PENDING, PAID, OVERDUE, CANCELLED).`;
 
 /**
- * Contexto financeiro por tenant (Fase 8, redesenhado nas Fases 8.1 e
- * 8.3) — pequeno, read-only. Desde a Fase 8.3, só é chamado quando
- * `AiChatService` já confirmou um resultado `DATA` do retrieval
- * financeiro (`FinancialRetrievalService`) — os outros 4 resultados
- * (`UNSUPPORTED`/`PERIOD_MISSING`/`PERIOD_AMBIGUOUS`/`ERROR`) nunca
- * chegam aqui nem ao provider, ver `AiChatService.sendMessage()` e
- * `buildDeterministicReply()`. Esta classe fica só a compor as regras
- * fixas com o bloco de dados já resolvido — sem I/O, sem depender de
- * `FinancialRetrievalService`.
+ * Regras do caminho geral (Fase 8.4) — separado e mínimo, nunca o
+ * mesmo texto de `ASSISTANT_RULES` (que pressupõe sempre um bloco de
+ * dados financeiros da organização, inexistente aqui por desenho). Só
+ * usado quando o router (`classifyMessageRelevance()`) classifica a
+ * mensagem como `GENERAL` — sem tools financeiras, sem dados da
+ * organização, sem a garantia "nunca confiar sem `DATA`" (que só se
+ * aplica a alegações sobre dados financeiros, nunca a uma resposta
+ * geral que não faz nenhuma alegação desse tipo).
+ */
+const GENERAL_ASSISTANT_RULES = `És o assistente do FrontRest, a responder a um utilizador autenticado.
+
+Regras obrigatórias:
+- Esta pergunta não é sobre dados financeiros da organização — responde de forma geral e útil, nunca inventando nem mencionando faturas, fornecedores, categorias, valores ou qualquer outro dado da organização.
+- Nunca finjas executar, aprovar, alterar ou registar qualquer ação.
+- Responde sempre em português de Portugal, nunca em português do Brasil — nunca uses "você".`;
+
+/**
+ * Contexto por tenant (Fase 8, redesenhado nas Fases 8.1/8.3, com
+ * caminho geral separado na Fase 8.4) — pequeno, read-only.
+ * `buildSystemMessage()` só é chamado quando `AiChatService` já
+ * confirmou um resultado `DATA` do retrieval financeiro
+ * (`FinancialRetrievalService`) — os outros resultados
+ * (`UNSUPPORTED`/`PERIOD_MISSING`/`PERIOD_AMBIGUOUS`/`ENTITY_AMBIGUOUS`/`ERROR`)
+ * nunca chegam aqui nem ao provider por esta via, ver
+ * `AiChatService.sendMessage()` e `buildDeterministicReply()`.
+ * `buildGeneralSystemMessage()` (Fase 8.4) é o único outro caminho que
+ * confia numa resposta do provider — para mensagens sem nenhuma
+ * relação financeira, nunca com dados nem tools da organização. Esta
+ * classe fica só a compor texto — sem I/O, sem depender de
+ * `FinancialRetrievalService` para o caminho geral.
  */
 @Injectable()
 export class AiTenantContextService {
@@ -48,5 +69,10 @@ export class AiTenantContextService {
       role: 'system',
       content: `${ASSISTANT_RULES}\n\n${dataSection}`,
     };
+  }
+
+  /** Mensagem `system` mínima do caminho geral (Fase 8.4) — só chamada quando o router classifica a mensagem como `GENERAL`. */
+  buildGeneralSystemMessage(): AiMessage {
+    return { role: 'system', content: GENERAL_ASSISTANT_RULES };
   }
 }
