@@ -327,6 +327,17 @@ model AiConversation {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  /// Snapshot versionado (Fase 8.7) da última intenção/período/filtros
+  /// financeiros resolvidos com sucesso nesta conversa —
+  /// `FinancialConversationContextV1` (`ai/financial-retrieval/financial-conversation-context.ts`).
+  /// `null` até à primeira resolução `DATA` (conversa nova, ou anterior a
+  /// esta fase). Nunca lido nem escrito por outra conversa, organização
+  /// ou utilizador — mesma coluna, mesma linha, mesmo isolamento já
+  /// garantido pelas queries desta tabela (`organizationId`+`userId`+`id`,
+  /// ver `AiChatService.findOwnedConversation()`); esta fase não introduz
+  /// nenhum mecanismo de isolamento novo.
+  financialContext Json?
+
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages     AiMessage[]

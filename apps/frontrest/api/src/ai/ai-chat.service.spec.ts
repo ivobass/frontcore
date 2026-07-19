@@ -223,7 +223,8 @@ describe('AiChatService', () => {
       await service.sendMessage('org-42', 'user-1', { message: 'Quanto gastei este mês?' });
 
       // A mensagem atual (última do histórico cronológico) é sempre excluída — só sobra "pergunta anterior", a única USER anterior.
-      expect(financialRetrieval.retrieve).toHaveBeenCalledWith('org-42', 'Quanto gastei este mês?', ['pergunta anterior']);
+      // Fase 8.7 — quinto argumento é o snapshot financeiro persistido; `null` aqui porque o mock de `aiConversation.create()` não define `financialContext`.
+      expect(financialRetrieval.retrieve).toHaveBeenCalledWith('org-42', 'Quanto gastei este mês?', ['pergunta anterior'], undefined, null);
     });
 
     it('DATA: constrói o system message a partir do resultado já resolvido, nunca chamando o retrieval outra vez', async () => {
@@ -297,6 +298,12 @@ describe('AiChatService', () => {
         model: 'qwen3:4b',
         inputTokens: 120,
         outputTokens: 30,
+        retrievalResult: {
+          kind: 'DATA',
+          period: { from: '2026-07-01', to: '2026-07-31' },
+          data: { intent: 'TOP_SUPPLIERS', topSuppliers: [] },
+          filters: {},
+        },
       };
       const { service, prisma, provider } = buildService({
         retrievalResult: { kind: 'PERIOD_AMBIGUOUS' },
@@ -342,6 +349,177 @@ describe('AiChatService', () => {
         ([arg]: [{ data: { role: string } }]) => arg.data.role === 'ASSISTANT',
       );
       expect(assistantCall[0].data).toMatchObject({ provider: 'deterministic', model: 'financial-retrieval-fallback' });
+    });
+  });
+
+  describe('Fase 8.7 — contexto financeiro conversacional (snapshot persistido)', () => {
+    const dataResult: FinancialRetrievalResult = {
+      kind: 'DATA',
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' } },
+      filters: { status: 'PENDING' },
+    };
+
+    function findConversationUpdate(prisma: MockPrismaService) {
+      return (prisma.aiConversation.update as jest.Mock).mock.calls.find(([arg]) => arg.where.id === 'conv-1');
+    }
+
+    it('DATA: persiste o snapshot financeiro na mesma transação da mensagem ASSISTANT', async () => {
+      const { service, prisma, provider } = buildService({ retrievalResult: dataResult });
+      prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1', financialContext: null });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({ content: 'resposta', provider: 'mock', model: 'mock-echo-1' });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'resposta', createdAt: new Date() });
+
+      await service.sendMessage('org-1', 'user-1', { message: 'Quanto gastei este mês?' });
+
+      const updateCall = findConversationUpdate(prisma);
+      expect(updateCall[0].data.financialContext).toMatchObject({
+        version: 1,
+        intent: 'FINANCIAL_SUMMARY',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        filters: { status: 'PENDING' },
+      });
+    });
+
+    it('conversa existente com snapshot persistido: é lido, passado ao retrieval, e conta como contexto financeiro para o router', async () => {
+      const previousSnapshot = {
+        version: 1,
+        intent: 'FINANCIAL_SUMMARY',
+        period: { from: '2026-06-01', to: '2026-06-30' },
+        filters: {},
+        recordedAt: '2026-07-16T10:00:00.000Z',
+      };
+      const { service, prisma, provider, financialRetrieval } = buildService({ retrievalResult: dataResult });
+      prisma.aiConversation.findFirst.mockResolvedValue({
+        id: 'conv-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+        financialContext: previousSnapshot,
+      });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({ content: 'resposta', provider: 'mock', model: 'mock-echo-1' });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'resposta', createdAt: new Date() });
+
+      await service.sendMessage('org-1', 'user-1', { message: 'E os fornecedores?', conversationId: 'conv-1' });
+
+      expect(financialRetrieval.retrieve).toHaveBeenCalledWith(
+        'org-1',
+        'E os fornecedores?',
+        [],
+        undefined,
+        previousSnapshot,
+      );
+    });
+
+    it('um financialContext corrompido/de forma desconhecida é tratado como null (nunca lança, nunca confia num valor malformado)', async () => {
+      const { service, prisma, provider, financialRetrieval } = buildService({ retrievalResult: dataResult });
+      prisma.aiConversation.findFirst.mockResolvedValue({
+        id: 'conv-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+        financialContext: { forma: 'desconhecida' },
+      });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({ content: 'resposta', provider: 'mock', model: 'mock-echo-1' });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'resposta', createdAt: new Date() });
+
+      await service.sendMessage('org-1', 'user-1', { message: 'Quanto gastei?', conversationId: 'conv-1' });
+
+      expect(financialRetrieval.retrieve).toHaveBeenCalledWith('org-1', 'Quanto gastei?', [], undefined, null);
+    });
+
+    it('UNSUPPORTED + fallback determinístico (sem DATA): nunca escreve financialContext — o último snapshot bem-sucedido permanece', async () => {
+      const { service, prisma } = buildService({ retrievalResult: { kind: 'UNSUPPORTED' } });
+      prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1', financialContext: null });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: 'msg-2', createdAt: new Date(), ...data }),
+      );
+
+      await service.sendMessage('org-1', 'user-1', { message: 'Como está a situação financeira geral?' });
+
+      const updateCall = findConversationUpdate(prisma);
+      expect(updateCall[0].data.financialContext).toBeUndefined();
+    });
+
+    it('GENERAL: nunca escreve financialContext', async () => {
+      const { service, prisma, provider } = buildService();
+      prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1', financialContext: null });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({ content: 'Lisboa.', provider: 'mock', model: 'mock-echo-1' });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'Lisboa.', createdAt: new Date() });
+
+      await service.sendMessage('org-1', 'user-1', { message: 'Qual é a capital de Portugal?' });
+
+      const updateCall = findConversationUpdate(prisma);
+      expect(updateCall[0].data.financialContext).toBeUndefined();
+    });
+
+    it('tool calling (ANSWERED): persiste o snapshot a partir do retrievalResult exposto pelo orquestrador, não do resultado UNSUPPORTED original', async () => {
+      const toolAnsweredWithData: AiToolOrchestratorResult = {
+        kind: 'ANSWERED',
+        content: 'O fornecedor onde mais gastou foi a Hetzner.',
+        provider: 'ollama',
+        model: 'qwen3:4b',
+        retrievalResult: {
+          kind: 'DATA',
+          period: { from: '2026-07-01', to: '2026-07-31' },
+          data: { intent: 'TOP_SUPPLIERS', topSuppliers: [] },
+          filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
+        },
+      };
+      const { service, prisma } = buildService({
+        retrievalResult: { kind: 'UNSUPPORTED' },
+        toolResult: toolAnsweredWithData,
+      });
+      prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1', financialContext: null });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: 'msg-2', createdAt: new Date(), ...data }),
+      );
+
+      await service.sendMessage('org-1', 'user-1', { message: 'Onde gasto mais?' });
+
+      const updateCall = findConversationUpdate(prisma);
+      expect(updateCall[0].data.financialContext).toMatchObject({
+        version: 1,
+        intent: 'TOP_SUPPLIERS',
+        filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
+      });
+    });
+
+    it('isolamento: duas conversas diferentes do mesmo utilizador nunca partilham o snapshot lido — cada uma lê só o seu próprio financialContext', async () => {
+      const conversationASnapshot = {
+        version: 1,
+        intent: 'TOP_SUPPLIERS',
+        period: { from: '2026-05-01', to: '2026-05-31' },
+        filters: { supplierId: 'sup-A' },
+        recordedAt: '2026-07-01T00:00:00.000Z',
+      };
+      const { service, prisma, provider, financialRetrieval } = buildService({ retrievalResult: dataResult });
+      prisma.aiConversation.findFirst.mockImplementation(({ where }: { where: { id: string } }) =>
+        Promise.resolve(
+          where.id === 'conv-A'
+            ? { id: 'conv-A', organizationId: 'org-1', userId: 'user-1', financialContext: conversationASnapshot }
+            : { id: 'conv-B', organizationId: 'org-1', userId: 'user-1', financialContext: null },
+        ),
+      );
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({ content: 'resposta', provider: 'mock', model: 'mock-echo-1' });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'resposta', createdAt: new Date() });
+
+      await service.sendMessage('org-1', 'user-1', { message: 'E os fornecedores?', conversationId: 'conv-B' });
+
+      // conv-B nunca vê o snapshot de conv-A, mesmo do mesmo utilizador/organização.
+      expect(financialRetrieval.retrieve).toHaveBeenLastCalledWith('org-1', 'E os fornecedores?', [], undefined, null);
     });
   });
 

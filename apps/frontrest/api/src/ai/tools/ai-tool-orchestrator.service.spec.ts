@@ -111,7 +111,24 @@ describe('AiToolOrchestratorService', () => {
       model: 'qwen3:4b',
       inputTokens: 100,
       outputTokens: 20,
+      retrievalResult: FILLED_DATA_RESULT,
     });
+  });
+
+  it('Fase 8.7 — ANSWERED expõe o retrievalResult real (DATA) usado, para AiChatService poder persistir o snapshot de contexto conversacional', async () => {
+    const complete = jest
+      .fn()
+      .mockResolvedValueOnce(toolCallResponse('get_top_suppliers', { period: 'este mês' }))
+      .mockResolvedValueOnce(textResponse('ok'));
+    const retrieveForIntent = jest.fn().mockResolvedValue(FILLED_DATA_RESULT);
+    const { service } = buildService(complete, retrieveForIntent);
+
+    const result = await service.run('org-1', HISTORY);
+
+    expect(result.kind).toBe('ANSWERED');
+    if (result.kind === 'ANSWERED') {
+      expect(result.retrievalResult).toBe(FILLED_DATA_RESULT);
+    }
   });
 
   it('a 2ª chamada nunca volta a oferecer tools — nunca uma segunda tool call', async () => {

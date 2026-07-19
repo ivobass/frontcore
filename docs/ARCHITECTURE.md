@@ -665,6 +665,61 @@ Validado com dados reais via `POST /api/ai/chat` (Docker, OpenRouter,
 autorizado explicitamente) — ver
 `docs/phases/phase-8.6-financial-period-comparison-foundation.md`.
 
+### Contexto financeiro conversacional versionado (Fase 8.7)
+
+Até à Fase 8.6, a recuperação de intenção/período/filtros de mensagens
+anteriores (Fases 8.3/8.4) dependia inteiramente de reanalisar texto
+livre da janela finita `recentUserMessages` — sem nenhum estado
+estruturado persistido entre mensagens. A Fase 8.7 acrescenta
+`AiConversation.financialContext` (`Json?`, nova migration) — um
+snapshot versionado (`FinancialConversationContextV1`,
+`financial-conversation-context.ts`) da última intenção/período/
+filtros resolvidos com sucesso (`kind: 'DATA'`), construído sempre a
+partir de dados estruturados reais, nunca de texto livre do modelo.
+
+`FinancialRetrievalService.retrieve()` ganhou o parâmetro opcional
+`previousContext` (último parâmetro, nunca quebra chamadas existentes)
+— quando presente, é sempre a fonte de recuperação preferida para
+intenção, período (via `resolvePeriod()`, Fase 7, reconstruindo
+`gte`/`lt` a partir de `from`/`to`) e filtros numa continuação
+(`hasContinuationSignal()`, Fase 8.4); quando ausente (`null`, conversa
+sem snapshot ainda), o comportamento é exatamente o de antes desta fase
+— `recoverIntent()`/`recoverPeriod()`/`recoverFilters()` inalterados,
+mantidos como fallback. A vantagem prática: o snapshot reflete a última
+resolução `DATA` da conversa inteira, nunca só a janela de histórico
+carregada — uma continuação recupera com sucesso mesmo depois de a
+mensagem original sair dessa janela (confirmado por teste e2e com
+`AI_CHAT_HISTORY_LIMIT=1`). `resolvePeriodComparison()` (Fase 8.6)
+nunca lê `previousContext` — a decisão dessa fase de nunca recuperar
+por histórico permanece intocada.
+
+`classifyMessageRelevance()` (router híbrido, Fase 8.4) ganhou
+`hasFinancialContext` (opcional, por omissão `false`) — uma continuação
+sem vocabulário financeiro-adjacente na janela de histórico conta
+também como `FINANCIAL` quando a conversa tem um snapshot persistido.
+`AiToolOrchestratorService.run()` — o resultado `ANSWERED` ganhou
+`retrievalResult` (o resultado `DATA` real por trás da resposta da
+tool), para `AiChatService` poder construir o snapshot também quando a
+resposta veio de tool calling, não só do caminho determinístico
+principal.
+
+`AiChatService.sendMessage()` lê `conversation.financialContext`
+(`parseFinancialConversationContext()` — defensivo, nunca lança, nunca
+confia numa forma desconhecida ou de uma versão diferente de `1`) logo
+após resolver/criar a conversa, e persiste o snapshot reconstruído
+(`buildFinancialConversationContext()`) na mesma transação Prisma da
+mensagem `ASSISTANT`, sempre que o retrieval OU o tool calling produzem
+um `DATA` real. Qualquer outro resultado (incluindo o caminho
+`GENERAL`) nunca escreve a coluna — o último snapshot bem-sucedido
+permanece válido para a mensagem seguinte. Isolamento por organização,
+utilizador e conversa é sempre o já garantido por
+`findOwnedConversation()` — a coluna vive na mesma linha, sem mecanismo
+novo. Ver
+`docs/phases/phase-8.7-financial-conversation-context-foundation.md`,
+que regista também uma nota factual: o commit histórico `58eb497`
+(tag `v0.8.7-...`) alterou só documentação do AI Framework, nunca esta
+implementação.
+
 ## Relatórios financeiros mensais
 
 Desde a Fase 9, `apps/frontrest/api/src/reports/` (`ReportsModule`,

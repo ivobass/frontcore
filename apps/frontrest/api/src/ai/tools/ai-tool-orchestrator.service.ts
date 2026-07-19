@@ -3,6 +3,7 @@ import type { AiCompletionProvider, AiCompletionResponse, AiMessage } from '@fro
 import type { InvoiceStatus } from '@frontcore/database';
 import { AI_COMPLETION_PROVIDER } from '../ai-completion-provider.token';
 import { FinancialRetrievalService } from '../financial-retrieval/financial-retrieval.service';
+import type { FinancialRetrievalResult } from '../financial-retrieval/financial-retrieval.service';
 import { buildFinancialContextMessage } from '../financial-retrieval/financial-context.builder';
 import { FINANCIAL_TOOL_DEFINITIONS, TOOL_NAME_TO_INTENT } from './financial-tool.registry';
 
@@ -45,6 +46,8 @@ export type AiToolOrchestratorResult =
       model: string;
       inputTokens?: number;
       outputTokens?: number;
+      /** Fase 8.7 — o resultado `DATA` real por trás desta resposta, para `AiChatService` persistir o snapshot de contexto conversacional (`buildFinancialConversationContext()`) mesmo quando a resposta veio de uma tool, não do retrieval determinístico principal. */
+      retrievalResult: Extract<FinancialRetrievalResult, { kind: 'DATA' }>;
     }
   | { kind: 'NOT_ANSWERED' };
 
@@ -150,6 +153,7 @@ export class AiToolOrchestratorService {
       model: finalResponse.model,
       inputTokens: finalResponse.usage?.inputTokens,
       outputTokens: finalResponse.usage?.outputTokens,
+      retrievalResult,
     };
   }
 

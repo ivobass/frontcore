@@ -351,6 +351,31 @@
   fase futura); validado com dados reais via `POST /api/ai/chat`
   (Docker, OpenRouter, autorizado explicitamente)
   (`docs/phases/phase-8.6-financial-period-comparison-foundation.md`).
+- **Fase 8.7 — Financial Conversation Context Foundation**: contexto
+  financeiro versionado (`FinancialConversationContextV1`) persistido
+  em `AiConversation.financialContext` (`Json?`, nova migration
+  Prisma) — snapshot da última intenção/período/filtros resolvidos com
+  sucesso, construído só a partir de resultados `DATA` reais, nunca de
+  texto livre do modelo. Substitui a reanálise de texto do histórico
+  recente (Fases 8.3/8.4) como fonte de recuperação preferida em
+  `FinancialRetrievalService.retrieve()`, `classifyMessageRelevance()`
+  (router híbrido, Fase 8.4) e `AiToolOrchestratorService` (exposição
+  do `retrievalResult` real por trás de uma resposta de tool) — a
+  reanálise de texto permanece como fallback para conversas sem
+  snapshot ainda, comportamento idêntico ao anterior a esta fase.
+  `resolvePeriodComparison()` (Fase 8.6) permanece inalterado, nunca
+  recupera por histórico nem por snapshot. Isolamento por organização/
+  utilizador/conversa herdado do já garantido por
+  `findOwnedConversation()`, sem mecanismo novo — confirmado por testes
+  unitários e e2e dedicados, incluindo recuperação comprovada além da
+  janela de histórico carregada (`AI_CHAT_HISTORY_LIMIT=1`). Nota
+  factual registada nesta fase: o commit histórico `58eb497` (tag
+  `v0.8.7-...`) continha só alterações ao AI Framework
+  (`docs/ai/`), nunca esta implementação funcional. Sem migração entre
+  versões do snapshot, sem alteração à comparação de períodos, sem
+  tool nova, sem alteração ao frontend; validação manual real via
+  Docker/OpenRouter não foi executada nesta fase (pendente)
+  (`docs/phases/phase-8.7-financial-conversation-context-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify. Inclui a criação do
   documento dedicado de entrega de infraestrutura ao responsável pela

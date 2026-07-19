@@ -82,4 +82,30 @@ describe('classifyMessageRelevance', () => {
     expect(classifyMessageRelevance('Compara janeiro com fevereiro.', [])).toBe('FINANCIAL');
     expect(classifyMessageRelevance('Este mês versus o mês passado.', [])).toBe('FINANCIAL');
   });
+
+  describe('Fase 8.7 — hasFinancialContext (snapshot financeiro persistido)', () => {
+    it('uma continuação é FINANCIAL quando hasFinancialContext é true, mesmo sem nenhum histórico financeiro-adjacente na janela recente', () => {
+      const result = classifyMessageRelevance('E os fornecedores?', ['Olá', 'Bom dia'], true);
+
+      expect(result).toBe('FINANCIAL');
+    });
+
+    it('sem sinal de continuação, hasFinancialContext=true nunca força FINANCIAL sozinho — a mensagem continua sem nenhum sinal próprio', () => {
+      const result = classifyMessageRelevance('Qual é a capital de Portugal?', [], true);
+
+      expect(result).toBe('GENERAL');
+    });
+
+    it('omitido (comportamento por omissão, chamadas existentes), continua idêntico ao comportamento anterior a esta fase', () => {
+      const result = classifyMessageRelevance('E depois disso?', ['Qual é a capital de Portugal?']);
+
+      expect(result).toBe('GENERAL');
+    });
+
+    it('hasFinancialContext=false explícito é equivalente a omitido — nunca força FINANCIAL', () => {
+      const result = classifyMessageRelevance('E depois disso?', ['Qual é a capital de Portugal?'], false);
+
+      expect(result).toBe('GENERAL');
+    });
+  });
 });

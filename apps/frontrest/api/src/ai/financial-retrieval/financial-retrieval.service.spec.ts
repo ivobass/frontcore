@@ -2,6 +2,7 @@ import { FinancialRetrievalService } from './financial-retrieval.service';
 import type { DashboardService } from '../../dashboard/dashboard.service';
 import type { FinancialDashboardSummary, LargestInvoice } from '../../dashboard/dashboard.service';
 import type { FinancialEntityResolverService, EntityMentionResolution } from './entity-resolver.service';
+import type { FinancialConversationContextV1 } from './financial-conversation-context';
 
 const NOW = new Date('2026-07-16T12:00:00Z');
 
@@ -809,6 +810,87 @@ describe('FinancialRetrievalService', () => {
       const result = await service.retrieve('org-1', 'Compara maio com junho.', [], NOW);
 
       expect(result).toEqual({ kind: 'ERROR' });
+    });
+  });
+
+  describe('Fase 8.7 — recuperação via snapshot persistido (previousContext)', () => {
+    const SNAPSHOT: FinancialConversationContextV1 = {
+      version: 1,
+      intent: 'FINANCIAL_SUMMARY',
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      filters: { status: 'PENDING', supplierId: 'sup-1', supplierName: 'Hetzner' },
+      recordedAt: '2026-07-16T10:00:00.000Z',
+    };
+
+    it('uma continuação sem intenção nem período próprios recupera ambos do snapshot, mesmo com recentUserMessages vazio (fora da janela de histórico)', async () => {
+      const getFinancialSummary = jest.fn().mockResolvedValue(FILLED_SUMMARY);
+      const { service } = buildService(getFinancialSummary);
+
+      const result = await service.retrieve('org-1', 'E os fornecedores?', [], NOW, SNAPSHOT);
+
+      expect(result.kind).toBe('DATA');
+      expect(getFinancialSummary).toHaveBeenCalledWith(
+        'org-1',
+        expect.objectContaining({ from: '2026-07-01', to: '2026-07-31' }),
+      );
+    });
+
+    it('os filtros herdados vêm do snapshot, nunca de recoverFilters() (texto), quando previousContext existe', async () => {
+      const getFinancialSummary = jest.fn().mockResolvedValue(FILLED_SUMMARY);
+      const resolveSupplierMention = jest.fn().mockResolvedValue(NONE);
+      const { service } = buildService(getFinancialSummary, { resolveSupplierMention });
+
+      const result = await service.retrieve('org-1', 'Mostra só as vencidas.', [], NOW, SNAPSHOT);
+
+      expect(result.kind).toBe('DATA');
+      if (result.kind === 'DATA') {
+        // "vencidas" resolve o seu próprio estado (OVERDUE) na mensagem
+        // atual — substitui sempre o herdado (PENDING) nessa dimensão,
+        // mas o fornecedor herdado do snapshot mantém-se.
+        expect(result.filters.status).toBe('OVERDUE');
+        expect(result.filters.supplierId).toBe('sup-1');
+      }
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', expect.objectContaining({ supplierId: 'sup-1', status: 'OVERDUE' }));
+    });
+
+    it('sem sinal de continuação, o snapshot nunca é consultado para filtros (mesma disciplina da Fase 8.4)', async () => {
+      const getFinancialSummary = jest.fn().mockResolvedValue(FILLED_SUMMARY);
+      const { service } = buildService(getFinancialSummary);
+
+      const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW, SNAPSHOT);
+
+      expect(result.kind).toBe('DATA');
+      if (result.kind === 'DATA') {
+        expect(result.filters.supplierId).toBeUndefined();
+      }
+    });
+
+    it('sem previousContext (null), continua a recuperar por texto do histórico — comportamento anterior a esta fase preservado', async () => {
+      const getFinancialSummary = jest.fn().mockResolvedValue(FILLED_SUMMARY);
+      const { service } = buildService(getFinancialSummary);
+
+      const result = await service.retrieve('org-1', 'E os fornecedores?', ['Quanto gastei este mês?'], NOW, null);
+
+      expect(result.kind).toBe('DATA');
+    });
+
+    it('PERIOD_COMPARISON nunca lê previousContext — a decisão da Fase 8.6 de nunca recuperar por histórico mantém-se', async () => {
+      const getFinancialSummary = jest
+        .fn()
+        .mockResolvedValueOnce(summaryWith({ from: '2026-05-01', to: '2026-05-31' }, { totalAmount: '10.00' }))
+        .mockResolvedValueOnce(summaryWith({ from: '2026-04-01', to: '2026-04-30' }, { totalAmount: '5.00' }));
+      const { service } = buildService(getFinancialSummary);
+
+      const result = await service.retrieve('org-1', 'Compara maio com abril.', [], NOW, SNAPSHOT);
+
+      expect(result.kind).toBe('DATA');
+      if (result.kind === 'DATA') {
+        expect(result.data.intent).toBe('PERIOD_COMPARISON');
+      }
+      // Os filtros do snapshot (continuação, Fase 8.7) não se aplicam a
+      // uma mensagem sem sinal de continuação — "compara maio com abril"
+      // não ativa `hasContinuationSignal()`.
+      expect(getFinancialSummary).toHaveBeenCalledWith('org-1', expect.objectContaining({ supplierId: undefined }));
     });
   });
 });

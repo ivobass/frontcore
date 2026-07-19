@@ -10,7 +10,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { PrismaService } from '@frontcore/database';
+import { Prisma, PrismaService } from '@frontcore/database';
 import type { AiConversation, AiMessage as AiMessageRow, AiMessageRole } from '@frontcore/database';
 import { AiProviderError } from '@frontcore/ai';
 import type { AiCompletionProvider, AiMessage } from '@frontcore/ai';
@@ -19,6 +19,11 @@ import { AI_COMPLETION_PROVIDER } from './ai-completion-provider.token';
 import { AiTenantContextService } from './ai-tenant-context.service';
 import { FinancialRetrievalService } from './financial-retrieval/financial-retrieval.service';
 import { buildDeterministicReply } from './financial-retrieval/financial-context.builder';
+import {
+  buildFinancialConversationContext,
+  parseFinancialConversationContext,
+} from './financial-retrieval/financial-conversation-context';
+import type { FinancialConversationContextV1 } from './financial-retrieval/financial-conversation-context';
 import { AiToolOrchestratorService } from './tools/ai-tool-orchestrator.service';
 import { classifyMessageRelevance } from './router/financial-relevance.classifier';
 import { loadAiChatConfig, type AiChatConfig } from './ai-chat.config';
@@ -91,6 +96,23 @@ interface AssistantReply {
  * mínimo e separado, sem tools nem dados da organização — nunca faz
  * nenhuma alegação financeira, por isso a garantia "nunca confiar sem
  * `DATA`" (que é sobre alegações financeiras) não se aplica aqui.
+ *
+ * Fase 8.7 — antes de classificar/resolver, lê `conversation.financialContext`
+ * (snapshot versionado, `parseFinancialConversationContext()`) e passa-o
+ * a `classifyMessageRelevance()`/`FinancialRetrievalService.retrieve()`
+ * como fonte de recuperação preferida (mais fiável que reanalisar texto
+ * livre do histórico — ver `financial-retrieval.service.ts`). Sempre que
+ * o retrieval determinístico OU o orquestrador de tools produz um
+ * resultado `DATA` real, o snapshot é reconstruído
+ * (`buildFinancialConversationContext()`) e persistido na mesma
+ * transação da mensagem `ASSISTANT`
+ * (`persistAssistantReply()`) — nunca escrito a partir de texto livre
+ * do modelo. Qualquer outro resultado (`UNSUPPORTED`/`PERIOD_MISSING`/
+ * `PERIOD_AMBIGUOUS`/`ENTITY_AMBIGUOUS`/`ERROR`, e o caminho `GENERAL`)
+ * nunca toca a coluna — o último snapshot bem-sucedido permanece válido
+ * para a próxima mensagem. Isolamento por organização/utilizador/
+ * conversa é sempre o já garantido por `findOwnedConversation()` — a
+ * coluna vive na mesma linha, sem mecanismo novo.
  */
 @Injectable()
 export class AiChatService {
@@ -154,6 +176,13 @@ export class AiChatService {
     const history = await this.loadHistoryMessages(conversation.id);
     const recentUserMessages = this.extractRecentUserMessages(history);
 
+    // Fase 8.7 — snapshot financeiro versionado desta conversa (`null`
+    // até à primeira resolução DATA, ou em conversas anteriores a esta
+    // fase). Nunca lido de outra conversa/organização/utilizador — vem
+    // da mesma linha já isolada por `findOwnedConversation()`/`create()`
+    // acima.
+    const previousContext = parseFinancialConversationContext(conversation.financialContext);
+
     // Fase 8.4 — router híbrido: classifica antes de tentar qualquer
     // retrieval financeiro. `GENERAL` só quando não existe nenhum sinal
     // financeiro-adjacente (defensivo — nunca por o regex de intenção
@@ -161,8 +190,9 @@ export class AiChatService {
     // separado, sem tools financeiras, sem dados da organização, com um
     // `system prompt` mínimo próprio. A garantia "nunca confiar sem
     // `DATA`" continua absoluta para qualquer alegação financeira — este
-    // caminho nunca faz nenhuma.
-    if (classifyMessageRelevance(content, recentUserMessages) === 'GENERAL') {
+    // caminho nunca faz nenhuma. Fase 8.7 — `previousContext !== null`
+    // também conta como contexto financeiro recente para uma continuação.
+    if (classifyMessageRelevance(content, recentUserMessages, previousContext !== null) === 'GENERAL') {
       const systemMessage = this.tenantContext.buildGeneralSystemMessage();
       let response;
       try {
@@ -179,7 +209,13 @@ export class AiChatService {
       });
     }
 
-    const retrievalResult = await this.financialRetrieval.retrieve(organizationId, content, recentUserMessages);
+    const retrievalResult = await this.financialRetrieval.retrieve(
+      organizationId,
+      content,
+      recentUserMessages,
+      undefined,
+      previousContext,
+    );
 
     if (retrievalResult.kind === 'DATA') {
       const systemMessage = this.tenantContext.buildSystemMessage(retrievalResult);
@@ -189,13 +225,17 @@ export class AiChatService {
       } catch (error) {
         throw this.mapProviderError(error);
       }
-      return this.persistAssistantReply(conversation.id, {
-        content: response.content,
-        provider: response.provider,
-        model: response.model,
-        inputTokens: response.usage?.inputTokens,
-        outputTokens: response.usage?.outputTokens,
-      });
+      return this.persistAssistantReply(
+        conversation.id,
+        {
+          content: response.content,
+          provider: response.provider,
+          model: response.model,
+          inputTokens: response.usage?.inputTokens,
+          outputTokens: response.usage?.outputTokens,
+        },
+        buildFinancialConversationContext(retrievalResult),
+      );
     }
 
     // Fase 8.3 — antes do fallback determinístico, tenta uma oportunidade
@@ -212,7 +252,16 @@ export class AiChatService {
     if (retrievalResult.kind !== 'ERROR' && retrievalResult.kind !== 'ENTITY_AMBIGUOUS') {
       const toolResult = await this.toolOrchestrator.run(organizationId, history);
       if (toolResult.kind === 'ANSWERED') {
-        return this.persistAssistantReply(conversation.id, toolResult);
+        // Fase 8.7 — o snapshot também é atualizado quando a resposta
+        // veio de uma tool (`toolResult.retrievalResult`, sempre DATA
+        // real) — uma continuação depois de um turno respondido por
+        // tool calling recupera exatamente da mesma forma que uma
+        // continuação depois do caminho determinístico principal.
+        return this.persistAssistantReply(
+          conversation.id,
+          toolResult,
+          buildFinancialConversationContext(toolResult.retrievalResult),
+        );
       }
     }
 
@@ -367,9 +416,17 @@ export class AiChatService {
   /**
    * Persiste a mensagem `ASSISTANT` (real, com provider/model/tokens, ou
    * o marcador determinístico da Fase 8.3) e atualiza `updatedAt` da
-   * conversa — mesma transação em ambos os caminhos.
+   * conversa — mesma transação em ambos os caminhos. Fase 8.7 —
+   * `financialContext` (opcional, só passado pelos dois caminhos com
+   * `DATA` real — retrieval determinístico e tool calling) é escrito na
+   * mesma transação; omitido, a coluna existente nunca é tocada (o
+   * último snapshot bem-sucedido permanece válido).
    */
-  private async persistAssistantReply(conversationId: string, reply: AssistantReply): Promise<SendChatMessageResult> {
+  private async persistAssistantReply(
+    conversationId: string,
+    reply: AssistantReply,
+    financialContext?: FinancialConversationContextV1,
+  ): Promise<SendChatMessageResult> {
     // Forma callback do `$transaction` — mesmo padrão já usado por
     // `InvoiceDraftsService.promote()`, e o único que o mock partilhado
     // de testes (`test/utils/mock-prisma.ts`) implementa.
@@ -387,7 +444,10 @@ export class AiChatService {
       });
       await tx.aiConversation.update({
         where: { id: conversationId },
-        data: { updatedAt: new Date() },
+        data: {
+          updatedAt: new Date(),
+          ...(financialContext ? { financialContext: financialContext as unknown as Prisma.InputJsonValue } : {}),
+        },
       });
       return message;
     });

@@ -35,7 +35,11 @@ const FINANCIAL_ADJACENT_PATTERN =
  * é que segue para o caminho geral, sem tools nem contexto da
  * organização.
  */
-export function classifyMessageRelevance(message: string, recentUserMessages: string[]): MessageRelevance {
+export function classifyMessageRelevance(
+  message: string,
+  recentUserMessages: string[],
+  hasFinancialContext = false,
+): MessageRelevance {
   const normalized = normalize(message);
 
   if (FINANCIAL_ADJACENT_PATTERN.test(normalized)) {
@@ -54,7 +58,15 @@ export function classifyMessageRelevance(message: string, recentUserMessages: st
   // como financeira quando existe contexto financeiro recente na
   // janela de histórico — nunca por si só (evita que "E depois?" fora
   // de qualquer conversa financeira force o caminho financeiro).
-  if (hasContinuationSignal(message) && recentUserMessages.some((past) => FINANCIAL_ADJACENT_PATTERN.test(normalize(past)))) {
+  // Fase 8.7 — `hasFinancialContext` (snapshot persistido em
+  // `AiConversation.financialContext`) conta da mesma forma que
+  // vocabulário financeiro-adjacente numa mensagem recente, mas alcança
+  // contexto fora da janela de histórico carregada (o snapshot reflete
+  // a última resolução DATA bem-sucedida da conversa inteira).
+  if (
+    hasContinuationSignal(message) &&
+    (hasFinancialContext || recentUserMessages.some((past) => FINANCIAL_ADJACENT_PATTERN.test(normalize(past))))
+  ) {
     return 'FINANCIAL';
   }
 

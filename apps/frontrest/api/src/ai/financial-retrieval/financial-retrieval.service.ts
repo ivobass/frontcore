@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@frontcore/database';
 import type { InvoiceStatus } from '@frontcore/database';
+import { resolvePeriod } from '../../dashboard/period.util';
 import { DashboardService } from '../../dashboard/dashboard.service';
 import type { FinancialDashboardSummary, LargestInvoice } from '../../dashboard/dashboard.service';
 import { FinancialEntityResolverService } from './entity-resolver.service';
@@ -13,6 +14,7 @@ import { hasContinuationSignal } from './continuation-signal';
 import { resolveStatusFilter } from './financial-filter.extractor';
 import { compareAmount, compareCount } from '../../dashboard/period-comparison.util';
 import type { PeriodComparisonValue } from '../../dashboard/period-comparison.util';
+import type { FinancialConversationContextV1 } from './financial-conversation-context';
 
 /** "Por pagar" = Pendente + Vencida — nunca inclui Paga. Mesma definição já usada pelo contexto do Chat IA (Fase 8). */
 const OUTSTANDING_STATUSES = new Set<string>(['PENDING', 'OVERDUE']);
@@ -103,6 +105,22 @@ export type FinancialRetrievalResult =
  * fluxo próprio, à parte de `resolveDataForPeriod()`, nunca recupera por
  * histórico (comparação relativa a um período discutido antes fica fora
  * do âmbito, candidata a fase futura).
+ *
+ * Fase 8.7 — `previousContext` (opcional, último parâmetro, nunca quebra
+ * as 46 chamadas existentes que não o passam) é o snapshot versionado
+ * persistido em `AiConversation.financialContext`
+ * (`FinancialConversationContextV1`, `financial-conversation-context.ts`).
+ * Quando presente, é sempre a fonte de recuperação preferida — mais
+ * fiável que reanalisar texto livre do histórico, e capaz de recuperar
+ * contexto mesmo fora da janela de `recentUserMessages` (o snapshot
+ * reflete a última resolução `DATA` bem-sucedida da conversa, nunca uma
+ * mensagem que falhou a resolver). `recoverIntent()`/`recoverPeriod()`/
+ * `recoverFilters()` (texto livre, Fases 8.3/8.4) continuam inalterados
+ * como fallback exclusivo de conversas sem snapshot ainda (anteriores a
+ * esta fase, ou cuja primeira mensagem ainda não produziu nenhum
+ * `DATA`) — nunca combinados com o snapshot na mesma recuperação.
+ * `resolvePeriodComparison()` nunca lê `previousContext` — mantém-se
+ * exatamente a decisão da Fase 8.6 de nunca recuperar por histórico.
  */
 @Injectable()
 export class FinancialRetrievalService {
@@ -116,6 +134,7 @@ export class FinancialRetrievalService {
     message: string,
     recentUserMessages: string[] = [],
     now: Date = new Date(),
+    previousContext: FinancialConversationContextV1 | null = null,
   ): Promise<FinancialRetrievalResult> {
     let intentResolution = resolveFinancialIntent(message);
     const currentPeriodResolution = resolveFinancialPeriod(message, now);
@@ -126,9 +145,13 @@ export class FinancialRetrievalService {
     // mês", Fase 8.3) OU quando sinaliza explicitamente uma continuação
     // (ex. "E só da Hetzner?", Fase 8.4 — nem intenção nem período
     // próprios, mas depende inteiramente do histórico). Nunca quando a
-    // mensagem atual não dá nenhum sinal.
+    // mensagem atual não dá nenhum sinal. Fase 8.7 — com snapshot
+    // persistido, a intenção recuperada é sempre a do snapshot, nunca a
+    // reanálise de texto (`recoverIntent()`).
     if (intentResolution.kind === 'UNSUPPORTED' && (currentPeriodResolution.kind === 'RESOLVED' || isContinuation)) {
-      const recoveredIntent = this.recoverIntent(recentUserMessages);
+      const recoveredIntent = previousContext
+        ? ({ kind: 'SUPPORTED', intent: previousContext.intent } as const)
+        : this.recoverIntent(recentUserMessages);
       if (recoveredIntent) {
         intentResolution = recoveredIntent;
       }
@@ -138,7 +161,7 @@ export class FinancialRetrievalService {
       return { kind: 'UNSUPPORTED' };
     }
 
-    const filters = await this.resolveFilters(organizationId, message, recentUserMessages, isContinuation);
+    const filters = await this.resolveFilters(organizationId, message, recentUserMessages, isContinuation, previousContext);
     if (filters === 'AMBIGUOUS') {
       return { kind: 'ENTITY_AMBIGUOUS' };
     }
@@ -147,14 +170,22 @@ export class FinancialRetrievalService {
     // dois períodos resolvidos a partir do texto da mensagem, nunca de um
     // único `FinancialPeriodResolution` já calculado acima. Nunca recupera
     // por histórico (decisão desta fase — comparação relativa a um
-    // período discutido antes fica fora do âmbito).
+    // período discutido antes fica fora do âmbito) nem do snapshot da
+    // Fase 8.7 (mesma decisão, nunca revista aqui).
     if (intentResolution.intent === 'PERIOD_COMPARISON') {
       return this.resolvePeriodComparison(organizationId, message, filters, now);
     }
 
     let periodResolution = currentPeriodResolution;
     if (periodResolution.kind !== 'RESOLVED') {
-      const recoveredPeriod = this.recoverPeriod(recentUserMessages, now);
+      // Fase 8.7 — mesma prioridade do snapshot sobre a reanálise de
+      // texto; `resolvePeriod()` (Fase 7, `dashboard/period.util.ts`)
+      // reconstrói `gte`/`lt` a partir de `from`/`to` (as únicas datas
+      // persistidas no snapshot, nunca `Date` bruto em JSON) — nunca uma
+      // segunda semântica de datas.
+      const recoveredPeriod = previousContext
+        ? ({ kind: 'RESOLVED', period: resolvePeriod(previousContext.period.from, previousContext.period.to) } as const)
+        : this.recoverPeriod(recentUserMessages, now);
       if (recoveredPeriod) {
         periodResolution = recoveredPeriod;
       }
@@ -329,13 +360,17 @@ export class FinancialRetrievalService {
    * dimensão que a mensagem atual já resolve por si (estado, fornecedor
    * ou categoria) tem sempre prioridade sobre o herdado — nunca é
    * substituído, só complementado nas dimensões que a mensagem atual
-   * não menciona.
+   * não menciona. Fase 8.7 — quando existe snapshot persistido
+   * (`previousContext`), os filtros herdados vêm sempre dele
+   * (`previousContext.filters`), nunca de `recoverFilters()` (texto
+   * livre) — mesma prioridade de `retrieve()` para intenção/período.
    */
   private async resolveFilters(
     organizationId: string,
     message: string,
     recentUserMessages: string[],
     hasContinuationSignal: boolean,
+    previousContext: FinancialConversationContextV1 | null = null,
   ): Promise<ResolvedFinancialFilters | 'AMBIGUOUS'> {
     const filters: ResolvedFinancialFilters = {};
     const currentStatus = resolveStatusFilter(message);
@@ -372,7 +407,9 @@ export class FinancialRetrievalService {
     }
 
     if (hasContinuationSignal) {
-      const recovered = await this.recoverFilters(organizationId, recentUserMessages);
+      const recovered = previousContext
+        ? previousContext.filters
+        : await this.recoverFilters(organizationId, recentUserMessages);
       // A mensagem atual, quando indica o seu próprio filtro numa
       // dimensão, substitui sempre o herdado dessa mesma dimensão —
       // nunca combina dois valores incompatíveis na mesma dimensão.

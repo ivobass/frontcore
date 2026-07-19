@@ -28,6 +28,8 @@ interface FakeConversation {
   userId: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Fase 8.7 — snapshot financeiro versionado, `null` até à primeira resolução DATA. */
+  financialContext: unknown;
 }
 
 interface FakeMessage {
@@ -57,6 +59,7 @@ function wireInMemoryAiStore(prisma: MockPrismaService) {
       userId: data.userId,
       createdAt: new Date(),
       updatedAt: new Date(),
+      financialContext: null,
     };
     conversations.set(conversation.id, conversation);
     return Promise.resolve(conversation);
@@ -101,11 +104,17 @@ function wireInMemoryAiStore(prisma: MockPrismaService) {
     Promise.resolve([...conversations.values()].filter((c) => c.organizationId === where.organizationId && c.userId === where.userId).length),
   );
 
-  prisma.aiConversation.update.mockImplementation(({ where, data }: { where: { id: string }; data: { updatedAt: Date } }) => {
-    const conversation = conversations.get(where.id)!;
-    conversation.updatedAt = data.updatedAt;
-    return Promise.resolve(conversation);
-  });
+  prisma.aiConversation.update.mockImplementation(
+    ({ where, data }: { where: { id: string }; data: { updatedAt: Date; financialContext?: unknown } }) => {
+      const conversation = conversations.get(where.id)!;
+      conversation.updatedAt = data.updatedAt;
+      // Fase 8.7 — só escrito quando presente (DATA real); omitido, o snapshot anterior permanece.
+      if ('financialContext' in data) {
+        conversation.financialContext = data.financialContext;
+      }
+      return Promise.resolve(conversation);
+    },
+  );
 
   // Fase 8.3 — elimina a conversa e, simulando `onDelete: Cascade` do schema real, as suas mensagens.
   prisma.aiConversation.delete.mockImplementation(({ where }: { where: { id: string } }) => {
@@ -143,11 +152,15 @@ function wireInMemoryAiStore(prisma: MockPrismaService) {
   });
 
   prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+
+  // Fase 8.7 — acesso direto ao snapshot persistido, para testes de continuidade/isolamento sem depender de mocks do DashboardService.
+  return { getConversation: (id: string) => conversations.get(id) };
 }
 
 describe('AI Chat (e2e)', () => {
   let app: INestApplication;
   let prisma: MockPrismaService;
+  let aiStore: ReturnType<typeof wireInMemoryAiStore>;
 
   beforeAll(async () => {
     ({ app, prisma } = await createTestApp());
@@ -160,7 +173,7 @@ describe('AI Chat (e2e)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockEmptyDashboardAggregations(prisma);
-    wireInMemoryAiStore(prisma);
+    aiStore = wireInMemoryAiStore(prisma);
   });
 
   describe('autenticação', () => {
@@ -706,6 +719,140 @@ describe('AI Chat (e2e)', () => {
         .delete('/api/ai/conversations/conv-nao-existe')
         .set('Authorization', authHeader())
         .expect(404);
+    });
+  });
+
+  /**
+   * Contexto financeiro conversacional (Fase 8.7) — confirma ponta a
+   * ponta que a árvore de injeção real (`AiChatService` →
+   * `FinancialRetrievalService`/`classifyMessageRelevance` → Prisma via
+   * `PrismaService`) persiste e isola o snapshot versionado
+   * (`AiConversation.financialContext`), não só os serviços isolados já
+   * cobertos por `ai-chat.service.spec.ts`/`financial-retrieval.service.spec.ts`.
+   */
+  describe('Fase 8.7 — contexto financeiro conversacional (snapshot persistido)', () => {
+    it('uma resolução DATA bem-sucedida persiste um snapshot versionado na conversa', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quanto gastei este mês?' })
+        .expect(201);
+
+      const conversation = aiStore.getConversation(created.body.conversationId);
+      expect(conversation?.financialContext).toMatchObject({
+        version: 1,
+        intent: 'FINANCIAL_SUMMARY',
+      });
+    });
+
+    it('uma pergunta geral subsequente nunca apaga nem altera o snapshot financeiro já persistido', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quanto gastei este mês?' })
+        .expect(201);
+
+      const snapshotAfterFirstTurn = aiStore.getConversation(created.body.conversationId)?.financialContext;
+      expect(snapshotAfterFirstTurn).not.toBeNull();
+
+      await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ conversationId: created.body.conversationId, message: 'Qual é a capital de Portugal?' })
+        .expect(201);
+
+      expect(aiStore.getConversation(created.body.conversationId)?.financialContext).toEqual(snapshotAfterFirstTurn);
+    });
+
+    it('isolamento por conversa: duas conversas do mesmo utilizador/organização nunca partilham o snapshot financeiro persistido', async () => {
+      const firstConversation = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quanto gastei em maio de 2026?' })
+        .expect(201);
+      const firstSnapshot = aiStore.getConversation(firstConversation.body.conversationId)?.financialContext;
+
+      // Segunda conversa, mesma organização/utilizador, sem conversationId — nunca deve ver nem herdar o snapshot da primeira.
+      const secondConversation = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quanto gastei em janeiro de 2026?' })
+        .expect(201);
+      const secondSnapshot = aiStore.getConversation(secondConversation.body.conversationId)?.financialContext;
+
+      expect(firstConversation.body.conversationId).not.toBe(secondConversation.body.conversationId);
+      expect(secondSnapshot).toMatchObject({ period: { from: '2026-01-01', to: '2026-01-31' } });
+      // A primeira conversa mantém-se inalterada — a segunda nunca escreveu na mesma linha.
+      expect(aiStore.getConversation(firstConversation.body.conversationId)?.financialContext).toEqual(firstSnapshot);
+      expect(firstSnapshot).toMatchObject({ period: { from: '2026-05-01', to: '2026-05-31' } });
+    });
+
+    it('isolamento por organização/utilizador: o snapshot financeiro de uma conversa nunca é lido por outra organização ou utilizador (via 404 já garantido em findOwnedConversation)', async () => {
+      const created = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader({ organizationId: 'org-a', userId: 'user-a' }))
+        .send({ message: 'Quanto gastei este mês?' })
+        .expect(201);
+
+      expect(aiStore.getConversation(created.body.conversationId)?.financialContext).not.toBeNull();
+
+      // Nem outra organização, nem outro utilizador da mesma organização, conseguem continuar esta conversa
+      // (e portanto nunca conseguem acionar a leitura do seu financialContext) — mesmo 404 genérico já
+      // validado nos blocos "isolamento" acima, reconfirmado aqui no contexto desta fase.
+      await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader({ organizationId: 'org-b', userId: 'user-b' }))
+        .send({ conversationId: created.body.conversationId, message: 'E os fornecedores?' })
+        .expect(404);
+    });
+  });
+
+  describe('Fase 8.7 — recuperação via snapshot além da janela de histórico carregada', () => {
+    let smallHistoryApp: INestApplication;
+    let smallHistoryPrisma: MockPrismaService;
+
+    beforeAll(async () => {
+      // AI_CHAT_HISTORY_LIMIT=1 força `recentUserMessages` a ficar sempre
+      // vazio (só a mensagem atual é carregada) — qualquer recuperação de
+      // intenção/período só pode vir do snapshot persistido, nunca de
+      // texto do histórico (ver `ai-chat.config.ts`).
+      process.env.AI_CHAT_HISTORY_LIMIT = '1';
+      ({ app: smallHistoryApp, prisma: smallHistoryPrisma } = await createTestApp());
+      delete process.env.AI_CHAT_HISTORY_LIMIT;
+    });
+
+    afterAll(async () => {
+      await smallHistoryApp.close();
+    });
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockEmptyDashboardAggregations(smallHistoryPrisma);
+      wireInMemoryAiStore(smallHistoryPrisma);
+    });
+
+    it('uma continuação recupera o período explícito da mensagem anterior mesmo sem nenhuma mensagem na janela de histórico carregada', async () => {
+      const first = await request(smallHistoryApp.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quanto gastei em maio de 2026?' })
+        .expect(201);
+
+      await request(smallHistoryApp.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ conversationId: first.body.conversationId, message: 'E os fornecedores?' })
+        .expect(201);
+
+      // Se a recuperação tivesse falhado (sem snapshot, Fase 8.3 tentaria o
+      // orquestrador de tools, cujo Mock usa sempre period="este mês" por
+      // omissão) — o período de maio de 2026 só pode ter chegado aqui via
+      // snapshot persistido, nunca via `recentUserMessages` (sempre vazio
+      // com AI_CHAT_HISTORY_LIMIT=1).
+      const aggregateCall = smallHistoryPrisma.invoice.aggregate.mock.calls.find(
+        (call: [{ where: { issueDate: { gte: Date } } }]) => call[0].where.issueDate.gte.toISOString().startsWith('2026-05'),
+      );
+      expect(aggregateCall).toBeDefined();
     });
   });
 });
