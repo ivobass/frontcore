@@ -381,6 +381,26 @@
   documento dedicado de entrega de infraestrutura ao responsável pela
   operação (registo de intenção em `docs/DEPLOY-COOLIFY.md`, secção
   "Trabalho futuro" — não desenvolvido antecipadamente).
+- **Fase 10.1 — DevOps CI Foundation**: primeira infraestrutura DevOps
+  do FrontCore — `.github/workflows/ci.yml` (job único, 12 passos:
+  checkout, setup pnpm/Node 20 com cache, install, Documentation
+  Validation, Lint, build do `@frontcore/database`, typecheck, test,
+  build, `docker compose config`, `docker compose build`; nunca
+  `docker compose up`), executado em `push`/`pull request` para `main`.
+  Novo `scripts/validate-docs.mjs` (agregador) + 5 validadores em
+  `scripts/validators/` (responsabilidade única cada um): existência de
+  `docs/INDEX.md`/`docs/PHASES.md`/`docs/ARCHITECTURE.md`/`docs/ai/`,
+  existência dos documentos de fase referenciados por `docs/PHASES.md`,
+  e deteção de referências locais quebradas em toda a documentação
+  (links Markdown e caminhos entre backticks). Novo script
+  `docs:validate` em `package.json`, nenhum script existente alterado.
+  `pnpm lint` continua um no-op (nenhum package define a tarefa `lint`
+  ainda — fora do âmbito desta fase). Sem deploy automático,
+  Kubernetes, Dependabot, security scanning, code coverage, release
+  automation, Docker Hub, deploy em VPS, backups, monitorização,
+  alertas, múltiplos workflows ou CI matrix — todos candidatos a fase
+  futura
+  (`docs/phases/phase-10.1-devops-ci-foundation.md`).
 
 > Regra: não avançar de fase sem aprovação. Não refazer. Não tocar em ficheiros
 > fora da fase atual.

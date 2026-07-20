@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,6 +27,12 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Documentation Validation
+        run: pnpm docs:validate
+
+      - name: Lint
+        run: pnpm lint
+
       - name: Build database package (gera Prisma Client)
         run: pnpm db:build
 
@@ -35,3 +44,12 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Prepare .env para Docker Compose
+        run: cp .env.example .env
+
+      - name: Docker Compose Validation
+        run: docker compose config
+
+      - name: Docker Compose Build
+        run: docker compose build

@@ -777,3 +777,43 @@ web (Next.js) ──HTTP /api──> api (NestJS) ──Prisma──> PostgreSQL
                                   │
                                   └── (Redis / MinIO disponíveis, uso real Fases 5/6)
 ```
+
+## CI (`.github/workflows/ci.yml`, Fase 10.1)
+
+Primeira infraestrutura DevOps do FrontCore — job único
+(`ubuntu-latest`), executado em `push`/`pull request` para `main`.
+Ordem: checkout → `pnpm/action-setup` (antes do Node, para o cache do
+passo seguinte já encontrar o `pnpm` no `PATH`) → `actions/setup-node`
+(Node 20, `cache: pnpm` — implementa o cache de dependências sem um
+passo `actions/cache` separado) → `pnpm install --frozen-lockfile` →
+`pnpm docs:validate` (ver abaixo) → `pnpm lint` (hoje um no-op — nenhum
+package define a tarefa `lint`, ver "Limitações conhecidas" da fase) →
+`pnpm db:build` (gera o Prisma Client de `@frontcore/database`,
+indispensável para os passos seguintes) → `pnpm typecheck` → `pnpm test`
+→ `pnpm build` → `cp .env.example .env` (mesmo comando de
+`docs/DEVELOPER_GUIDE.md`) → `docker compose config` → `docker compose
+build`. Nunca `docker compose up` — sem ambiente de integração nesta
+fase. Qualquer passo com código de saída diferente de zero interrompe o
+job imediatamente.
+
+### Validação de documentação (`scripts/validate-docs.mjs`)
+
+Agregador Node puro (`.mjs`, sem dependências novas) que corre 5
+validadores de `scripts/validators/`, cada um com uma única
+responsabilidade: `validate-index.mjs` (existência de
+`docs/INDEX.md`), `validate-phases.mjs` (existência de
+`docs/PHASES.md`), `validate-phase-files.mjs` (todo o documento de fase
+referenciado por `docs/PHASES.md` existe em `docs/phases/`),
+`validate-architecture.mjs` (existência de `docs/ARCHITECTURE.md` e
+`docs/ai/`), `validate-links.mjs` (nenhuma referência local quebrada em
+`docs/**/*.md` — links Markdown e caminhos entre backticks, a forma
+predominante nesta documentação; padrões-gabarito com `*` sempre
+ignorados). Exposto como `pnpm docs:validate` (script novo em
+`package.json`, único adicionado por esta fase). Nunca ignora um erro —
+falha (`process.exitCode = 1`) sempre que qualquer validador encontrar
+um problema, depois de reportar todos. Ver
+`docs/phases/phase-10.1-devops-ci-foundation.md` para as duas exceções
+documentadas do detetor de links (`docs/README.md`,
+`docs/ai/AI_DECISION_RECORDS.md` — ambas referências intencionais a
+ficheiros que nunca deviam existir ainda, confirmadas por leitura
+direta do contexto, nunca adicionadas só para o validador passar).
