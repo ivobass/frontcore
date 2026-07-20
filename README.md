@@ -208,4 +208,3 @@ curl -X POST http://localhost:3001/api/auth/login \
 ```bash
 curl http://localhost:3001/api/auth/me \
 -H "Authorization: Bearer <accessToken>"
-
