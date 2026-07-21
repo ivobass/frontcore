@@ -4,7 +4,7 @@ import type { ExtractionMatch, CustomerExtraction } from '../types';
 import { FiscalField } from '../types';
 
 const CUSTOMER_LABEL =
-  /(?:cliente|bill\s*to|customer|sold\s*to|exmo\(?s?\)?\.?\s*sr\.?\(?s?\)?\.?)\s*[:.\-]\s*([^\n]{2,80})/i;
+  /(?:cliente|bill\s*to|customer|sold\s*to|exmo\(?s?\)?\.?\s*sr\.?\(?s?\)?\.?)\s*[:.-]\s*([^\n]{2,80})/i;
 
 /**
  * Extrai o nome do cliente/destinatário (ex. "Cliente: Restaurante X").

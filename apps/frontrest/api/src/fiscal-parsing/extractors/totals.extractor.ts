@@ -48,7 +48,7 @@ const DECIMAL_AMOUNT = /\d{1,3}(?:[.,]\d{3})*[.,]\d{2}(?!\d)/g;
 
 /** Montante logo a seguir ao rótulo — só pontuação/espaço/parêntese de moeda entre eles, símbolo opcional antes do valor. */
 const TIGHT_ADJACENT_AMOUNT =
-  /^(?:\s*\([^)]{0,15}\))?\s*[:.\-]?\s*[€$£]?\s?(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})(?!\d)/;
+  /^(?:\s*\([^)]{0,15}\))?\s*[:.-]?\s*[€$£]?\s?(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})(?!\d)/;
 
 /** O resto da linha do rótulo é "vazio" (só espaço/parêntese de moeda/traços de tabela) — sinal de que o valor está numa linha seguinte, nunca de que qualquer texto ali serve. */
 const EMPTYISH_REST_OF_LINE = /^(?:\s*\([^)]{0,15}\))?[\s|]*$/;

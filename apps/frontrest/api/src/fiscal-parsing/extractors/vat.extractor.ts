@@ -13,7 +13,7 @@ const RATE_ONLY = /\b(?:iva|vat)\D{0,10}?(\d{1,2}(?:[.,]\d)?)\s*%/i;
 // taxa (ex. "IVA 23" sem % não deve ser lido como montante de 23). O
 // símbolo pode vir antes ou depois do valor — convenção PT/EU comum é
 // "12,34€" (símbolo depois), não "€12,34".
-const AMOUNT_ONLY = /\b(?:iva|vat)\s*[:.\-]?\s*([\d][\d.,]*\s?[€$£]|[€$£]\s?[\d][\d.,]*)/i;
+const AMOUNT_ONLY = /\b(?:iva|vat)\s*[:.-]?\s*([\d][\d.,]*\s?[€$£]|[€$£]\s?[\d][\d.,]*)/i;
 
 /**
  * Tabela de discriminação de IVA — convenção standard em faturas-recibo

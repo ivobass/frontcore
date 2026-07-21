@@ -1,5 +1,7 @@
 # FrontCore / FrontRest IA
 
+[![CI](https://github.com/ivobass/frontcore/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ivobass/frontcore/actions/workflows/ci.yml)
+
 Base SaaS reutilizável **FrontCore** + primeiro produto **FrontRest IA**.
 
 Monorepo baseado em:

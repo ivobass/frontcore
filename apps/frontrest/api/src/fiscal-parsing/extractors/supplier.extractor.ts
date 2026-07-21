@@ -4,7 +4,7 @@ import type { ExtractionMatch, SupplierExtraction } from '../types';
 import { FiscalField } from '../types';
 import { CUSTOMER_SECTION } from '../utils';
 
-const SUPPLIER_LABEL = /(?:fornecedor|emitente|supplier|vendor|issued\s*by)\s*[:.\-]\s*([^\n]{2,80})/i;
+const SUPPLIER_LABEL = /(?:fornecedor|emitente|supplier|vendor|issued\s*by)\s*[:.-]\s*([^\n]{2,80})/i;
 
 /**
  * Comprimento mínimo para um nome de fornecedor ser considerado válido —

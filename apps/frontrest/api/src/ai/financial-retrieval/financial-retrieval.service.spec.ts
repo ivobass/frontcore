@@ -554,7 +554,7 @@ describe('FinancialRetrievalService', () => {
     it('herança por dimensão independente — substitui só o estado, herda fornecedor E categoria, nunca troca o objeto inteiro', async () => {
       const resolveSupplierMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'sup-1', name: 'Hetzner' });
       const resolveCategoryMention = jest.fn().mockResolvedValue({ kind: 'RESOLVED', id: 'cat-1', name: 'Hosting' });
-      const { service, getFinancialSummary } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), {
+      const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY), {
         resolveSupplierMention,
         resolveCategoryMention,
       });

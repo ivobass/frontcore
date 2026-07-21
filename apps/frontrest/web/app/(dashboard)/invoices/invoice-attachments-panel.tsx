@@ -182,7 +182,7 @@ export function InvoiceAttachmentsPanel({
                 accept="application/pdf,image/jpeg,image/png"
                 disabled={uploading}
                 label={uploading ? 'A enviar…' : 'Clique ou arraste um ficheiro'}
-                hint="PDF, JPEG ou PNG, até 10 MB"
+                hint="PDF, JPEG ou PNG, até 25 MB"
                 onFileSelected={handleFileSelected}
               />
               {uploadError ? <UploadError>{uploadError}</UploadError> : null}

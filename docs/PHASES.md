@@ -439,6 +439,31 @@
   alertas, múltiplos workflows ou CI matrix — todos candidatos a fase
   futura
   (`docs/phases/phase-10.1-devops-ci-foundation.md`).
+- **Fase 10.2 — DevOps CI Verification & Hardening**: verificação e
+  reforço do pipeline da Fase 10.1 antes da Fase 8.9. `workflow_dispatch`,
+  `concurrency` (cancela execuções antigas da mesma branch/PR) e
+  `timeout-minutes: 30` adicionados ao job, renomeado `quality`
+  (`name: Quality, Tests and Build`); novo passo "API E2E Tests"
+  (`pnpm --filter @frontrest/api test:e2e`, mockado — sem serviços
+  Postgres/Redis/MinIO no CI) entre "Test" e "Build". Substituído o
+  no-op de `pnpm lint` por ESLint 9 real (flat config em
+  `eslint.config.mjs`, `typescript-eslint` recommended não type-aware,
+  `@next/eslint-plugin-next` — dependência direta fixada a `15.1.3`,
+  nunca só transitiva via `eslint-config-next` — + `eslint-plugin-react-hooks`
+  com regras só em `apps/frontrest/web`, plugins registados sem
+  `files` para o `next build` os detetar corretamente (corrige "The
+  Next.js plugin was not detected"); `"lint": "eslint ."` em
+  `apps/frontrest/{api,web,workers}` e nas 11 `packages/*`); achados
+  reais corrigidos (imports/variáveis não usados, escapes de regex
+  desnecessários em 5 extractors fiscais, 2 diretivas `eslint-disable`
+  obsoletas); `@typescript-eslint/no-explicit-any` mantida como `warn`
+  (5 warnings conhecidos e documentados, sem mass refactor). Badge de
+  CI único no `README.md`.
+  Recomendações de proteção de branch documentadas (não aplicadas —
+  sem acesso à API/CLI do GitHub). Sem deploy automático, staging,
+  produção, VPS, Kubernetes, Dependabot, CodeQL, coverage gates,
+  observabilidade, CI matrix ou alteração à Fase 8.9
+  (`docs/phases/phase-10.2-devops-ci-verification-hardening.md`).
 
 > Regra: não avançar de fase sem aprovação. Não refazer. Não tocar em ficheiros
 > fora da fase atual.

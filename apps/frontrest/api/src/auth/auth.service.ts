@@ -227,7 +227,6 @@ export class AuthService {
 
     let slug = base;
     let attempt = 0;
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const existing = await this.prisma.organization.findUnique({
         where: { slug },

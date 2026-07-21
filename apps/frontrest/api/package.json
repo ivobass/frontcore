@@ -11,6 +11,7 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
     "test": "jest",
     "test:e2e": "jest --config test/jest-e2e.json"
   },

@@ -778,23 +778,56 @@ web (Next.js) ──HTTP /api──> api (NestJS) ──Prisma──> PostgreSQL
                                   └── (Redis / MinIO disponíveis, uso real Fases 5/6)
 ```
 
-## CI (`.github/workflows/ci.yml`, Fase 10.1)
+## CI (`.github/workflows/ci.yml`, Fases 10.1/10.2)
 
-Primeira infraestrutura DevOps do FrontCore — job único
-(`ubuntu-latest`), executado em `push`/`pull request` para `main`.
-Ordem: checkout → `pnpm/action-setup` (antes do Node, para o cache do
-passo seguinte já encontrar o `pnpm` no `PATH`) → `actions/setup-node`
-(Node 20, `cache: pnpm` — implementa o cache de dependências sem um
-passo `actions/cache` separado) → `pnpm install --frozen-lockfile` →
-`pnpm docs:validate` (ver abaixo) → `pnpm lint` (hoje um no-op — nenhum
-package define a tarefa `lint`, ver "Limitações conhecidas" da fase) →
-`pnpm db:build` (gera o Prisma Client de `@frontcore/database`,
-indispensável para os passos seguintes) → `pnpm typecheck` → `pnpm test`
-→ `pnpm build` → `cp .env.example .env` (mesmo comando de
-`docs/DEVELOPER_GUIDE.md`) → `docker compose config` → `docker compose
-build`. Nunca `docker compose up` — sem ambiente de integração nesta
-fase. Qualquer passo com código de saída diferente de zero interrompe o
-job imediatamente.
+Job único `quality` (`ubuntu-latest`, `name: Quality, Tests and
+Build`), executado em `push`/`pull request` para `main` e também
+manualmente via `workflow_dispatch` (Fase 10.2). `concurrency`
+(`group: '${{ github.workflow }}-${{ github.ref }}'`,
+`cancel-in-progress: true`) cancela execuções antigas da mesma
+branch/PR; `timeout-minutes: 30` no job. Ordem: checkout →
+`pnpm/action-setup` (antes do Node, para o cache do passo seguinte já
+encontrar o `pnpm` no `PATH`) → `actions/setup-node` (Node 20,
+`cache: pnpm` — implementa o cache de dependências sem um passo
+`actions/cache` separado) → `pnpm install --frozen-lockfile` →
+`pnpm docs:validate` (ver abaixo) → `pnpm lint` (ESLint 9 real desde a
+Fase 10.2 — ver "Lint" abaixo) → `pnpm db:build` (gera o Prisma Client
+de `@frontcore/database`, indispensável para os passos seguintes) →
+`pnpm typecheck` → `pnpm test` → **`pnpm --filter @frontrest/api
+test:e2e`** ("API E2E Tests", Fase 10.2 — totalmente mockado,
+`PrismaService`/`ObjectStorage`/`QueueProducer`, sem serviços
+Postgres/Redis/MinIO no runner) → `pnpm build` → `cp .env.example
+.env` (mesmo comando de `docs/DEVELOPER_GUIDE.md`) → `docker compose
+config` → `docker compose build`. Nunca `docker compose up` — sem
+ambiente de integração. Qualquer passo com código de saída diferente
+de zero interrompe o job imediatamente. `permissions: contents: read`
+suficiente para todos os passos (sem publicação de artefactos/imagens).
+
+### Lint (`eslint.config.mjs`, Fase 10.2)
+
+Flat config ESLint 9 na raiz — único ponto de configuração do
+monorepo. `@eslint/js` recommended + `typescript-eslint` recommended
+(sintático, sem `parserOptions.project` — sem regras type-aware como
+`no-misused-promises`, decisão deliberada para manter o lint rápido e
+simples; ver `docs/phases/phase-10.2-devops-ci-verification-hardening.md`,
+"Limitações conhecidas"). `@next/eslint-plugin-next` (dependência
+direta, fixada a `15.1.3` — nunca só resolvida por hoisting transitivo)
+e `eslint-plugin-react-hooks` são importados diretamente, nunca via
+`FlatCompat`/`eslint-config-next` (evita um bug conhecido de "circular
+structure" com versões recentes do Next.js, e dependências
+desnecessárias). Os dois plugins são **registados sem `files`**
+(aplicam-se a qualquer caminho, incl. o do próprio `eslint.config.mjs`)
+— é assim que a deteção automática do `next build`
+(`calculateConfigForFile` sobre o caminho do ficheiro de configuração)
+confirma a presença do plugin `@next/next`, eliminando o aviso "The
+Next.js plugin was not detected"; as **regras** desses plugins
+continuam ativadas só em `apps/frontrest/web/**/*.{ts,tsx}`.
+`packages/database/src/generated/**` (cliente Prisma gerado) sempre
+ignorado. `"lint": "eslint ."` em `apps/frontrest/{api,web,workers}` e
+nas 11 `packages/*` com código real; `@typescript-eslint/no-explicit-any`
+reduzida a `warn` (5 warnings conhecidos — 2 no cliente HTTP do web,
+3 num teste e2e — dívida documentada, não corrigida por exigir tipar
+dezenas de call sites — fora do âmbito da Fase 10.2).
 
 ### Validação de documentação (`scripts/validate-docs.mjs`)
 

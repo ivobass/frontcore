@@ -1,7 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { Logger } from '@nestjs/common';
 import type { JobAttemptInfo, JobHandler, OcrProcessingJob } from '@frontcore/queue';
-import type { QueueConsumer } from '@frontcore/queue';
 import { OCR_PROCESSING_QUEUE } from '@frontcore/queue';
 import { PrismaService } from '@frontcore/database';
 import {

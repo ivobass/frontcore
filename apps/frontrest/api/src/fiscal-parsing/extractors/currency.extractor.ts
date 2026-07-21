@@ -3,7 +3,7 @@ import type { FiscalExtractor } from '../contracts';
 import type { ExtractionMatch } from '../types';
 import { FiscalField } from '../types';
 
-const CURRENCY_LABEL = /(?:moeda|currency)\s*[:.\-]?\s*([A-Z]{3})\b/i;
+const CURRENCY_LABEL = /(?:moeda|currency)\s*[:.-]?\s*([A-Z]{3})\b/i;
 
 const SYMBOL_TO_ISO: Record<string, string> = { '€': 'EUR', $: 'USD', '£': 'GBP' };
 
