@@ -376,6 +376,44 @@
   tool nova, sem alteração ao frontend; validação manual real via
   Docker/OpenRouter não foi executada nesta fase (pendente)
   (`docs/phases/phase-8.7-financial-conversation-context-foundation.md`).
+- **Fase 8.8 — Financial AI Reliability & Strict Grounding Foundation**:
+  cinco reforços de fiabilidade sobre a arquitetura já existente
+  (Fases 8.1–8.7), sem alterar nenhuma estruturalmente. Strict
+  Grounding (regras de prompt): `ASSISTANT_RULES`/`TOOL_ATTEMPT_RULES`
+  proíbem explicitamente alterar/arredondar/reformular um valor/data/
+  período/fornecedor/categoria já fornecido (distinto de "nunca
+  inventar"), resposta final só com espaço em branco tratada como
+  inconsistente. Router Hardening: vocabulário financeiro-adjacente
+  alargado (`saldo`/`extrato`/`preço`/`cobrança`), nunca a forma nua
+  "cobra" (colide com o substantivo "cobra"/serpente). Financial
+  Conversation Context Hardening: `parseFinancialConversationContext()`
+  (Fase 8.7) passa a validar também o calendário real do período e que
+  `recordedAt` é parseável, nunca aceita filtro nomeado vazio, corpo
+  todo dentro de `try`/`catch` — corrige um bug real (snapshot com
+  calendário impossível fazia `resolvePeriod()` lançar mais tarde
+  dentro de `FinancialRetrievalService.retrieve()`). Prompt Injection
+  Hardening: `sanitizeDomainText()` em `financial-context.builder.ts`,
+  aplicada a todo nome de fornecedor/categoria antes de entrar em
+  qualquer mensagem ao modelo. **Strict Grounding estrutural
+  (correção obrigatória, aplicada na mesma fase)**: as regras de prompt
+  por si só nunca são uma garantia estrutural — novo
+  `financial-grounding.validator.ts`
+  (`validateFinancialGrounding()`) é uma fronteira determinística entre
+  `FinancialRetrievalResult` e a resposta final, nunca o LLM como
+  validador: extrai diretamente do resultado tipado os valores/
+  contagens/datas reais permitidos, rejeita qualquer valor/data/contagem
+  na resposta que não pertença a esse conjunto, e exige a presença do
+  fornecedor/categoria/estado real quando a pergunta é explicitamente
+  sobre um deles (`filters` definido); uma resposta rejeitada nunca é
+  persistida — substituída por `buildFinancialContextMessage(result)`,
+  marcada `provider: 'deterministic'`, `model: 'financial-grounding-fallback'`.
+  Aplicada aos dois caminhos exigidos (retrieval direto e resposta
+  final após tool calling). Sem OCR, Fiscal Parsing, InvoiceDraft,
+  promoção, validações contabilísticas, IVA, NIF, Dashboard, Reports,
+  tools novas, providers novos, embeddings, RAG, agentes, streaming,
+  package novo, migration, alteração Prisma, ao frontend, ou ao tool
+  registry
+  (`docs/phases/phase-8.8-financial-ai-reliability-strict-grounding-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify. Inclui a criação do
   documento dedicado de entrega de infraestrutura ao responsável pela

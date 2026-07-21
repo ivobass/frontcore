@@ -13,17 +13,24 @@ import {
 import { Prisma, PrismaService } from '@frontcore/database';
 import type { AiConversation, AiMessage as AiMessageRow, AiMessageRole } from '@frontcore/database';
 import { AiProviderError } from '@frontcore/ai';
-import type { AiCompletionProvider, AiMessage } from '@frontcore/ai';
+import type { AiCompletionProvider, AiCompletionResponse, AiMessage } from '@frontcore/ai';
 import { normalizePagination, type Paginated } from '@frontcore/shared';
 import { AI_COMPLETION_PROVIDER } from './ai-completion-provider.token';
 import { AiTenantContextService } from './ai-tenant-context.service';
 import { FinancialRetrievalService } from './financial-retrieval/financial-retrieval.service';
-import { buildDeterministicReply } from './financial-retrieval/financial-context.builder';
+import type { FinancialRetrievalResult } from './financial-retrieval/financial-retrieval.service';
+import { buildDeterministicReply, buildFinancialContextMessage } from './financial-retrieval/financial-context.builder';
 import {
   buildFinancialConversationContext,
   parseFinancialConversationContext,
 } from './financial-retrieval/financial-conversation-context';
 import type { FinancialConversationContextV1 } from './financial-retrieval/financial-conversation-context';
+import {
+  validateFinancialGrounding,
+  GROUNDING_FALLBACK_PROVIDER,
+  GROUNDING_FALLBACK_MODEL,
+} from './financial-retrieval/financial-grounding.validator';
+import type { FinancialGroundingFailureReason } from './financial-retrieval/financial-grounding.validator';
 import { AiToolOrchestratorService } from './tools/ai-tool-orchestrator.service';
 import { classifyMessageRelevance } from './router/financial-relevance.classifier';
 import { loadAiChatConfig, type AiChatConfig } from './ai-chat.config';
@@ -225,15 +232,17 @@ export class AiChatService {
       } catch (error) {
         throw this.mapProviderError(error);
       }
+      // Fase 8.8 — Strict Grounding: fronteira determinística entre
+      // `retrievalResult` (dados reais) e a resposta final do provider,
+      // nunca o próprio LLM a validar-se. Uma resposta que altere um
+      // valor/data/fornecedor/categoria/estado, ou acrescente uma
+      // alegação financeira sem suporte, nunca é persistida como veio —
+      // `buildGroundedReply()` decide entre o texto real (só quando
+      // passa `validateFinancialGrounding()`) e um fallback determinístico
+      // construído exclusivamente a partir de `retrievalResult`.
       return this.persistAssistantReply(
         conversation.id,
-        {
-          content: response.content,
-          provider: response.provider,
-          model: response.model,
-          inputTokens: response.usage?.inputTokens,
-          outputTokens: response.usage?.outputTokens,
-        },
+        this.buildGroundedReply(retrievalResult, response),
         buildFinancialConversationContext(retrievalResult),
       );
     }
@@ -456,6 +465,55 @@ export class AiChatService {
       conversationId,
       message: this.toMessageView(assistantMessage),
     };
+  }
+
+  /**
+   * Fase 8.8 — Strict Grounding: decide se `response.content` (texto
+   * livre do provider) pode ser confiado como a resposta financeira
+   * final. `validateFinancialGrounding()` é a única fonte de verdade
+   * (determinística, nunca o LLM) — qualquer valor/data/fornecedor/
+   * categoria/estado na resposta que não exista em `result`, ou a
+   * ausência do fornecedor/categoria/estado explicitamente pedido,
+   * rejeita a resposta. Quando rejeitada, o texto adulterado nunca é
+   * persistido nem apresentado — em vez disso, `buildFinancialContextMessage(result)`
+   * (a mesma renderização determinística já enviada ao provider como
+   * dados, Fase 8.1) é usada diretamente como resposta, marcada com
+   * `GROUNDING_FALLBACK_MODEL` (nunca confundível com uma resposta real
+   * numa auditoria, mesma disciplina de `DETERMINISTIC_MODEL`).
+   */
+  private buildGroundedReply(
+    result: Extract<FinancialRetrievalResult, { kind: 'DATA' }>,
+    response: AiCompletionResponse,
+  ): AssistantReply {
+    const grounding = validateFinancialGrounding(response.content, result);
+    if (grounding.grounded) {
+      return {
+        content: response.content,
+        provider: response.provider,
+        model: response.model,
+        inputTokens: response.usage?.inputTokens,
+        outputTokens: response.usage?.outputTokens,
+      };
+    }
+
+    this.logGroundingFailure(response, grounding.reason);
+    return {
+      content: buildFinancialContextMessage(result),
+      provider: GROUNDING_FALLBACK_PROVIDER,
+      model: GROUNDING_FALLBACK_MODEL,
+    };
+  }
+
+  /**
+   * Nunca expõe o texto adulterado do provider a mais ninguém além dos
+   * logs do servidor (auditoria interna, nunca ao cliente) — mesma
+   * disciplina de `mapProviderError()`, que também regista detalhe
+   * interno só aqui.
+   */
+  private logGroundingFailure(response: AiCompletionResponse, reason: FinancialGroundingFailureReason): void {
+    this.logger.warn(
+      `Resposta financeira rejeitada por falha de Strict Grounding (reason=${reason}, provider=${response.provider}, model=${response.model}) — fallback determinístico usado em vez do texto do provider.`,
+    );
   }
 
   /**

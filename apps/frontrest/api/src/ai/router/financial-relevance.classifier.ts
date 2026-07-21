@@ -8,16 +8,28 @@ function normalize(text: string): string {
 }
 
 /**
- * Vocabulário financeiro-adjacente (Fase 8.4) — deliberadamente
- * generoso: um falso positivo aqui só significa que a mensagem segue
- * pelo pipeline financeiro seguro (retrieval/tools/fallback
- * determinístico, nunca confiando em texto livre sem `DATA`); um falso
- * negativo é o risco real (deixaria uma pergunta financeira ser tratada
- * como geral). Por isso o vocabulário pende sempre para o lado mais
- * inclusivo — nunca o inverso.
+ * Vocabulário financeiro-adjacente (Fase 8.4, alargado na Fase 8.8 —
+ * Router Hardening) — deliberadamente generoso: um falso positivo aqui
+ * só significa que a mensagem segue pelo pipeline financeiro seguro
+ * (retrieval/tools/fallback determinístico, nunca confiando em texto
+ * livre sem `DATA`); um falso negativo é o risco real (deixaria uma
+ * pergunta financeira ser tratada como geral, sem grounding nenhum). Por
+ * isso o vocabulário pende sempre para o lado mais inclusivo — nunca o
+ * inverso, mesmo quando uma palavra (ex. "saldo", "preço") tem também um
+ * uso comum não financeiro; a ambiguidade resolve-se sempre a favor do
+ * caminho financeiro seguro, nunca do caminho geral sem dados.
+ *
+ * Fase 8.8 — `saldo`/`extrato`/`preço`/`cobrança`/`cobrar`/`cobrado`
+ * adicionados a partir de fraseações financeiras plausíveis que o
+ * conjunto anterior não cobria ("Qual é o saldo?", "Mostra o extrato
+ * deste mês", "Qual foi o preço mais caro?", "Quanto foi cobrado?",
+ * "Há alguma cobrança pendente?") — nunca a forma nua "cobra" (3ª
+ * pessoa de "cobrar"), que colide com o substantivo comum "cobra"
+ * (serpente); as formas incluídas (`cobranca`/`cobrar`/`cobrado`/`cobrada`)
+ * cobrem o mesmo vocabulário financeiro sem essa colisão.
  */
 const FINANCIAL_ADJACENT_PATTERN =
-  /\bfatura(s)?\b|\bpagament(o|os)\b|\bpagar\b|\bpago(s)?\b|\bpaga(s)?\b|\bpaguei\b|\bgastei\b|\bgasto(s)?\b|\bgastar\b|\bgastamos\b|\bdespesa(s)?\b|\bfornecedor(es)?\b|\bcategoria(s)?\b|\beuro(s)?\b|€|\bvalor(es)?\b|\btotal(is)?\b|\bcusto(s)?\b|\bdinheiro\b|\bdivida\b|\bvencida(s)?\b|\bpendente(s)?\b|\bcancelada(s)?\b|\bfinanceir[oa]\b|\bresumo\b|\bmedia\b|\borcamento\b|\breceita(s)?\b/;
+  /\bfatura(s)?\b|\bpagament(o|os)\b|\bpagar\b|\bpago(s)?\b|\bpaga(s)?\b|\bpaguei\b|\bgastei\b|\bgasto(s)?\b|\bgastar\b|\bgastamos\b|\bdespesa(s)?\b|\bfornecedor(es)?\b|\bcategoria(s)?\b|\beuro(s)?\b|€|\bvalor(es)?\b|\btotal(is)?\b|\bcusto(s)?\b|\bdinheiro\b|\bdivida\b|\bvencida(s)?\b|\bpendente(s)?\b|\bcancelada(s)?\b|\bfinanceir[oa]\b|\bresumo\b|\bmedia\b|\borcamento\b|\breceita(s)?\b|\bsaldo(s)?\b|\bextrato(s)?\b|\bpreco(s)?\b|\bcobranca(s)?\b|\bcobrar\b|\bcobrado(s)?\b|\bcobrada(s)?\b/;
 
 /**
  * Classificação híbrida (Fase 8.4) — determinística e defensiva, nunca

@@ -11,12 +11,51 @@ const STATUS_LABELS: Record<string, string> = {
   CANCELLED: 'Cancelada',
 };
 
-function translateStatus(status: string): string {
+/** Exportado (Fase 8.8) para `financial-grounding.validator.ts` — mesma tradução, nunca uma segunda cópia. */
+export function translateStatus(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }
 
 const SUPPORTED_QUERIES_HINT =
   'resumo financeiro, valores por pagar, valores por estado, despesas por categoria, principais fornecedores, evolução mensal';
+
+/** Nunca um "nome" desenhado para dominar o prompt — generoso para qualquer nome real de fornecedor/categoria, sem ser ilimitado. */
+const MAX_DOMAIN_TEXT_LENGTH = 200;
+
+/**
+ * Neutraliza texto de domínio não confiável (Fase 8.8, Prompt Injection
+ * Hardening) — nomes de fornecedor/categoria são dados escritos por
+ * qualquer utilizador `MANAGER` da organização (`SuppliersService`/
+ * `ExpenseCategoriesService`), nunca gerados por este código, por isso
+ * tratados sempre como conteúdo não confiável antes de entrarem na
+ * mensagem `system`/`tool` enviada ao modelo. Remove quebras de linha e
+ * caracteres de controlo — a técnica estrutural mais comum para simular
+ * uma nova instrução/parágrafo dentro do que devia ser só um valor — e
+ * limita o comprimento. Nunca uma filtragem semântica de palavras-chave
+ * (frágil, falsa sensação de segurança); esta é só a camada estrutural,
+ * reforçada em paralelo pela regra explícita em `ASSISTANT_RULES`/
+ * `TOOL_ATTEMPT_RULES` (`ai-tenant-context.service.ts`/
+ * `ai-tool-orchestrator.service.ts`) que instrui o modelo a nunca tratar
+ * estes nomes como instruções — defesa em profundidade, nunca uma única
+ * camada.
+ */
+/** Exportado (Fase 8.8) para `financial-grounding.validator.ts` — mesma sanitização, nunca uma segunda cópia. */
+export function sanitizeDomainText(text: string): string {
+  // Substitui por espaço (nunca remove sem separador) — remover sem
+  // substituir colaria as duas palavras à volta da quebra de linha
+  // original ("Hetzner" + "IGNORA..." viraria "HetznerIGNORA...",
+  // continuando a ler-se como uma frase só, o oposto do que se quer).
+  const withoutControlChars = Array.from(text)
+    .map((char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return code <= 0x1f || (code >= 0x7f && code <= 0x9f) ? ' ' : char;
+    })
+    .join('');
+  const collapsedWhitespace = withoutControlChars.replace(/\s+/g, ' ').trim();
+  return collapsedWhitespace.length > MAX_DOMAIN_TEXT_LENGTH
+    ? `${collapsedWhitespace.slice(0, MAX_DOMAIN_TEXT_LENGTH)}…`
+    : collapsedWhitespace;
+}
 
 /**
  * Constrói o bloco de dados da mensagem `system` a partir de um resultado
@@ -76,7 +115,7 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
       } else {
         lines.push(
           `Por categoria: ${data.byCategory
-            .map((row) => `${row.categoryName}: ${row.count} fatura(s), ${row.totalAmount} EUR`)
+            .map((row) => `${sanitizeDomainText(row.categoryName)}: ${row.count} fatura(s), ${row.totalAmount} EUR`)
             .join('; ')}.`,
         );
       }
@@ -88,7 +127,7 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
       } else {
         lines.push(
           `Principais fornecedores: ${data.topSuppliers
-            .map((row) => `${row.supplierName}: ${row.count} fatura(s), ${row.totalAmount} EUR`)
+            .map((row) => `${sanitizeDomainText(row.supplierName)}: ${row.count} fatura(s), ${row.totalAmount} EUR`)
             .join('; ')}.`,
         );
       }
@@ -114,7 +153,7 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
           `Maiores faturas: ${data.invoices
             .map(
               (invoice) =>
-                `${invoice.issueDate} — ${invoice.supplierName} (${invoice.categoryName}, ${translateStatus(invoice.status)}): ${invoice.totalAmount} EUR`,
+                `${invoice.issueDate} — ${sanitizeDomainText(invoice.supplierName)} (${sanitizeDomainText(invoice.categoryName)}, ${translateStatus(invoice.status)}): ${invoice.totalAmount} EUR`,
             )
             .join('; ')}.`,
         );
@@ -180,10 +219,10 @@ function buildFiltersLine(filters: Extract<FinancialRetrievalResult, { kind: 'DA
     parts.push(`estado ${translateStatus(filters.status)}`);
   }
   if (filters.supplierName) {
-    parts.push(`fornecedor ${filters.supplierName}`);
+    parts.push(`fornecedor ${sanitizeDomainText(filters.supplierName)}`);
   }
   if (filters.categoryName) {
-    parts.push(`categoria ${filters.categoryName}`);
+    parts.push(`categoria ${sanitizeDomainText(filters.categoryName)}`);
   }
   if (parts.length === 0) {
     return null;

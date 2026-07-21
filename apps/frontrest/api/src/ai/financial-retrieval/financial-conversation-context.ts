@@ -18,6 +18,9 @@ const KNOWN_INTENTS = new Set<FinancialIntentType>([
 
 const KNOWN_STATUSES = new Set<string>(['PENDING', 'PAID', 'OVERDUE', 'CANCELLED']);
 
+/** Forma `YYYY-MM-DD` — mesma convenção de `ResolvedPeriod`/`resolvePeriod()` (`dashboard/period.util.ts`). */
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * Snapshot versionado (Fase 8.7) da última intenção/período/filtros
  * financeiros resolvidos com sucesso (`kind === 'DATA'`) numa conversa —
@@ -74,38 +77,76 @@ export function buildFinancialConversationContext(
  * desconhecida (maior ou menor que 1): esta fase não faz nenhuma
  * migração automática entre versões, decisão explícita para uma fase
  * futura caso uma v2 venha a existir.
+ *
+ * Fase 8.8 — Financial Conversation Context Hardening: validação
+ * reforçada (forma de data ISO real e calendário válido em
+ * `period.from`/`period.to`, `recordedAt` parseável como data, campos
+ * de filtro nunca strings vazias) e todo o corpo dentro de um
+ * `try`/`catch` — nunca lança, mesmo perante um valor hostil ou
+ * inesperado (ex. um getter que lança ao ser lido), garantia absoluta
+ * exigida por esta fase, não só "não lança para os casos já
+ * previstos". Nunca uma correção de arquitetura — mesma assinatura,
+ * mesmo contrato, mesmo comportamento para todo o input já válido
+ * antes desta fase.
  */
 export function parseFinancialConversationContext(
   raw: Prisma.JsonValue | null | undefined,
 ): FinancialConversationContextV1 | null {
-  if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
-    return null;
-  }
-  const value = raw as Record<string, unknown>;
+  try {
+    if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
+      return null;
+    }
+    const value = raw as Record<string, unknown>;
 
-  if (value.version !== FINANCIAL_CONTEXT_VERSION) {
-    return null;
-  }
-  if (typeof value.intent !== 'string' || !KNOWN_INTENTS.has(value.intent as FinancialIntentType)) {
-    return null;
-  }
-  if (!isValidPeriod(value.period)) {
-    return null;
-  }
-  if (!isValidFilters(value.filters)) {
-    return null;
-  }
-  if (typeof value.recordedAt !== 'string') {
-    return null;
-  }
+    if (value.version !== FINANCIAL_CONTEXT_VERSION) {
+      return null;
+    }
+    if (typeof value.intent !== 'string' || !KNOWN_INTENTS.has(value.intent as FinancialIntentType)) {
+      return null;
+    }
+    if (!isValidPeriod(value.period)) {
+      return null;
+    }
+    if (!isValidFilters(value.filters)) {
+      return null;
+    }
+    if (typeof value.recordedAt !== 'string' || Number.isNaN(Date.parse(value.recordedAt))) {
+      return null;
+    }
 
-  return {
-    version: FINANCIAL_CONTEXT_VERSION,
-    intent: value.intent as FinancialIntentType,
-    period: value.period as { from: string; to: string },
-    filters: value.filters as ResolvedFinancialFilters,
-    recordedAt: value.recordedAt,
-  };
+    return {
+      version: FINANCIAL_CONTEXT_VERSION,
+      intent: value.intent as FinancialIntentType,
+      period: value.period as { from: string; to: string },
+      filters: value.filters as ResolvedFinancialFilters,
+      recordedAt: value.recordedAt,
+    };
+  } catch {
+    // Nunca lançar por um snapshot inválido/hostil — tratado exatamente
+    // como "sem contexto" (mesmo caminho de fallback para reanálise por
+    // texto, ver `FinancialRetrievalService.retrieve()`).
+    return null;
+  }
+}
+
+/**
+ * `from`/`to` válidos exigem forma `YYYY-MM-DD` **e** calendário real
+ * (nunca só a forma) — um valor como `"2026-13-45"` tem a forma certa
+ * mas não é uma data real; aceitá-lo aqui deixaria
+ * `resolvePeriod()` (`dashboard/period.util.ts`, chamado por
+ * `FinancialRetrievalService` ao recuperar o período do snapshot)
+ * lançar mais tarde, fora deste ponto de validação — nunca reutiliza
+ * `resolvePeriod()` diretamente (essa lança `BadRequestException`,
+ * incompatível com o contrato "nunca lança" deste módulo); reimplementa
+ * só o mesmo teste de calendário, como predicado puro.
+ */
+function isValidIsoDateString(value: string): boolean {
+  if (!ISO_DATE_PATTERN.test(value)) {
+    return false;
+  }
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 function isValidPeriod(value: unknown): value is { from: string; to: string } {
@@ -113,7 +154,28 @@ function isValidPeriod(value: unknown): value is { from: string; to: string } {
     return false;
   }
   const period = value as Record<string, unknown>;
-  return typeof period.from === 'string' && typeof period.to === 'string';
+  if (
+    typeof period.from !== 'string' ||
+    typeof period.to !== 'string' ||
+    !isValidIsoDateString(period.from) ||
+    !isValidIsoDateString(period.to)
+  ) {
+    return false;
+  }
+  // `from > to` nunca é um período válido — comparação de string é
+  // suficiente e correta aqui (forma `YYYY-MM-DD`, largura fixa,
+  // já confirmada acima por `isValidIsoDateString()`, ordena
+  // lexicograficamente igual à ordem cronológica real). Sem esta
+  // verificação, um snapshot assim ainda chegaria a
+  // `resolvePeriod(previousContext.period.from, previousContext.period.to)`
+  // (`FinancialRetrievalService`), que lança `BadRequestException`
+  // exatamente por este motivo — nunca deixar chegar lá.
+  return period.from <= period.to;
+}
+
+/** Nunca `undefined` (campo ausente, válido) nem uma string vazia/só espaços (sempre inválida — nunca um filtro "definido mas vazio"). */
+function isValidOptionalNonEmptyString(value: unknown): boolean {
+  return value === undefined || (typeof value === 'string' && value.trim().length > 0);
 }
 
 function isValidFilters(value: unknown): value is ResolvedFinancialFilters {
@@ -125,5 +187,5 @@ function isValidFilters(value: unknown): value is ResolvedFinancialFilters {
     return false;
   }
   const optionalStringFields: (keyof ResolvedFinancialFilters)[] = ['supplierId', 'supplierName', 'categoryId', 'categoryName'];
-  return optionalStringFields.every((field) => filters[field] === undefined || typeof filters[field] === 'string');
+  return optionalStringFields.every((field) => isValidOptionalNonEmptyString(filters[field]));
 }

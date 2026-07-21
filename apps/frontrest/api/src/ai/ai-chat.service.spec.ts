@@ -432,6 +432,31 @@ describe('AiChatService', () => {
       expect(financialRetrieval.retrieve).toHaveBeenCalledWith('org-1', 'Quanto gastei?', [], undefined, null);
     });
 
+    it('Fase 8.8 — um financialContext com period de calendário impossível (forma certa, data inválida) nunca crasha o pedido — tratado como null, resposta normal', async () => {
+      const { service, prisma, provider, financialRetrieval } = buildService({ retrievalResult: dataResult });
+      prisma.aiConversation.findFirst.mockResolvedValue({
+        id: 'conv-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+        financialContext: {
+          version: 1,
+          intent: 'FINANCIAL_SUMMARY',
+          period: { from: '2026-13-45', to: '2026-13-45' },
+          filters: {},
+          recordedAt: '2026-07-16T10:00:00.000Z',
+        },
+      });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({ content: 'resposta', provider: 'mock', model: 'mock-echo-1' });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockResolvedValue({ id: 'msg-2', role: 'ASSISTANT', content: 'resposta', createdAt: new Date() });
+
+      const result = await service.sendMessage('org-1', 'user-1', { message: 'Quanto gastei?', conversationId: 'conv-1' });
+
+      expect(result.message.content).toBe('resposta');
+      expect(financialRetrieval.retrieve).toHaveBeenCalledWith('org-1', 'Quanto gastei?', [], undefined, null);
+    });
+
     it('UNSUPPORTED + fallback determinístico (sem DATA): nunca escreve financialContext — o último snapshot bem-sucedido permanece', async () => {
       const { service, prisma } = buildService({ retrievalResult: { kind: 'UNSUPPORTED' } });
       prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1', financialContext: null });
@@ -520,6 +545,115 @@ describe('AiChatService', () => {
 
       // conv-B nunca vê o snapshot de conv-A, mesmo do mesmo utilizador/organização.
       expect(financialRetrieval.retrieve).toHaveBeenLastCalledWith('org-1', 'E os fornecedores?', [], undefined, null);
+    });
+  });
+
+  describe('Fase 8.8 — Strict Grounding (fronteira determinística entre FinancialRetrievalResult e a resposta final)', () => {
+    const groundedDataResult: FinancialRetrievalResult = {
+      kind: 'DATA',
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' } },
+      filters: {},
+    };
+    const filteredBySupplierResult: FinancialRetrievalResult = {
+      kind: 'DATA',
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' } },
+      filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
+    };
+    const filteredByCategoryResult: FinancialRetrievalResult = {
+      kind: 'DATA',
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' } },
+      filters: { categoryId: 'cat-1', categoryName: 'Hosting' },
+    };
+    const filteredByStatusResult: FinancialRetrievalResult = {
+      kind: 'DATA',
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '316.00', averageAmount: '158.00' } },
+      filters: { status: 'PAID' },
+    };
+    const largestInvoicesResult: FinancialRetrievalResult = {
+      kind: 'DATA',
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      data: { intent: 'LARGEST_INVOICES', invoices: [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '300.00' }] },
+      filters: {},
+    };
+
+    async function runDataPath(retrievalResult: FinancialRetrievalResult, providerContent: string) {
+      const { service, prisma, provider } = buildService({ retrievalResult });
+      prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1', financialContext: null });
+      prisma.aiMessage.findMany.mockResolvedValue([]);
+      (provider.complete as jest.Mock).mockResolvedValue({ content: providerContent, provider: 'mock', model: 'mock-echo-1' });
+      prisma.$transaction.mockImplementation((cb: (tx: MockPrismaService) => unknown) => cb(prisma));
+      prisma.aiMessage.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: 'msg-2', createdAt: new Date(), ...data }),
+      );
+
+      const result = await service.sendMessage('org-1', 'user-1', { message: 'Quanto gastei este mês?' });
+      const assistantCall = (prisma.aiMessage.create as jest.Mock).mock.calls.find(
+        ([arg]: [{ data: { role: string } }]) => arg.data.role === 'ASSISTANT',
+      );
+      return { result, assistantData: assistantCall[0].data as Record<string, unknown> };
+    }
+
+    it('resposta válida (grounded) continua a ser persistida tal como veio do provider', async () => {
+      const { result, assistantData } = await runDataPath(groundedDataResult, 'Este mês gastou 370,00 EUR em 4 faturas ativas.');
+
+      expect(result.message.content).toBe('Este mês gastou 370,00 EUR em 4 faturas ativas.');
+      expect(assistantData.provider).toBe('mock');
+      expect(assistantData.model).toBe('mock-echo-1');
+    });
+
+    it('total diferente: um valor que os dados nunca continham nunca é persistido — cai para o fallback determinístico de grounding', async () => {
+      const { result, assistantData } = await runDataPath(groundedDataResult, 'Este mês gastou 999,99 EUR.');
+
+      expect(result.message.content).not.toContain('999,99');
+      expect(result.message.content).toContain('370.00 EUR');
+      expect(assistantData.provider).toBe('deterministic');
+      expect(assistantData.model).toBe('financial-grounding-fallback');
+    });
+
+    it('período diferente / data inventada: uma data ISO fora do período real nunca é persistida', async () => {
+      const { result } = await runDataPath(groundedDataResult, 'Período consultado: 2026-08-01 a 2026-08-31.');
+
+      expect(result.message.content).not.toContain('2026-08-01');
+      expect(result.message.content).toContain('2026-07-01');
+    });
+
+    it('fornecedor inventado: substituir o fornecedor real pedido explicitamente nunca é persistido', async () => {
+      const { result } = await runDataPath(filteredBySupplierResult, 'Com a ACME Corp, gastou 354,00 EUR este mês.');
+
+      expect(result.message.content).not.toContain('ACME Corp');
+      expect(result.message.content).toContain('Hetzner');
+    });
+
+    it('categoria inventada: substituir a categoria real pedida explicitamente nunca é persistida', async () => {
+      const { result } = await runDataPath(filteredByCategoryResult, 'Em Marketing, gastou 354,00 EUR este mês.');
+
+      expect(result.message.content).not.toContain('Marketing');
+      expect(result.message.content).toContain('Hosting');
+    });
+
+    it('estado diferente: trocar o estado real pedido explicitamente por outro nunca é persistido', async () => {
+      const { result } = await runDataPath(filteredByStatusResult, 'Tens 2 faturas vencidas, no total de 316,00 EUR.');
+
+      expect(result.message.content).not.toContain('vencidas');
+      expect(result.message.content).toContain('Paga');
+    });
+
+    it('data inventada (LARGEST_INVOICES): uma data de fatura fora dos dados reais nunca é persistida', async () => {
+      const { result } = await runDataPath(largestInvoicesResult, 'A maior fatura foi em 2026-01-15, da Hetzner, 300,00 EUR.');
+
+      expect(result.message.content).not.toContain('2026-01-15');
+      expect(result.message.content).toContain('2026-07-10');
+    });
+
+    it('alegação financeira adicional não presente nos dados nunca é persistida', async () => {
+      const { result } = await runDataPath(groundedDataResult, 'Este mês gastou 370,00 EUR. Além disso, tem 50,00 EUR em juros de mora.');
+
+      expect(result.message.content).not.toContain('juros de mora');
+      expect(result.message.content).not.toContain('50,00');
     });
   });
 

@@ -116,4 +116,82 @@ describe('parseFinancialConversationContext', () => {
     const snapshot = buildFinancialConversationContext(COMPARISON_RESULT, NOW);
     expect(parseFinancialConversationContext(snapshot as never)).toEqual(snapshot);
   });
+
+  describe('Fase 8.8 — Financial Conversation Context Hardening', () => {
+    it('devolve null para period com a forma certa mas calendário impossível (ex. "2026-13-45") — nunca deixa chegar a resolvePeriod(), que lançaria', () => {
+      const snapshot = buildFinancialConversationContext(DATA_RESULT, NOW);
+      expect(
+        parseFinancialConversationContext({ ...snapshot, period: { from: '2026-13-45', to: '2026-13-45' } } as never),
+      ).toBeNull();
+      expect(
+        parseFinancialConversationContext({ ...snapshot, period: { from: '2026-02-30', to: '2026-02-30' } } as never),
+      ).toBeNull();
+    });
+
+    it('devolve null para period com uma string que não tem sequer forma de data', () => {
+      const snapshot = buildFinancialConversationContext(DATA_RESULT, NOW);
+      expect(
+        parseFinancialConversationContext({ ...snapshot, period: { from: 'not-a-date', to: 'also-not' } } as never),
+      ).toBeNull();
+    });
+
+    it('devolve null para recordedAt que não é parseável como data, mesmo sendo uma string', () => {
+      const snapshot = buildFinancialConversationContext(DATA_RESULT, NOW);
+      expect(parseFinancialConversationContext({ ...snapshot, recordedAt: 'nao-e-uma-data' } as never)).toBeNull();
+    });
+
+    it('devolve null quando um campo de filtro nomeado é uma string vazia ou só espaço — nunca um filtro "definido mas vazio"', () => {
+      const snapshot = buildFinancialConversationContext(DATA_RESULT, NOW);
+      expect(parseFinancialConversationContext({ ...snapshot, filters: { supplierName: '' } } as never)).toBeNull();
+      expect(parseFinancialConversationContext({ ...snapshot, filters: { supplierId: '   ' } } as never)).toBeNull();
+      expect(parseFinancialConversationContext({ ...snapshot, filters: { categoryName: '' } } as never)).toBeNull();
+      expect(parseFinancialConversationContext({ ...snapshot, filters: { categoryId: '' } } as never)).toBeNull();
+    });
+
+    it('nunca lança perante um valor hostil cuja simples leitura de propriedade lança — devolve null (garantia "nunca lançar", não só "nos casos previstos")', () => {
+      const hostileValue = {
+        version: 1,
+        get intent(): never {
+          throw new Error('leitura hostil');
+        },
+      };
+
+      expect(() => parseFinancialConversationContext(hostileValue as never)).not.toThrow();
+      expect(parseFinancialConversationContext(hostileValue as never)).toBeNull();
+    });
+
+    it('um snapshot válido com datas de calendário reais (incl. ano bissexto) continua aceite — a validação mais rigorosa nunca rejeita datas reais', () => {
+      const snapshot = buildFinancialConversationContext(DATA_RESULT, NOW);
+      const leapYearSnapshot = { ...snapshot, period: { from: '2024-02-29', to: '2024-02-29' } };
+      expect(parseFinancialConversationContext(leapYearSnapshot as never)).toEqual(leapYearSnapshot);
+    });
+
+    describe('correção — from > to nunca é um período válido', () => {
+      it('aceita from < to (o caso normal)', () => {
+        const snapshot = buildFinancialConversationContext(DATA_RESULT, NOW);
+        const validSnapshot = { ...snapshot, period: { from: '2026-07-01', to: '2026-07-31' } };
+        expect(parseFinancialConversationContext(validSnapshot as never)).toEqual(validSnapshot);
+      });
+
+      it('aceita from == to (um período de um único dia, válido)', () => {
+        const snapshot = buildFinancialConversationContext(DATA_RESULT, NOW);
+        const singleDaySnapshot = { ...snapshot, period: { from: '2026-07-15', to: '2026-07-15' } };
+        expect(parseFinancialConversationContext(singleDaySnapshot as never)).toEqual(singleDaySnapshot);
+      });
+
+      it('devolve null quando from > to — nunca deixa chegar a resolvePeriod(), que lançaria BadRequestException', () => {
+        const snapshot = buildFinancialConversationContext(DATA_RESULT, NOW);
+        expect(
+          parseFinancialConversationContext({ ...snapshot, period: { from: '2026-07-31', to: '2026-07-01' } } as never),
+        ).toBeNull();
+      });
+
+      it('devolve null quando from > to mesmo com só um dia de diferença', () => {
+        const snapshot = buildFinancialConversationContext(DATA_RESULT, NOW);
+        expect(
+          parseFinancialConversationContext({ ...snapshot, period: { from: '2026-07-16', to: '2026-07-15' } } as never),
+        ).toBeNull();
+      });
+    });
+  });
 });

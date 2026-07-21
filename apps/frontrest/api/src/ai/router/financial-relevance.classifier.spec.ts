@@ -108,4 +108,24 @@ describe('classifyMessageRelevance', () => {
       expect(result).toBe('GENERAL');
     });
   });
+
+  describe('Fase 8.8 — Router Hardening (vocabulário financeiro-adjacente alargado)', () => {
+    it.each([
+      'Qual é o saldo da empresa?',
+      'Podes mostrar o extrato deste mês?',
+      'Qual foi o preço mais caro pago a um fornecedor?',
+      'Quanto foi cobrado este mês?',
+      'Há alguma cobrança pendente?',
+      'Fizeram-me uma cobrança errada.',
+    ])('classifica "%s" como FINANCIAL — vocabulário novo (saldo/extrato/preço/cobrança)', (message) => {
+      expect(classifyMessageRelevance(message, [])).toBe('FINANCIAL');
+    });
+
+    it('a forma nua "cobra" (colide com o substantivo "cobra", serpente) nunca foi adicionada — só as formas inequívocas (cobrar/cobrança/cobrado/cobrada)', () => {
+      // Confirma a decisão de desenho documentada em financial-relevance.classifier.ts:
+      // "cobra" sozinha não entra no vocabulário, precisamente para nunca
+      // classificar como financeira uma frase como esta.
+      expect(classifyMessageRelevance('Vi uma cobra no jardim ontem.', [])).toBe('GENERAL');
+    });
+  });
 });
