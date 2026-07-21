@@ -489,11 +489,12 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
     );
 
     const promoteTrigger = await screen.findByRole('button', { name: 'Promover a fatura' });
+    await waitFor(() => expect(promoteTrigger).toBeEnabled());
     fireEvent.click(promoteTrigger);
 
     expect(promoteInvoiceDraft).not.toHaveBeenCalled();
 
-    const confirmButton = screen.getByRole('button', { name: 'Promover' });
+    const confirmButton = await screen.findByRole('button', { name: 'Promover' });
     fireEvent.click(confirmButton);
 
     await waitFor(() => expect(promoteInvoiceDraft).toHaveBeenCalledWith('token', 'draft-1'));
