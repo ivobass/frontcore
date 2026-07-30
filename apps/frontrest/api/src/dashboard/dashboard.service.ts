@@ -2,6 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService, Prisma, InvoiceStatus } from '@frontcore/database';
 import type { FinancialSummaryQueryDto } from './dto/financial-summary-query.dto';
 import { resolvePeriod } from './period.util';
+import { buildFinancialInsights } from '../financial-insights/financial-insights.util';
+import type { FinancialInsights } from '../financial-insights/financial-insights.types';
+import { monthlyTrendAnalysis } from '../financial-analysis/analyses/monthly-trend.analysis';
+import { relativeConcentrationAnalysis } from '../financial-analysis/analyses/relative-concentration.analysis';
+import { runFinancialAnalyses } from '../financial-analysis/financial-analysis.engine';
+import type { FinancialAnalysisEngineOutput } from '../financial-analysis/types';
 
 /** Quantos fornecedores aparecem em `topSuppliers` — pequeno e explícito, sem paginação (Fase 7). */
 const TOP_SUPPLIERS_LIMIT = 5;
@@ -32,6 +38,21 @@ export interface LargestInvoice {
   status: InvoiceStatus;
   totalAmount: string;
 }
+
+/**
+ * Forma de `GET /dashboard/financial-analysis` (Fase 8.11) — `insights`
+ * são os factos (Fase 8.9, `FinancialInsights`, inalterado), `analysis`
+ * são as conclusões determinísticas do motor (Fase 8.10,
+ * `FinancialAnalysisEngineOutput`); os dois contratos permanecem
+ * separados dentro desta resposta, nunca fundidos num terceiro.
+ */
+export interface DashboardFinancialAnalysisResponse {
+  insights: FinancialInsights;
+  analysis: FinancialAnalysisEngineOutput;
+}
+
+/** Análises registadas nesta fundação (Fase 8.10) — seleção explícita, nunca todas as que existirem no módulo. */
+const REGISTERED_FINANCIAL_ANALYSES = [monthlyTrendAnalysis, relativeConcentrationAnalysis];
 
 /** Quantas faturas aparecem em `getLargestInvoices()` por omissão — pequeno e explícito, sem paginação (mesma disciplina de `TOP_SUPPLIERS_LIMIT`). */
 const LARGEST_INVOICES_LIMIT = 5;
@@ -223,6 +244,30 @@ export class DashboardService {
         totalAmount: decimalToString(invoice.totalAmount),
       })),
     };
+  }
+
+  /**
+   * Composição integral do Dashboard Financial Analysis (Fase 8.11) —
+   * único ponto onde `FinancialInsights` é construído e o motor
+   * (Fase 8.10) é executado para este endpoint; `DashboardController`
+   * nunca faz nada disto, só delega aqui. `getFinancialSummary()`/
+   * `getLargestInvoices()` são independentes entre si, por isso em
+   * paralelo (`Promise.all`), mesma disciplina de `GET
+   * /dashboard/financial-insights`. Seleção explícita e fechada das
+   * análises registadas (`REGISTERED_FINANCIAL_ANALYSES`) — nunca
+   * "todas as que existirem" no módulo `financial-analysis/`.
+   */
+  async getFinancialAnalysis(
+    organizationId: string,
+    query: FinancialSummaryQueryDto & FinancialSummaryFilters,
+  ): Promise<DashboardFinancialAnalysisResponse> {
+    const [summary, largest] = await Promise.all([
+      this.getFinancialSummary(organizationId, query),
+      this.getLargestInvoices(organizationId, query),
+    ]);
+    const insights = buildFinancialInsights(summary, largest.invoices);
+    const analysis = runFinancialAnalyses(REGISTERED_FINANCIAL_ANALYSES, insights);
+    return { insights, analysis };
   }
 
   private async lookupCategoryNames(

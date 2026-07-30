@@ -18,11 +18,12 @@ import {
   Button,
 } from '@frontcore/ui';
 import { useSession } from '../../../lib/session-context';
-import { getFinancialSummary, getFinancialInsights } from '../../../lib/dashboard';
-import type { FinancialDashboardSummary, FinancialInsights, InvoiceStatus } from '../../../lib/dashboard';
+import { getFinancialSummary, getDashboardFinancialAnalysis } from '../../../lib/dashboard';
+import type { FinancialDashboardSummary, DashboardFinancialAnalysisResponse, InvoiceStatus } from '../../../lib/dashboard';
 import { formatCurrency, formatDate } from '../../../lib/format';
 import { FinancialSummaryCards } from './financial-summary-cards';
 import { ProportionalBarList } from './proportional-bar-list';
+import { FinancialAnalysisSection } from './financial-analysis-section';
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
   PENDING: 'Pendente',
@@ -57,7 +58,7 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState(defaultRange);
 
   const [summary, setSummary] = useState<FinancialDashboardSummary | null>(null);
-  const [insights, setInsights] = useState<FinancialInsights | null>(null);
+  const [financialAnalysis, setFinancialAnalysis] = useState<DashboardFinancialAnalysisResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,21 +69,23 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
 
-    // Fase 8.9 — resumo e insights são pedidos independentes (nenhum
-    // depende do resultado do outro), por isso em paralelo via
-    // Promise.all, nunca sequencialmente. Correção pós-revisão: uma
-    // falha em getFinancialInsights() (ex. deploy faseado onde a API
-    // ainda não expõe este endpoint) nunca bloqueia o resumo principal
-    // — degrada para "sem destaques" (`insights: null`), nunca um erro
-    // de página inteira.
+    // Resumo e análise financeira composta são pedidos independentes
+    // (nenhum depende do resultado do outro), por isso em paralelo via
+    // Promise.all, nunca sequencialmente — só estes dois pedidos, nunca
+    // um terceiro (Fase 8.11 substituiu getFinancialInsights() por
+    // getDashboardFinancialAnalysis(), que já devolve os insights).
+    // Uma falha no pedido composto (ex. deploy faseado onde a API ainda
+    // não expõe este endpoint) nunca bloqueia o resumo principal —
+    // degrada para "sem destaques"/"sem análise" (`financialAnalysis:
+    // null`), nunca um erro de página inteira.
     Promise.all([
       getFinancialSummary(session.accessToken, period),
-      getFinancialInsights(session.accessToken, period).catch(() => null),
+      getDashboardFinancialAnalysis(session.accessToken, period).catch(() => null),
     ])
-      .then(([summaryResult, insightsResult]) => {
+      .then(([summaryResult, financialAnalysisResult]) => {
         if (cancelled) return;
         setSummary(summaryResult);
-        setInsights(insightsResult);
+        setFinancialAnalysis(financialAnalysisResult);
         setLoading(false);
       })
       .catch((err) => {
@@ -104,6 +107,7 @@ export default function DashboardPage() {
   const isEmpty = summary
     ? summary.totals.activeInvoiceCount === 0 && summary.totals.cancelledInvoiceCount === 0
     : false;
+  const insights = financialAnalysis?.insights ?? null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -208,6 +212,8 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           ) : null}
+
+          {financialAnalysis ? <FinancialAnalysisSection analysis={financialAnalysis.analysis} /> : null}
 
           <Card>
             <CardHeader>

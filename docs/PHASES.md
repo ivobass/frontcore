@@ -460,6 +460,25 @@
   ao schema Prisma, novas queries, ou integração em Chat/Dashboard/
   Reports
   (`docs/phases/phase-8.10-financial-analysis-engine-foundation.md`).
+- **Fase 8.11 — Dashboard Financial Analysis Integration Foundation**:
+  Dashboard como primeiro consumidor real do Financial Analysis Engine
+  (Fase 8.10) — novo `GET /dashboard/financial-analysis`, aditivo,
+  devolve `{ insights, analysis }`. `DashboardController` fino (só
+  HTTP, `organizationId` exclusivamente de `CurrentUser`, delega);
+  toda a composição (paralelismo de `getFinancialSummary()`/
+  `getLargestInvoices()`, construção de `FinancialInsights`, seleção
+  explícita de `monthlyTrendAnalysis`/`relativeConcentrationAnalysis`,
+  execução de `runFinancialAnalyses()`) vive num novo método do
+  `DashboardService` existente — nenhum serviço NestJS novo. Frontend
+  `/dashboard` substitui integralmente `getFinancialInsights()` por
+  `getDashboardFinancialAnalysis()` (continua com exatamente dois
+  pedidos em paralelo, nunca um terceiro) e ganha a secção "Análise
+  financeira", que só apresenta `id`/`conclusion`/evidência já
+  devolvidos, sem recalcular nem inferir. Sem novas análises, métricas,
+  thresholds, scoring, recomendações, forecasting, persistência, cache,
+  alteração ao schema Prisma, novas queries, ou integração em
+  Reports/AI Chat
+  (`docs/phases/phase-8.11-dashboard-financial-analysis-integration-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify. Inclui a criação do
   documento dedicado de entrega de infraestrutura ao responsável pela

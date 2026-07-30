@@ -255,4 +255,142 @@ describe('Dashboard (e2e)', () => {
       expect(response.body.largestExpense.invoice).toMatchObject({ id: 'inv-1', supplierName: 'Hetzner', totalAmount: '300.00' });
     });
   });
+
+  describe('Fase 8.11 — GET /dashboard/financial-analysis', () => {
+    it('sem token → 401', async () => {
+      await request(app.getHttpServer()).get('/api/dashboard/financial-analysis').expect(401);
+    });
+
+    it('a organização usada nas queries vem sempre da identidade autenticada, nunca de um parâmetro do pedido', async () => {
+      await request(app.getHttpServer())
+        .get('/api/dashboard/financial-analysis')
+        .set('Authorization', authHeader({ organizationId: 'org-a' }))
+        .expect(200);
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org-a' }) }),
+      );
+      expect(prisma.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org-a' }) }),
+      );
+    });
+
+    it('duas organizações diferentes produzem queries com organizationId diferente (isolamento multi-tenant)', async () => {
+      await request(app.getHttpServer())
+        .get('/api/dashboard/financial-analysis')
+        .set('Authorization', authHeader({ organizationId: 'org-a' }))
+        .expect(200);
+      const firstCallOrgId = prisma.invoice.aggregate.mock.calls[0][0].where.organizationId;
+
+      jest.clearAllMocks();
+      mockEmptyAggregations(prisma);
+
+      await request(app.getHttpServer())
+        .get('/api/dashboard/financial-analysis')
+        .set('Authorization', authHeader({ organizationId: 'org-b' }))
+        .expect(200);
+      const secondCallOrgId = prisma.invoice.aggregate.mock.calls[0][0].where.organizationId;
+
+      expect(firstCallOrgId).toBe('org-a');
+      expect(secondCallOrgId).toBe('org-b');
+      expect(firstCallOrgId).not.toBe(secondCallOrgId);
+    });
+
+    it('período (from/to) é propagado a getFinancialSummary() e getLargestInvoices()', async () => {
+      await request(app.getHttpServer())
+        .get('/api/dashboard/financial-analysis?from=2026-07-01&to=2026-07-31')
+        .set('Authorization', authHeader())
+        .expect(200);
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            issueDate: { gte: new Date('2026-07-01T00:00:00.000Z'), lt: new Date('2026-08-01T00:00:00.000Z') },
+          }),
+        }),
+      );
+      expect(prisma.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            issueDate: { gte: new Date('2026-07-01T00:00:00.000Z'), lt: new Date('2026-08-01T00:00:00.000Z') },
+          }),
+        }),
+      );
+    });
+
+    it('período vazio devolve insights vazios e analysis.results: [], nunca erro', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/dashboard/financial-analysis?from=2020-01-01&to=2020-01-31')
+        .set('Authorization', authHeader())
+        .expect(200);
+
+      expect(response.body.insights.largestSupplier).toBeNull();
+      expect(response.body.insights.trend.direction).toBe('insufficient_data');
+      expect(response.body.analysis.results).toEqual([]);
+      expect(response.body.analysis.metadata).toEqual({
+        analysesRun: ['monthly_trend', 'relative_concentration'],
+        conclusionsProduced: 0,
+      });
+    });
+
+    it('com dados reais, devolve { insights, analysis } com a união discriminada serializada corretamente', async () => {
+      prisma.invoice.aggregate.mockResolvedValue({
+        _count: 3,
+        _sum: { totalAmount: '1000.00' },
+        _avg: { totalAmount: '333.33' },
+      });
+      prisma.invoice.groupBy.mockImplementation((args: { by: string[] }) => {
+        if (args.by[0] === 'status') {
+          return Promise.resolve([{ status: 'PENDING', _count: 3, _sum: { totalAmount: '1000.00' } }]);
+        }
+        if (args.by[0] === 'supplierId') {
+          return Promise.resolve([{ supplierId: 'sup-1', _count: 3, _sum: { totalAmount: '600.00' } }]);
+        }
+        if (args.by[0] === 'categoryId') {
+          return Promise.resolve([{ categoryId: 'cat-1', _count: 3, _sum: { totalAmount: '400.00' } }]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.invoice.findMany.mockImplementation((args: { select?: { issueDate?: boolean }; include?: unknown }) => {
+        if (args.include) {
+          // getLargestInvoices() — única chamada com `include`, nunca `select`.
+          return Promise.resolve([]);
+        }
+        if (args.select?.issueDate) {
+          // Dois meses consecutivos com dados — monthly_trend fica aplicável (increase).
+          return Promise.resolve([
+            { issueDate: new Date('2026-06-15T00:00:00.000Z'), totalAmount: '800.00' },
+            { issueDate: new Date('2026-07-05T00:00:00.000Z'), totalAmount: '1000.00' },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.supplier.findMany.mockResolvedValue([{ id: 'sup-1', name: 'Hetzner' }]);
+      prisma.expenseCategory.findMany.mockResolvedValue([{ id: 'cat-1', name: 'Hosting' }]);
+
+      const response = await request(app.getHttpServer())
+        .get('/api/dashboard/financial-analysis?from=2026-07-01&to=2026-07-31')
+        .set('Authorization', authHeader())
+        .expect(200);
+
+      expect(response.body.insights.largestSupplier).toMatchObject({ supplierId: 'sup-1', supplierName: 'Hetzner' });
+      expect(response.body.analysis.results.map((r: { id: string }) => r.id).sort()).toEqual([
+        'monthly_trend',
+        'relative_concentration',
+      ]);
+      const trendResult = response.body.analysis.results.find((r: { id: string }) => r.id === 'monthly_trend');
+      expect(trendResult).toMatchObject({ conclusion: 'increase' });
+      expect(trendResult.evidence).toMatchObject({ current: '1000.00', previous: '800.00' });
+      const concentrationResult = response.body.analysis.results.find(
+        (r: { id: string }) => r.id === 'relative_concentration',
+      );
+      expect(concentrationResult).toMatchObject({ conclusion: 'supplier_more_concentrated' });
+      expect(concentrationResult.evidence).toEqual({
+        supplierShare: '60.00',
+        supplierTopN: 1,
+        categoryShare: '40.00',
+        categoryTopN: 1,
+      });
+    });
+  });
 });

@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { CurrentUser, type AuthenticatedIdentity } from '@frontcore/auth';
-import { DashboardService } from './dashboard.service';
+import { DashboardService, type DashboardFinancialAnalysisResponse } from './dashboard.service';
 import { FinancialSummaryQueryDto } from './dto/financial-summary-query.dto';
 import { buildFinancialInsights } from '../financial-insights/financial-insights.util';
 import type { FinancialInsights } from '../financial-insights/financial-insights.types';
@@ -37,5 +37,20 @@ export class DashboardController {
       this.dashboardService.getLargestInvoices(identity.organizationId, query),
     ]);
     return buildFinancialInsights(summary, largest.invoices);
+  }
+
+  /**
+   * Financial Analysis Engine (Fase 8.11) — o controller só recebe e
+   * valida o pedido HTTP, obtém `organizationId` de `CurrentUser` e
+   * delega; toda a composição (paralelismo, construção de
+   * `FinancialInsights`, seleção das análises, execução do motor) vive
+   * em `DashboardService.getFinancialAnalysis()`, nunca aqui.
+   */
+  @Get('financial-analysis')
+  getFinancialAnalysis(
+    @CurrentUser() identity: AuthenticatedIdentity,
+    @Query() query: FinancialSummaryQueryDto,
+  ): Promise<DashboardFinancialAnalysisResponse> {
+    return this.dashboardService.getFinancialAnalysis(identity.organizationId, query);
   }
 }

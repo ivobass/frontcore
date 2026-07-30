@@ -124,3 +124,63 @@ export async function getFinancialInsights(
   });
   return parseJsonOrThrow(response);
 }
+
+/**
+ * Forma HTTP de `GET /dashboard/financial-analysis` (Fase 8.11) —
+ * conclusões determinísticas do Financial Analysis Engine (Fase 8.10)
+ * sobre os mesmos `insights` desta resposta; `id`/`conclusion` são
+ * discriminadores estáveis (nunca traduzidos pelo backend) — a
+ * tradução para pt-PT é sempre responsabilidade da apresentação.
+ */
+export type MonthlyTrendConclusion = 'increase' | 'decrease' | 'unchanged';
+
+export interface MonthlyTrendAnalysisResult {
+  id: 'monthly_trend';
+  conclusion: MonthlyTrendConclusion;
+  evidence: TrendComparison;
+}
+
+export type RelativeConcentrationConclusion =
+  | 'supplier_more_concentrated'
+  | 'category_more_concentrated'
+  | 'equally_concentrated';
+
+export interface RelativeConcentrationEvidence {
+  supplierShare: string;
+  supplierTopN: number;
+  categoryShare: string;
+  categoryTopN: number;
+}
+
+export interface RelativeConcentrationAnalysisResult {
+  id: 'relative_concentration';
+  conclusion: RelativeConcentrationConclusion;
+  evidence: RelativeConcentrationEvidence;
+}
+
+export type FinancialAnalysisOutcome = MonthlyTrendAnalysisResult | RelativeConcentrationAnalysisResult;
+
+export interface FinancialAnalysisMetadata {
+  analysesRun: string[];
+  conclusionsProduced: number;
+}
+
+export interface FinancialAnalysisEngineOutput {
+  results: FinancialAnalysisOutcome[];
+  metadata: FinancialAnalysisMetadata;
+}
+
+export interface DashboardFinancialAnalysisResponse {
+  insights: FinancialInsights;
+  analysis: FinancialAnalysisEngineOutput;
+}
+
+export async function getDashboardFinancialAnalysis(
+  accessToken: string,
+  params: FinancialSummaryParams = {},
+): Promise<DashboardFinancialAnalysisResponse> {
+  const response = await fetch(`${API_URL}/dashboard/financial-analysis${buildQuery(params)}`, {
+    headers: authHeaders(accessToken),
+  });
+  return parseJsonOrThrow(response);
+}

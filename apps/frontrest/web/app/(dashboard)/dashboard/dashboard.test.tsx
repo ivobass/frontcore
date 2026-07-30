@@ -3,14 +3,14 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import DashboardPage from './page';
 
 const getFinancialSummary = vi.fn();
-const getFinancialInsights = vi.fn();
+const getDashboardFinancialAnalysis = vi.fn();
 
 vi.mock('../../../lib/dashboard', async () => {
   const actual = await vi.importActual<typeof import('../../../lib/dashboard')>('../../../lib/dashboard');
   return {
     ...actual,
     getFinancialSummary: (...args: unknown[]) => getFinancialSummary(...args),
-    getFinancialInsights: (...args: unknown[]) => getFinancialInsights(...args),
+    getDashboardFinancialAnalysis: (...args: unknown[]) => getDashboardFinancialAnalysis(...args),
   };
 });
 
@@ -58,10 +58,16 @@ const emptyInsights = {
   categoryRanking: [],
 };
 
+/** Resposta vazia de `GET /dashboard/financial-analysis` (Fase 8.11) — usada por omissão nos testes que não avaliam "Destaques"/"Análise financeira". */
+const emptyAnalysisResponse = {
+  insights: emptyInsights,
+  analysis: { results: [], metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 } },
+};
+
 describe('DashboardPage (Fase 7)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getFinancialInsights.mockResolvedValue(emptyInsights);
+    getDashboardFinancialAnalysis.mockResolvedValue(emptyAnalysisResponse);
   });
 
   it('mostra o estado de loading enquanto o pedido está pendente', async () => {
@@ -84,9 +90,12 @@ describe('DashboardPage (Fase 7)', () => {
 
   it('Fase 8.9 — mostra o card "Destaques" com o maior fornecedor e a percentagem real', async () => {
     getFinancialSummary.mockResolvedValue(filledSummary);
-    getFinancialInsights.mockResolvedValue({
-      ...emptyInsights,
-      largestSupplier: { supplierId: 'sup-1', supplierName: 'Acme Lda', count: 3, totalAmount: '1234.56', share: '100.00', rank: 1 },
+    getDashboardFinancialAnalysis.mockResolvedValue({
+      ...emptyAnalysisResponse,
+      insights: {
+        ...emptyInsights,
+        largestSupplier: { supplierId: 'sup-1', supplierName: 'Acme Lda', count: 3, totalAmount: '1234.56', share: '100.00', rank: 1 },
+      },
     });
     render(<DashboardPage />);
 
@@ -94,13 +103,62 @@ describe('DashboardPage (Fase 7)', () => {
     expect(screen.getByText('Acme Lda (100.00% do total)')).toBeInTheDocument();
   });
 
-  it('Correção pós-revisão — getFinancialInsights() a falhar (ex. deploy faseado, endpoint ainda inexistente) nunca bloqueia o resumo principal', async () => {
+  it('Correção pós-revisão — getDashboardFinancialAnalysis() a falhar (ex. deploy faseado, endpoint ainda inexistente) nunca bloqueia o resumo principal', async () => {
     getFinancialSummary.mockResolvedValue(filledSummary);
-    getFinancialInsights.mockRejectedValue(new Error('404'));
+    getDashboardFinancialAnalysis.mockRejectedValue(new Error('404'));
     render(<DashboardPage />);
 
     expect(await screen.findByText('Total de despesas')).toBeInTheDocument();
     expect(screen.queryByText('Destaques')).not.toBeInTheDocument();
+  });
+
+  it('Fase 8.11 — apresenta a secção "Análise financeira" com monthly_trend e relative_concentration, e a evidência devolvida', async () => {
+    getFinancialSummary.mockResolvedValue(filledSummary);
+    getDashboardFinancialAnalysis.mockResolvedValue({
+      insights: emptyInsights,
+      analysis: {
+        results: [
+          {
+            id: 'monthly_trend',
+            conclusion: 'increase',
+            evidence: { current: '1000.00', previous: '800.00', absoluteChange: '200.00', percentageChange: '25.00', direction: 'increase' },
+          },
+          {
+            id: 'relative_concentration',
+            conclusion: 'supplier_more_concentrated',
+            evidence: { supplierShare: '60.00', supplierTopN: 1, categoryShare: '40.00', categoryTopN: 1 },
+          },
+        ],
+        metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 2 },
+      },
+    });
+    render(<DashboardPage />);
+
+    await screen.findByText('Análise financeira');
+    // "Tendência mensal" é também o rótulo do card "Destaques" (Fase 8.9) — duas ocorrências esperadas, uma por card.
+    expect(screen.getAllByText('Tendência mensal')).toHaveLength(2);
+    expect(screen.getByText('Aumento face ao mês anterior')).toBeInTheDocument();
+    expect(screen.getByText(/1000\.00 € · Anterior 800\.00 €/)).toBeInTheDocument();
+    expect(screen.getByText('Concentração relativa')).toBeInTheDocument();
+    expect(screen.getByText('Fornecedores mais concentrados do que categorias')).toBeInTheDocument();
+    expect(screen.getByText(/Fornecedores 60\.00% · Categorias 40\.00%/)).toBeInTheDocument();
+  });
+
+  it('Fase 8.11 — omite a secção "Análise financeira" quando nenhuma análise é aplicável (results: [])', async () => {
+    getFinancialSummary.mockResolvedValue(filledSummary);
+    getDashboardFinancialAnalysis.mockResolvedValue(emptyAnalysisResponse);
+    render(<DashboardPage />);
+
+    await screen.findByText('Total de despesas');
+    expect(screen.queryByText('Análise financeira')).not.toBeInTheDocument();
+  });
+
+  it('Fase 8.11 — a página nunca faz um terceiro pedido (só getFinancialSummary e getDashboardFinancialAnalysis)', async () => {
+    getFinancialSummary.mockResolvedValue(filledSummary);
+    render(<DashboardPage />);
+
+    await waitFor(() => expect(getDashboardFinancialAnalysis).toHaveBeenCalledTimes(1));
+    expect(getFinancialSummary).toHaveBeenCalledTimes(1);
   });
 
   it('Fase 8.9 — sem dados de insights, mostra "Sem dados"/"Dados insuficientes", nunca lança', async () => {

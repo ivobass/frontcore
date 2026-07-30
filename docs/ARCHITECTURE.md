@@ -831,10 +831,28 @@ aplicável quando ambos os `share` existem e ambos os `topN` efetivos
 são iguais. Nenhum acesso a Prisma ou a `DashboardService` — recebem
 sempre `FinancialInsights` já construído.
 
-Sem consumidor real ainda — módulo produzido, não integrado, nesta
-fase (mesma situação inicial de `document-extraction/`, aceite no
-ADR-0007). Ver
+Sem consumidor real na Fase 8.10 (mesma situação inicial de
+`document-extraction/`, aceite no ADR-0007) — ver
 `docs/phases/phase-8.10-financial-analysis-engine-foundation.md`.
+
+**Desde a Fase 8.11**, o Dashboard é o primeiro consumidor real:
+`GET /dashboard/financial-analysis` devolve `{ insights, analysis }`.
+`DashboardController` fica fino (recebe o pedido HTTP, obtém
+`organizationId` de `CurrentUser`, delega, devolve a resposta) — toda a
+composição (paralelismo de `getFinancialSummary()`/`getLargestInvoices()`,
+construção de `FinancialInsights`, seleção explícita de
+`monthlyTrendAnalysis`/`relativeConcentrationAnalysis`, execução de
+`runFinancialAnalyses()`) vive num novo método,
+`DashboardService.getFinancialAnalysis()`, no serviço já existente —
+nenhum serviço NestJS novo. O endpoint irmão, `GET /dashboard/financial-insights`
+(Fase 8.9), continua a compor diretamente no controller — assimetria
+conhecida e aceite, não corrigida nesta fase. O frontend `/dashboard`
+substituiu integralmente o pedido a `getFinancialInsights()` por
+`getDashboardFinancialAnalysis()` (continua com exatamente dois pedidos
+em paralelo, nunca um terceiro) e apresenta as conclusões numa nova
+secção "Análise financeira", sem recalcular nem inferir nada — só
+rotula `id`/`conclusion` e mostra a evidência já devolvida. Ver
+`docs/phases/phase-8.11-dashboard-financial-analysis-integration-foundation.md`.
 
 ## Relatórios financeiros mensais
 

@@ -1,6 +1,8 @@
 import { DashboardService } from './dashboard.service';
+import type { FinancialDashboardSummary, LargestInvoice } from './dashboard.service';
 import { createMockPrismaService } from '../../test/utils/mock-prisma';
 import type { MockPrismaService } from '../../test/utils/mock-prisma';
+import { buildFinancialInsights } from '../financial-insights/financial-insights.util';
 
 /** Resultado "vazio" partilhado por omissão — cada teste só sobrescreve o que precisa. */
 function mockEmptyAggregations(prisma: MockPrismaService) {
@@ -384,6 +386,109 @@ describe('DashboardService', () => {
         { month: '2026-07', count: 2, totalAmount: '30.30' },
         { month: '2026-08', count: 1, totalAmount: '5.00' },
       ]);
+    });
+  });
+
+  describe('getFinancialAnalysis (Fase 8.11)', () => {
+    const summaryBothApplicable: FinancialDashboardSummary = {
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
+      byStatus: [],
+      monthlyTrend: [
+        { month: '2026-06', count: 2, totalAmount: '800.00' },
+        { month: '2026-07', count: 3, totalAmount: '1000.00' },
+      ],
+      byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 3, totalAmount: '400.00' }],
+      topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Acme', count: 3, totalAmount: '600.00' }],
+    };
+    const summaryOnlyConcentrationApplicable: FinancialDashboardSummary = {
+      ...summaryBothApplicable,
+      monthlyTrend: [{ month: '2026-07', count: 3, totalAmount: '1000.00' }],
+    };
+    const summaryNoneApplicable: FinancialDashboardSummary = {
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
+      byStatus: [],
+      monthlyTrend: [],
+      byCategory: [],
+      topSuppliers: [],
+    };
+    const largestEmpty: { period: { from: string; to: string }; invoices: LargestInvoice[] } = {
+      period: { from: '2026-07-01', to: '2026-07-31' },
+      invoices: [],
+    };
+
+    function mockComposition(
+      summary: FinancialDashboardSummary,
+      largest: { period: { from: string; to: string }; invoices: LargestInvoice[] } = largestEmpty,
+    ) {
+      const getFinancialSummarySpy = jest.spyOn(service, 'getFinancialSummary').mockResolvedValue(summary);
+      const getLargestInvoicesSpy = jest.spyOn(service, 'getLargestInvoices').mockResolvedValue(largest);
+      return { getFinancialSummarySpy, getLargestInvoicesSpy };
+    }
+
+    it('executa getFinancialSummary() e getLargestInvoices() em paralelo, com o mesmo organizationId e query', async () => {
+      const { getFinancialSummarySpy, getLargestInvoicesSpy } = mockComposition(summaryNoneApplicable);
+
+      await service.getFinancialAnalysis('org-1', { from: '2026-07-01', to: '2026-07-31' });
+
+      expect(getFinancialSummarySpy).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
+      expect(getLargestInvoicesSpy).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
+    });
+
+    it('constrói FinancialInsights uma única vez, a partir exatamente do summary e das largestInvoices devolvidos', async () => {
+      mockComposition(summaryBothApplicable);
+
+      const result = await service.getFinancialAnalysis('org-1', {});
+
+      expect(result.insights).toEqual(buildFinancialInsights(summaryBothApplicable, largestEmpty.invoices));
+    });
+
+    it('quando ambas as análises são aplicáveis, agrega as duas conclusões', async () => {
+      mockComposition(summaryBothApplicable);
+
+      const result = await service.getFinancialAnalysis('org-1', {});
+
+      expect(result.analysis.results.map((r) => r.id).sort()).toEqual(['monthly_trend', 'relative_concentration']);
+      expect(result.analysis.metadata).toEqual({
+        analysesRun: ['monthly_trend', 'relative_concentration'],
+        conclusionsProduced: 2,
+      });
+    });
+
+    it('quando só uma análise é aplicável (tendência insuficiente), agrega só essa conclusão', async () => {
+      mockComposition(summaryOnlyConcentrationApplicable);
+
+      const result = await service.getFinancialAnalysis('org-1', {});
+
+      expect(result.analysis.results.map((r) => r.id)).toEqual(['relative_concentration']);
+      expect(result.analysis.metadata).toEqual({
+        analysesRun: ['monthly_trend', 'relative_concentration'],
+        conclusionsProduced: 1,
+      });
+    });
+
+    it('quando nenhuma análise é aplicável (período sem dados), devolve results: []', async () => {
+      mockComposition(summaryNoneApplicable);
+
+      const result = await service.getFinancialAnalysis('org-1', {});
+
+      expect(result.analysis.results).toEqual([]);
+      expect(result.analysis.metadata).toEqual({
+        analysesRun: ['monthly_trend', 'relative_concentration'],
+        conclusionsProduced: 0,
+      });
+    });
+
+    it('não muta o summary nem as largestInvoices devolvidos por getFinancialSummary()/getLargestInvoices()', async () => {
+      const summaryCopy = JSON.parse(JSON.stringify(summaryBothApplicable));
+      const largestCopy = JSON.parse(JSON.stringify(largestEmpty));
+      mockComposition(summaryBothApplicable);
+
+      await service.getFinancialAnalysis('org-1', {});
+
+      expect(summaryBothApplicable).toEqual(summaryCopy);
+      expect(largestEmpty).toEqual(largestCopy);
     });
   });
 });
