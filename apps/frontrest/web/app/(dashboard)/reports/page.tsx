@@ -22,6 +22,7 @@ import { useSession } from '../../../lib/session-context';
 import { getMonthlyReport, downloadMonthlyReportCsv, downloadMonthlyReportPdf } from '../../../lib/reports';
 import type { InvoiceStatus, MonthlyFinancialReport, PeriodComparisonValue } from '../../../lib/reports';
 import { formatCurrency, formatDate } from '../../../lib/format';
+import { FinancialAnalysisSection } from './financial-analysis-section';
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
   PENDING: 'Pendente',
@@ -311,6 +312,8 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
           ) : null}
+
+          <FinancialAnalysisSection analysis={report.analysis} />
 
           <Card>
             <CardHeader>

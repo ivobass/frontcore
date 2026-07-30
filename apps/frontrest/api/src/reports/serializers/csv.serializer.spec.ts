@@ -29,6 +29,7 @@ function buildReport(overrides: Partial<MonthlyFinancialReport> = {}): MonthlyFi
       },
     ],
     insights: buildEmptyFinancialInsights(PERIOD),
+    analysis: { results: [], metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 } },
     ...overrides,
   };
 }
@@ -146,6 +147,46 @@ describe('serializeMonthlyReportToCsv', () => {
 
       expect(csv).toContain('Concentração — top 3 fornecedores;Sem dados');
       expect(csv).toContain('Tendência mensal;Dados insuficientes para uma conclusão');
+    });
+  });
+
+  describe('Fase 8.12 — Análise financeira (Financial Analysis Engine)', () => {
+    it('inclui a secção com as conclusões e evidências devolvidas pelo motor, sem recalcular nada', () => {
+      const report = buildReport({
+        analysis: {
+          results: [
+            {
+              id: 'monthly_trend',
+              conclusion: 'increase',
+              evidence: { current: '600.00', previous: '400.00', absoluteChange: '200.00', percentageChange: '50.00', direction: 'increase' },
+            },
+            {
+              id: 'relative_concentration',
+              conclusion: 'supplier_more_concentrated',
+              evidence: { supplierShare: '60.00', supplierTopN: 1, categoryShare: '40.00', categoryTopN: 1 },
+            },
+          ],
+          metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 2 },
+        },
+      });
+
+      const csv = serializeMonthlyReportToCsv(report);
+
+      expect(csv).toContain('Análise financeira');
+      expect(csv).toContain('Tendência mensal;Aumento face ao mês anterior;Atual 600.00, Anterior 400.00, 50.00%');
+      expect(csv).toContain(
+        'Concentração relativa;Fornecedores mais concentrados do que categorias;Fornecedores 60.00%, Categorias 40.00%',
+      );
+      // Nunca reformata os montantes/percentagens já devolvidos pelo motor.
+      expect(csv).toContain('600.00');
+      expect(csv).toContain('60.00%');
+    });
+
+    it('sem conclusões aplicáveis, apresenta a mensagem explícita — nunca omite a secção silenciosamente', () => {
+      const csv = serializeMonthlyReportToCsv(buildReport());
+
+      expect(csv).toContain('Análise financeira');
+      expect(csv).toContain('Sem conclusões aplicáveis neste período.');
     });
   });
 });

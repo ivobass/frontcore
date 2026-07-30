@@ -894,6 +894,26 @@ comparação e tabela de faturas; downloads autenticados via `Blob`/
 `ObjectURL` (nunca um link direto sem `Authorization`). Ver
 `docs/phases/phase-9-monthly-financial-reports-export-foundation.md`.
 
+**Desde a Fase 8.12**, Reports é o segundo consumidor real do Financial
+Analysis Engine (Dashboard, Fase 8.11, continua o primeiro).
+`MonthlyFinancialReport` ganha `analysis: FinancialAnalysisEngineOutput`
+— ao contrário de `insights` (opcional, tolerância a respostas antigas
+da Fase 8.9), `analysis` é sempre presente, porque a API nunca o omite.
+`ReportsService.getMonthlyReport()` constrói `FinancialInsights` uma
+única vez e executa `runFinancialAnalyses()` logo a seguir, com uma
+seleção explícita e própria deste módulo
+(`REPORTS_FINANCIAL_ANALYSES`) — nunca partilhada com a constante
+equivalente do `DashboardService`; cada consumidor do motor declara o
+seu próprio array, não existe nenhum registo global/default. JSON,
+CSV e PDF ganham a secção "Análise financeira" (mensagem explícita
+quando `analysis.results` está vazio, nunca omissão silenciosa); o
+frontend `/reports` ganha um componente próprio
+(`financial-analysis-section.tsx`), deliberadamente sem reutilizar o
+componente equivalente do Dashboard — decisão explícita para não
+acoplar as duas áreas através de uma abstração partilhada nunca
+pedida. Ver
+`docs/phases/phase-8.12-reports-financial-analysis-integration-foundation.md`.
+
 ## Apps (FrontRest)
 
 | App                    | Stack       | Porta | Estado Fase 1            |

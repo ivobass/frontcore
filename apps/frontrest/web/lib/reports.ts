@@ -1,5 +1,5 @@
 import { API_URL, ApiError, authHeaders, buildQuery, parseJsonOrThrow } from './api';
-import type { FinancialInsights } from './dashboard';
+import type { FinancialInsights, FinancialAnalysisEngineOutput } from './dashboard';
 
 export type InvoiceStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'CANCELLED';
 
@@ -55,6 +55,14 @@ export interface MonthlyFinancialReport {
    * nunca deve assumir a sua presença.
    */
   insights?: FinancialInsights;
+  /**
+   * Financial Analysis Engine (Fase 8.10/8.12) sobre os mesmos
+   * `insights` acima — contrato separado, nunca fundido. Sempre
+   * presente (nunca opcional, ao contrário de `insights` acima): a API
+   * nunca omite este campo, mesmo sem nenhuma conclusão aplicável
+   * (`analysis.results: []`).
+   */
+  analysis: FinancialAnalysisEngineOutput;
 }
 
 export async function getMonthlyReport(accessToken: string, month: string): Promise<MonthlyFinancialReport> {

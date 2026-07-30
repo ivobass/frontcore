@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import type { MonthlyFinancialReport } from '../reports.service';
+import type { FinancialAnalysisOutcome } from '../../financial-analysis/types';
 
 /** Local a `reports/` deliberadamente — ver csv.serializer.ts. */
 const STATUS_LABELS: Record<string, string> = {
@@ -27,6 +28,31 @@ function formatPercentage(value: number | null): string {
 /** `share` já vem normalizado a 2 casas (`financial-insights.util.ts`) — o "%" é acrescentado só aqui, na camada de apresentação. */
 function formatShare(share: string | null): string {
   return share === null ? 'sem dados' : `${share}%`;
+}
+
+/** Rótulos próprios do PDF (Fase 8.12) — duplicados deliberadamente do CSV/frontend, mesma disciplina de `STATUS_LABELS` acima. */
+const ANALYSIS_TITLES: Record<FinancialAnalysisOutcome['id'], string> = {
+  monthly_trend: 'Tendência mensal',
+  relative_concentration: 'Concentração relativa',
+};
+
+const CONCLUSION_LABELS: Record<string, string> = {
+  increase: 'aumento face ao mês anterior',
+  decrease: 'redução face ao mês anterior',
+  unchanged: 'sem alteração face ao mês anterior',
+  supplier_more_concentrated: 'fornecedores mais concentrados do que categorias',
+  category_more_concentrated: 'categorias mais concentradas do que fornecedores',
+  equally_concentrated: 'concentração equivalente entre fornecedores e categorias',
+};
+
+/** Só apresenta os campos de evidência já devolvidos pelo motor — nunca recalcula nem infere nada a partir deles. */
+function describeAnalysisEvidence(result: FinancialAnalysisOutcome): string {
+  if (result.id === 'monthly_trend') {
+    const { current, previous, percentageChange } = result.evidence;
+    return `atual ${current} EUR, anterior ${previous} EUR${percentageChange !== null ? `, ${percentageChange}%` : ''}`;
+  }
+  const { supplierShare, categoryShare } = result.evidence;
+  return `fornecedores ${supplierShare}%, categorias ${categoryShare}%`;
 }
 
 export interface SerializePdfOptions {
@@ -109,6 +135,19 @@ export function serializeMonthlyReportToPdf(
       );
     } else {
       doc.text('Tendência mensal: dados insuficientes para uma conclusão');
+    }
+    doc.moveDown();
+
+    doc.fontSize(14).text('Análise financeira');
+    doc.fontSize(10);
+    if (report.analysis.results.length === 0) {
+      doc.text('Sem conclusões aplicáveis neste período.');
+    } else {
+      for (const result of report.analysis.results) {
+        const title = ANALYSIS_TITLES[result.id] ?? result.id;
+        const conclusion = CONCLUSION_LABELS[result.conclusion] ?? result.conclusion;
+        doc.text(`${title}: ${conclusion} (${describeAnalysisEvidence(result)})`);
+      }
     }
     doc.moveDown();
 

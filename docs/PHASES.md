@@ -479,6 +479,25 @@
   alteração ao schema Prisma, novas queries, ou integração em
   Reports/AI Chat
   (`docs/phases/phase-8.11-dashboard-financial-analysis-integration-foundation.md`).
+- **Fase 8.12 — Reports Financial Analysis Integration Foundation**:
+  Reports como segundo consumidor real do Financial Analysis Engine
+  (Fase 8.10) — Dashboard (Fase 8.11) continua o primeiro.
+  `MonthlyFinancialReport` ganha `analysis: FinancialAnalysisEngineOutput`,
+  sempre presente (nunca opcional, ao contrário de `insights`), separado
+  de `insights`; `ReportsService.getMonthlyReport()` constrói
+  `FinancialInsights` uma única vez e executa `runFinancialAnalyses()`
+  sobre esses mesmos insights, com seleção explícita e própria deste
+  módulo (`REPORTS_FINANCIAL_ANALYSES`, nunca partilhada com a do
+  Dashboard). JSON/CSV/PDF apresentam a nova secção "Análise
+  financeira" (mensagem explícita quando `analysis.results` está
+  vazio, nunca omissão silenciosa); frontend `/reports` ganha um
+  componente próprio (`financial-analysis-section.tsx`, não reutiliza o
+  do Dashboard, por decisão explícita). Sem novas análises, métricas,
+  thresholds, scoring, forecasting, recomendações, novas queries
+  Prisma, migration, persistência, cache, novo serviço NestJS, package,
+  abstração partilhada, relatórios anuais, intervalos personalizados,
+  ou alteração ao Dashboard/AI Chat/`financial-insights/`/`financial-analysis/`
+  (`docs/phases/phase-8.12-reports-financial-analysis-integration-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify. Inclui a criação do
   documento dedicado de entrega de infraestrutura ao responsável pela

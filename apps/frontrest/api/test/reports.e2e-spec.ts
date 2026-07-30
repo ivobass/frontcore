@@ -287,4 +287,69 @@ describe('Reports (e2e)', () => {
       expect(csv.text).toContain(json.body.period.to);
     });
   });
+
+  describe('Fase 8.12 — GET /reports/monthly — Financial Analysis Engine', () => {
+    it('JSON inclui analysis, sempre separado de insights, com as duas análises registadas', async () => {
+      wireInvoiceData(prisma, 'org-1', '2026-07', { count: 3, total: '900.00' });
+
+      const response = await request(app.getHttpServer())
+        .get('/api/reports/monthly?month=2026-07')
+        .set('Authorization', authHeader({ organizationId: 'org-1' }))
+        .expect(200);
+
+      expect(response.body.insights).toBeDefined();
+      expect(response.body.analysis).toBeDefined();
+      expect(response.body.analysis).not.toEqual(response.body.insights);
+      expect(Array.isArray(response.body.analysis.results)).toBe(true);
+      expect(response.body.analysis.metadata.analysesRun).toEqual(['monthly_trend', 'relative_concentration']);
+    });
+
+    it('mês sem faturas devolve analysis.results: [], contrato válido, nunca erro', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/reports/monthly?month=2020-01')
+        .set('Authorization', authHeader())
+        .expect(200);
+
+      expect(response.body.analysis.results).toEqual([]);
+      expect(response.body.analysis.metadata).toEqual({
+        analysesRun: ['monthly_trend', 'relative_concentration'],
+        conclusionsProduced: 0,
+      });
+    });
+
+    it('isolamento por organização — analysis nunca reflete dados de uma organização diferente da autenticada', async () => {
+      wireInvoiceData(prisma, 'org-a', '2026-07', { count: 2, total: '500.00' });
+
+      const response = await request(app.getHttpServer())
+        .get('/api/reports/monthly?month=2026-07')
+        .set('Authorization', authHeader({ organizationId: 'org-b' }))
+        .expect(200);
+
+      // org-b não tem dados no fixture (só org-a tem) — analysis reflete um período vazio, nunca os dados de org-a.
+      expect(response.body.analysis.results).toEqual([]);
+    });
+
+    it('CSV e PDF continuam válidos com o novo campo analysis presente no relatório', async () => {
+      wireInvoiceData(prisma, 'org-1', '2026-07', { count: 2, total: '500.00' });
+      const auth = authHeader({ organizationId: 'org-1' });
+
+      const csv = await request(app.getHttpServer())
+        .get('/api/reports/monthly.csv?month=2026-07')
+        .set('Authorization', auth)
+        .expect(200);
+      expect(csv.headers['content-type']).toContain('text/csv');
+
+      const pdf = await request(app.getHttpServer())
+        .get('/api/reports/monthly.pdf?month=2026-07')
+        .set('Authorization', auth)
+        .buffer(true)
+        .parse((res, callback) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => callback(null, Buffer.concat(chunks)));
+        })
+        .expect(200);
+      expect((pdf.body as Buffer).subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    });
+  });
 });

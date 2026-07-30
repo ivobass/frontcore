@@ -1,4 +1,5 @@
 import type { MonthlyFinancialReport } from '../reports.service';
+import type { FinancialAnalysisOutcome } from '../../financial-analysis/types';
 
 /**
  * CSV escrito à mão (Fase 9) — sem dependência: RFC4180 é simples o
@@ -19,6 +20,31 @@ const STATUS_LABELS: Record<string, string> = {
   OVERDUE: 'Vencida',
   CANCELLED: 'Cancelada',
 };
+
+/** Rótulos próprios do CSV (Fase 8.12) — duplicados deliberadamente entre serializers/frontend, mesma disciplina de `STATUS_LABELS` acima; nunca partilhados via um util novo. */
+const ANALYSIS_TITLES: Record<FinancialAnalysisOutcome['id'], string> = {
+  monthly_trend: 'Tendência mensal',
+  relative_concentration: 'Concentração relativa',
+};
+
+const CONCLUSION_LABELS: Record<string, string> = {
+  increase: 'Aumento face ao mês anterior',
+  decrease: 'Redução face ao mês anterior',
+  unchanged: 'Sem alteração face ao mês anterior',
+  supplier_more_concentrated: 'Fornecedores mais concentrados do que categorias',
+  category_more_concentrated: 'Categorias mais concentradas do que fornecedores',
+  equally_concentrated: 'Concentração equivalente entre fornecedores e categorias',
+};
+
+/** Só apresenta os campos de evidência já devolvidos pelo motor — nunca recalcula nem infere nada a partir deles. */
+function describeAnalysisEvidence(result: FinancialAnalysisOutcome): string {
+  if (result.id === 'monthly_trend') {
+    const { current, previous, percentageChange } = result.evidence;
+    return `Atual ${current}, Anterior ${previous}${percentageChange !== null ? `, ${percentageChange}%` : ''}`;
+  }
+  const { supplierShare, categoryShare } = result.evidence;
+  return `Fornecedores ${supplierShare}%, Categorias ${categoryShare}%`;
+}
 
 /**
  * Mitigação OWASP contra CSV injection: um campo cujo primeiro carácter
@@ -141,6 +167,23 @@ export function serializeMonthlyReportToCsv(report: MonthlyFinancialReport): str
     );
   } else {
     lines.push(csvRow(['Tendência mensal', 'Dados insuficientes para uma conclusão']));
+  }
+  lines.push('');
+
+  lines.push(csvRow(['Análise financeira']));
+  if (report.analysis.results.length === 0) {
+    lines.push(csvRow(['Sem conclusões aplicáveis neste período.']));
+  } else {
+    lines.push(csvRow(['Análise', 'Conclusão', 'Evidência']));
+    for (const result of report.analysis.results) {
+      lines.push(
+        csvRow([
+          ANALYSIS_TITLES[result.id] ?? result.id,
+          CONCLUSION_LABELS[result.conclusion] ?? result.conclusion,
+          describeAnalysisEvidence(result),
+        ]),
+      );
+    }
   }
   lines.push('');
 

@@ -8,6 +8,10 @@ import type { PeriodComparisonValue } from '../dashboard/period-comparison.util'
 import { resolveMonth, previousMonth } from './month.util';
 import { buildFinancialInsights } from '../financial-insights/financial-insights.util';
 import type { FinancialInsights } from '../financial-insights/financial-insights.types';
+import { monthlyTrendAnalysis } from '../financial-analysis/analyses/monthly-trend.analysis';
+import { relativeConcentrationAnalysis } from '../financial-analysis/analyses/relative-concentration.analysis';
+import { runFinancialAnalyses } from '../financial-analysis/financial-analysis.engine';
+import type { FinancialAnalysisEngineOutput } from '../financial-analysis/types';
 
 export type { PeriodComparisonValue } from '../dashboard/period-comparison.util';
 
@@ -44,7 +48,23 @@ export interface MonthlyFinancialReport {
   invoices: MonthlyReportInvoiceDetail[];
   /** Financial Insights (Fase 8.9) do mês selecionado — contrato separado de `totals`/`byStatus`/etc., nunca fundido com eles. */
   insights: FinancialInsights;
+  /**
+   * Financial Analysis Engine (Fase 8.10/8.12) sobre os mesmos
+   * `insights` acima — contrato separado, nunca fundido. Sempre
+   * presente (nunca opcional): mesmo sem nenhuma conclusão aplicável,
+   * `analysis.results` é `[]`, nunca o campo omitido.
+   */
+  analysis: FinancialAnalysisEngineOutput;
 }
+
+/**
+ * Seleção explícita das análises que Reports executa (Fase 8.12) —
+ * constante própria deste módulo, nunca partilhada com a seleção do
+ * Dashboard (`dashboard.service.ts`, Fase 8.11): cada consumidor do
+ * motor escolhe o seu próprio conjunto, não existe um registo
+ * global/default implícito.
+ */
+const REPORTS_FINANCIAL_ANALYSES = [monthlyTrendAnalysis, relativeConcentrationAnalysis];
 
 /**
  * Relatório financeiro mensal (Fase 9) — reutiliza exclusivamente a API
@@ -76,6 +96,9 @@ export class ReportsService {
       this.dashboardService.getLargestInvoices(organizationId, { from: period.from, to: period.to }),
     ]);
 
+    const insights = buildFinancialInsights(summary, largest.invoices);
+    const analysis = runFinancialAnalyses(REPORTS_FINANCIAL_ANALYSES, insights);
+
     return {
       period: { month: period.month, from: period.from, to: period.to },
       previousPeriod: { month: previous.month, from: previous.from, to: previous.to },
@@ -91,7 +114,8 @@ export class ReportsService {
       byCategory: summary.byCategory,
       topSuppliers: summary.topSuppliers,
       invoices,
-      insights: buildFinancialInsights(summary, largest.invoices),
+      insights,
+      analysis,
     };
   }
 

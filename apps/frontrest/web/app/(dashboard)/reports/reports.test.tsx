@@ -55,6 +55,7 @@ const emptyReport = {
   topSuppliers: [],
   invoices: [],
   insights: emptyInsights,
+  analysis: { results: [], metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 } },
 };
 
 const filledReport = {
@@ -88,6 +89,7 @@ const filledReport = {
     largestSupplier: { supplierId: 's1', supplierName: 'Hetzner', count: 2, totalAmount: '316.00', share: '85.41', rank: 1 },
     outstanding: { count: 2, totalAmount: '316.00' },
   },
+  analysis: { results: [], metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 } },
 };
 
 describe('ReportsPage (Fase 9)', () => {
@@ -255,5 +257,56 @@ describe('ReportsPage (Fase 9)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Exportar CSV' }));
 
     expect(await screen.findByText('Não foi possível exportar o relatório.')).toBeInTheDocument();
+  });
+
+  describe('Fase 8.12 — Análise financeira (Financial Analysis Engine)', () => {
+    it('apresenta a secção "Análise financeira" com a conclusão e a evidência devolvidas pela API, sem recalcular', async () => {
+      getMonthlyReport.mockResolvedValue({
+        ...filledReport,
+        analysis: {
+          results: [
+            {
+              id: 'monthly_trend',
+              conclusion: 'increase',
+              evidence: { current: '1000.00', previous: '800.00', absoluteChange: '200.00', percentageChange: '25.00', direction: 'increase' },
+            },
+            {
+              id: 'relative_concentration',
+              conclusion: 'supplier_more_concentrated',
+              evidence: { supplierShare: '60.00', supplierTopN: 1, categoryShare: '40.00', categoryTopN: 1 },
+            },
+          ],
+          metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 2 },
+        },
+      });
+      render(<ReportsPage />);
+
+      await screen.findByText('Análise financeira');
+      // "Tendência mensal" é também o rótulo do card "Destaques" (Fase 8.9) — duas ocorrências esperadas, uma por card.
+      expect(screen.getAllByText('Tendência mensal')).toHaveLength(2);
+      expect(screen.getByText('Aumento face ao mês anterior')).toBeInTheDocument();
+      // Evidência apresentada exatamente como devolvida pela API — nunca recalculada.
+      expect(screen.getByText(/1000\.00 € · Anterior 800\.00 €/)).toBeInTheDocument();
+      expect(screen.getByText('Concentração relativa')).toBeInTheDocument();
+      expect(screen.getByText('Fornecedores mais concentrados do que categorias')).toBeInTheDocument();
+      expect(screen.getByText(/Fornecedores 60\.00% · Categorias 40\.00%/)).toBeInTheDocument();
+    });
+
+    it('omite a secção "Análise financeira" quando analysis.results está vazio', async () => {
+      getMonthlyReport.mockResolvedValue(filledReport);
+      render(<ReportsPage />);
+
+      await screen.findByText('Total de despesas');
+      expect(screen.queryByText('Análise financeira')).not.toBeInTheDocument();
+    });
+
+    it('mantém o comportamento existente da página — Destaques, resumo e faturas continuam a aparecer com analysis presente', async () => {
+      getMonthlyReport.mockResolvedValue(filledReport);
+      render(<ReportsPage />);
+
+      expect(await screen.findByText('Total de despesas')).toBeInTheDocument();
+      await screen.findByText('Destaques');
+      expect(screen.getByText('Faturas do período')).toBeInTheDocument();
+    });
   });
 });

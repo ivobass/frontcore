@@ -15,6 +15,7 @@ function buildReport(overrides: Partial<MonthlyFinancialReport> = {}): MonthlyFi
     byCategory: [],
     topSuppliers: [],
     insights: buildEmptyFinancialInsights({ from: '2026-07-01', to: '2026-07-31' }),
+    analysis: { results: [], metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 } },
     invoices: [
       {
         id: 'inv-1',
@@ -90,5 +91,40 @@ describe('serializeMonthlyReportToPdf', () => {
     const pageCountMatch = pdf.toString('latin1').match(/\/Type\s*\/Pages[\s\S]*?\/Count\s+(\d+)/);
     expect(pageCountMatch).not.toBeNull();
     expect(Number(pageCountMatch?.[1])).toBeGreaterThan(1);
+  });
+
+  describe('Fase 8.12 — Análise financeira (Financial Analysis Engine)', () => {
+    const analysisWithBothResults = {
+      results: [
+        {
+          id: 'monthly_trend' as const,
+          conclusion: 'increase' as const,
+          evidence: { current: '600.00', previous: '400.00', absoluteChange: '200.00', percentageChange: '50.00', direction: 'increase' as const },
+        },
+        {
+          id: 'relative_concentration' as const,
+          conclusion: 'supplier_more_concentrated' as const,
+          evidence: { supplierShare: '60.00', supplierTopN: 1, categoryShare: '40.00', categoryTopN: 1 },
+        },
+      ],
+      metadata: { analysesRun: ['monthly_trend' as const, 'relative_concentration' as const], conclusionsProduced: 2 },
+    };
+
+    it('gera um PDF válido quando existem conclusões de análise financeira', async () => {
+      const pdf = await serializeMonthlyReportToPdf(buildReport({ analysis: analysisWithBothResults }));
+      expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    });
+
+    it('inclui a secção "Análise financeira" — conteúdo cresce estruturalmente quando há conclusões, mesma técnica já usada para o crescimento por faturas (PDFKit codifica texto como fragmentos hex, nunca ASCII literal — ver teste acima)', async () => {
+      const withoutResults = await serializeMonthlyReportToPdf(buildReport(), { compress: false });
+      const withResults = await serializeMonthlyReportToPdf(buildReport({ analysis: analysisWithBothResults }), { compress: false });
+
+      expect(withResults.length).toBeGreaterThan(withoutResults.length);
+    });
+
+    it('gera um documento válido sem nenhuma conclusão aplicável (analysis.results vazio) — nunca lança', async () => {
+      const pdf = await serializeMonthlyReportToPdf(buildReport());
+      expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    });
   });
 });

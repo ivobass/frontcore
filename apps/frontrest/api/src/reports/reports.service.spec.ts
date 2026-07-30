@@ -255,4 +255,98 @@ describe('ReportsService', () => {
       expect(report.insights.trend.direction).toBe('insufficient_data');
     });
   });
+
+  describe('Fase 8.12 — Financial Analysis Engine', () => {
+    /** Ambas as análises aplicáveis: tendência com 2 meses consecutivos; concentração com topN efetivo igual (1 fornecedor, 1 categoria). */
+    function summaryWithBothAnalysesApplicable(): FinancialDashboardSummary {
+      const currentSummary = summary({ activeInvoiceCount: 3, totalAmount: '1000.00' });
+      currentSummary.monthlyTrend = [
+        { month: '2026-06', count: 2, totalAmount: '800.00' },
+        { month: '2026-07', count: 3, totalAmount: '1000.00' },
+      ];
+      currentSummary.topSuppliers = [{ supplierId: 's1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00' }];
+      currentSummary.byCategory = [{ categoryId: 'c1', categoryName: 'Hosting', count: 3, totalAmount: '400.00' }];
+      return currentSummary;
+    }
+
+    it('constrói os insights uma única vez e executa o motor sobre exatamente esses insights, com as duas análises aplicáveis', async () => {
+      const currentSummary = summaryWithBothAnalysesApplicable();
+      const getFinancialSummary = jest.fn().mockResolvedValueOnce(currentSummary).mockResolvedValueOnce(summary());
+      const { service } = buildService(getFinancialSummary);
+
+      const report = await service.getMonthlyReport('org-1', '2026-07');
+
+      expect(report.analysis.results.map((r) => r.id).sort()).toEqual(['monthly_trend', 'relative_concentration']);
+      const trend = report.analysis.results.find((r) => r.id === 'monthly_trend');
+      expect(trend).toMatchObject({ conclusion: 'increase' });
+      const concentration = report.analysis.results.find((r) => r.id === 'relative_concentration');
+      expect(concentration).toMatchObject({ conclusion: 'supplier_more_concentrated' });
+      // Executado sobre exatamente os insights construídos — evidência da concentração espelha report.insights, nunca um recálculo.
+      expect(concentration?.evidence).toEqual({
+        supplierShare: report.insights.supplierConcentration.share,
+        supplierTopN: report.insights.supplierConcentration.topN,
+        categoryShare: report.insights.categoryConcentration.share,
+        categoryTopN: report.insights.categoryConcentration.topN,
+      });
+    });
+
+    it('quando só uma análise é aplicável (tendência insuficiente), agrega só essa conclusão', async () => {
+      const currentSummary = summaryWithBothAnalysesApplicable();
+      currentSummary.monthlyTrend = [{ month: '2026-07', count: 3, totalAmount: '1000.00' }];
+      const getFinancialSummary = jest.fn().mockResolvedValueOnce(currentSummary).mockResolvedValueOnce(summary());
+      const { service } = buildService(getFinancialSummary);
+
+      const report = await service.getMonthlyReport('org-1', '2026-07');
+
+      expect(report.analysis.results.map((r) => r.id)).toEqual(['relative_concentration']);
+      expect(report.analysis.metadata.conclusionsProduced).toBe(1);
+    });
+
+    it('mês sem faturas devolve analysis.results: [], nunca erro', async () => {
+      const getFinancialSummary = jest.fn().mockResolvedValue(summary());
+      const { service } = buildService(getFinancialSummary);
+
+      const report = await service.getMonthlyReport('org-1', '2026-07');
+
+      expect(report.analysis.results).toEqual([]);
+      expect(report.analysis.metadata).toEqual({
+        analysesRun: ['monthly_trend', 'relative_concentration'],
+        conclusionsProduced: 0,
+      });
+    });
+
+    it('seleciona explicitamente as duas análises aprovadas — nunca mais nem menos, independentemente do resultado', async () => {
+      const getFinancialSummary = jest.fn().mockResolvedValue(summary());
+      const { service } = buildService(getFinancialSummary);
+
+      const report = await service.getMonthlyReport('org-1', '2026-07');
+
+      // Prova por comportamento observável (sem espiar o motor diretamente,
+      // conforme instruído): analysesRun reflete sempre exatamente as duas
+      // análises registadas, corrido uma única vez — nunca duplicado (4
+      // entradas) nem vazio (0 entradas) por múltiplas execuções.
+      expect(report.analysis.metadata.analysesRun).toEqual(['monthly_trend', 'relative_concentration']);
+    });
+
+    it('devolve insights e analysis como contratos separados, nunca fundidos', async () => {
+      const getFinancialSummary = jest.fn().mockResolvedValue(summary());
+      const { service } = buildService(getFinancialSummary);
+
+      const report = await service.getMonthlyReport('org-1', '2026-07');
+
+      expect(report.insights).not.toBe(report.analysis);
+      expect(report.analysis).not.toHaveProperty('largestSupplier');
+      expect(report.insights).not.toHaveProperty('results');
+    });
+
+    it('preserva o isolamento por organização — analysis calculado a partir de insights de "org-a" nunca mistura dados de outra organização', async () => {
+      const currentSummary = summaryWithBothAnalysesApplicable();
+      const getFinancialSummary = jest.fn().mockResolvedValueOnce(currentSummary).mockResolvedValueOnce(summary());
+      const { service } = buildService(getFinancialSummary);
+
+      await service.getMonthlyReport('org-a', '2026-07');
+
+      expect(getFinancialSummary).toHaveBeenNthCalledWith(1, 'org-a', { from: '2026-07-01', to: '2026-07-31' });
+    });
+  });
 });
