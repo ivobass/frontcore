@@ -437,6 +437,29 @@
   personalizado, forecasting, recomendações, scoring, agentes,
   `InvoiceItem`, package novo ou migration
   (`docs/phases/phase-8.9-financial-insights-foundation.md`).
+- **Fase 8.10 — Financial Analysis Engine Foundation**: fundação de um
+  motor determinístico de análise financeira — novo módulo único
+  `apps/frontrest/api/src/financial-analysis/` (irmão de topo de
+  `financial-insights/`, nunca aninhado em `ai/`, nunca dentro de
+  `financial-insights/`), separado em três níveis explícitos: Financial
+  Insights (factos, Fase 8.9, inalterado) → Financial Analysis Engine
+  (conclusões determinísticas suportadas por evidências, esta fase) →
+  consumidores (apresentação apenas, nenhum integrado ainda). Contrato
+  genérico `FinancialAnalysis<TId, TConclusion, TEvidence>`/
+  `FinancialAnalysisResult<...>`, síncrono, `null` quando não aplicável;
+  motor `runFinancialAnalyses()` agrega só resultados não nulos numa
+  união discriminada fechada `FinancialAnalysisOutcome` (nunca
+  `string`/`unknown`), metadata puramente determinística (sem
+  `processingTimeMs`). Duas análises demonstradoras: `monthly_trend`
+  (reutiliza exclusivamente o `TrendComparison` já existente) e
+  `relative_concentration` (compara `supplierConcentration.share` com
+  `categoryConcentration.share`, sem limiar nem regra financeira nova,
+  só aplicável com `topN` efetivo igual). Nova ADR-0008. Sem aging de
+  faturas, rankings completos, forecasting, machine learning, scoring,
+  severidade subjetiva, recomendações prescritivas, agentes, alteração
+  ao schema Prisma, novas queries, ou integração em Chat/Dashboard/
+  Reports
+  (`docs/phases/phase-8.10-financial-analysis-engine-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify. Inclui a criação do
   documento dedicado de entrega de infraestrutura ao responsável pela

@@ -792,6 +792,50 @@ composição (proibido); `/reports` não tem este problema
 Ver `docs/phases/phase-8.9-financial-insights-foundation.md` para a
 análise completa e as correções pós-revisão.
 
+## Financial Analysis Engine (conclusões determinísticas)
+
+Desde a Fase 8.10, `apps/frontrest/api/src/financial-analysis/` é um
+módulo único, irmão de topo de `financial-insights/`, que interpreta os
+factos já produzidos por essa camada e gera conclusões determinísticas
+e tipadas, acompanhadas da evidência que as sustenta — nunca a fonte
+dos factos, nunca um segundo cálculo de KPI. Três níveis explícitos,
+nunca misturados (ver `docs/adr/0008-financial-analysis-engine-foundation.md`):
+Financial Insights (factos, Fase 8.9) → Financial Analysis Engine
+(conclusões, esta fase) → consumidores (apresentação apenas — nenhum
+integrado ainda).
+
+O contrato `FinancialAnalysis<TId, TConclusion, TEvidence>`
+(`contracts/financial-analysis.ts`) define `analyze(insights):
+FinancialAnalysisResult<TId, TConclusion, TEvidence> | null` — síncrono
+(sem I/O nem geração por LLM nesta fundação, ao contrário de
+`DocumentExtractor.extract()`, `document-extraction/`, ADR-0007, que é
+`async` para preparar um extractor de IA futuro), `null` significa "não
+aplicável", nunca uma conclusão fabricada. `runFinancialAnalyses()`
+(`financial-analysis.engine.ts`) corre cada análise registada de forma
+independente e agrega só os resultados não nulos — sem resolução de
+conflitos (cada análise tem o seu próprio `id`, nunca compete com outra
+pelo mesmo resultado) — numa união discriminada **fechada**,
+`FinancialAnalysisOutcome` (`types/financial-analysis-outcome.ts`), que
+cresce por adição de membro, nunca por generalização para
+`string`/`unknown`. A metadata do motor (`analysesRun`,
+`conclusionsProduced`) é puramente determinística, sem
+`processingTimeMs` nem qualquer valor dependente do momento de
+execução.
+
+Duas análises concretas nesta fundação (`analyses/`): `monthly_trend`
+reutiliza exclusivamente o `TrendComparison` já produzido por
+`resolveTrend()`, sem wrapper novo; `relative_concentration` compara
+`supplierConcentration.share` com `categoryConcentration.share` via
+`Prisma.Decimal`, sem limiar, scoring ou regra financeira nova, só
+aplicável quando ambos os `share` existem e ambos os `topN` efetivos
+são iguais. Nenhum acesso a Prisma ou a `DashboardService` — recebem
+sempre `FinancialInsights` já construído.
+
+Sem consumidor real ainda — módulo produzido, não integrado, nesta
+fase (mesma situação inicial de `document-extraction/`, aceite no
+ADR-0007). Ver
+`docs/phases/phase-8.10-financial-analysis-engine-foundation.md`.
+
 ## Relatórios financeiros mensais
 
 Desde a Fase 9, `apps/frontrest/api/src/reports/` (`ReportsModule`,
