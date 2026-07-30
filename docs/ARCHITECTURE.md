@@ -720,6 +720,78 @@ que regista também uma nota factual: o commit histórico `58eb497`
 (tag `v0.8.7-...`) alterou só documentação do AI Framework, nunca esta
 implementação.
 
+## Financial Insights (KPIs derivados)
+
+Desde a Fase 8.9, `apps/frontrest/api/src/financial-insights/` é uma
+camada determinística de KPIs derivados — concentração, ranking, saldo
+por pagar, maior fatura/fornecedor/categoria, direção de tendência —
+calculada uma única vez a partir de `DashboardService.
+getFinancialSummary()`/`getLargestInvoices()` (Fase 7/8.4, inalterados)
+e reutilizada sem duplicação por três consumidores reais: Chat IA
+(intenção `FINANCIAL_SUMMARY`), `GET /dashboard/financial-insights`
+(novo) e `ReportsService`/`MonthlyFinancialReport` (Fase 9, JSON/CSV/
+PDF). `financial-insights.util.ts` exporta só funções (`buildFinancialInsights()`
+e helpers) — nunca um serviço `@Injectable()`, mesma forma de
+`dashboard/period-comparison.util.ts` (Fase 9) — e nunca acede ao
+Prisma diretamente, só às duas APIs públicas de `DashboardService`.
+Chamadas independentes (`getFinancialSummary()`/`getLargestInvoices()`)
+correm sempre em `Promise.all`, nunca sequencialmente.
+
+`FinancialInsights` é um contrato deliberadamente separado de
+`FinancialDashboardSummary` ("FinancialSummary") — nunca fundido nem
+substituindo responsabilidades — composto por contratos de domínio
+pequenos: `SupplierInsight`, `CategoryInsight`, `OutstandingInsight`,
+`LargestExpenseInsight`, `TrendInsight`. `share`/percentagens
+(incluindo `TrendInsight.comparison.percentageChange`, contrato próprio
+`TrendComparison` — correção pós-revisão, nunca `PeriodComparisonValue`,
+Fase 9, intocado) são sempre string decimal normalizada a 2 casas
+(`"33.33"`, via `Prisma.Decimal`, nunca `number` intermédio) — o
+símbolo "%" é só da camada de apresentação (texto do Chat, serializers,
+frontend). `FINANCIAL_INSIGHTS_SUPPLIER_TOP_N`/`CATEGORY_TOP_N = 3` são
+o limite fixo nesta fase, sem configuração por ambiente nem parâmetro
+HTTP — o `topN` devolvido em `supplierConcentration`/`categoryConcentration`
+é sempre a quantidade **efetivamente considerada**
+(`Math.min(configurado, elementos disponíveis)`, correção pós-revisão),
+nunca "top 3" quando só existe 1 ou 2 fornecedores/categorias reais.
+`buildSupplierRanking()`/`buildCategoryRanking()` aplicam um desempate
+determinístico sobre uma cópia do array recebido, nunca mutando
+`FinancialDashboardSummary.topSuppliers`/`byCategory` original: valor
+desc, nome `localeCompare` asc (correção pós-revisão) e, só para
+fornecedores, `supplierId` asc como 3º critério (correção final — o
+modelo permite fornecedores diferentes com o mesmo nome; quando nome e
+montante são também iguais, o `supplierId` garante o mesmo resultado
+sempre, nunca dependente da ordem devolvida pela base de dados).
+Categorias permanecem só com os 2 primeiros critérios.
+`resolveOutstanding()` substitui `FinancialRetrievalService.
+selectOutstanding()` (privado, removido) como única fonte de "Pendente
++ Vencida"; `resolveTrend()` só produz uma comparação real quando os
+dois meses mais recentes de `monthlyTrend` são **consecutivos**
+(`areConsecutiveMonths()`, correção pós-revisão — cobre a viragem de
+ano sem caso especial) — com menos de 2 meses, ou com uma lacuna
+temporal entre eles, devolve sempre `insufficient_data` explícito,
+nunca uma tendência fabricada a partir de pontos não adjacentes.
+
+`financial-grounding.validator.ts` (Fase 8.8, Strict Grounding) foi
+estendido, nunca enfraquecido — nova categoria de facto `percentages:
+Set<string>` (nunca `Set<number>`), normalizada via `Prisma.Decimal`
+antes de comparar, sem tolerâncias aproximadas nem arredondamentos
+diferentes do valor autorizado; uma percentagem fabricada pelo
+provider é sempre rejeitada e substituída pelo mesmo fallback
+determinístico já existente. Cobre também as percentagens reais de
+`PERIOD_COMPARISON` (`comparison.totalAmount`/`activeInvoiceCount`.
+`percentageChange`, correção pós-revisão — tinham ficado de fora do
+conjunto permitido na implementação inicial).
+
+**Limitação conhecida, documentada, não eliminada**: `/dashboard`
+executa `getFinancialSummary()` duas vezes por carregamento de página
+(uma vez diretamente, outra dentro de `GET /dashboard/financial-insights`)
+— eliminar isto exigiria fundir os dois contratos (rejeitado), uma
+cache/memoização por pedido (proibida) ou um novo serviço de
+composição (proibido); `/reports` não tem este problema
+(`ReportsService.getMonthlyReport()` computa o resumo uma única vez).
+Ver `docs/phases/phase-8.9-financial-insights-foundation.md` para a
+análise completa e as correções pós-revisão.
+
 ## Relatórios financeiros mensais
 
 Desde a Fase 9, `apps/frontrest/api/src/reports/` (`ReportsModule`,
@@ -736,7 +808,12 @@ construção UTC — sem lógica de datas duplicada.
 
 `GET /reports/monthly` (JSON/CSV/PDF) chama sempre
 `ReportsService.getMonthlyReport()` — os três formatos derivam do mesmo
-`MonthlyFinancialReport`, nunca queries diferentes por formato. A
+`MonthlyFinancialReport`, nunca queries diferentes por formato. Desde a
+Fase 8.9, `MonthlyFinancialReport` inclui também `insights:
+FinancialInsights` (ver "Financial Insights", acima) — `getMonthlyReport()`
+passou a chamar também `getLargestInvoices()` (API pública já
+existente), adicionada ao mesmo `Promise.all` das restantes chamadas
+independentes, nunca sequencialmente. A
 comparação com o mês anterior é `Infinity`/`NaN`-impossível por
 construção: `percentageChange` fica `null` antes de qualquer divisão
 quando o período anterior é zero, nunca calculado e depois validado —

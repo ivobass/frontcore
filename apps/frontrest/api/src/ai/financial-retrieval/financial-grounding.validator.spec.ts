@@ -1,42 +1,50 @@
 import { validateFinancialGrounding } from './financial-grounding.validator';
 import type { FinancialRetrievalResult } from './financial-retrieval.service';
+import { buildEmptyFinancialInsights } from '../../financial-insights/financial-insights.test-fixtures';
+import { buildFinancialInsights } from '../../financial-insights/financial-insights.util';
+
+const PERIOD = { from: '2026-07-01', to: '2026-07-31' };
 
 const SUMMARY_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
   kind: 'DATA',
-  period: { from: '2026-07-01', to: '2026-07-31' },
+  period: PERIOD,
   data: {
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' },
+    insights: buildEmptyFinancialInsights(PERIOD),
   },
   filters: {},
 };
 
 const FILTERED_BY_SUPPLIER_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
   kind: 'DATA',
-  period: { from: '2026-07-01', to: '2026-07-31' },
+  period: PERIOD,
   data: {
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
+    insights: buildEmptyFinancialInsights(PERIOD),
   },
   filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
 };
 
 const FILTERED_BY_CATEGORY_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
   kind: 'DATA',
-  period: { from: '2026-07-01', to: '2026-07-31' },
+  period: PERIOD,
   data: {
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
+    insights: buildEmptyFinancialInsights(PERIOD),
   },
   filters: { categoryId: 'cat-1', categoryName: 'Hosting' },
 };
 
 const FILTERED_BY_STATUS_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
   kind: 'DATA',
-  period: { from: '2026-07-01', to: '2026-07-31' },
+  period: PERIOD,
   data: {
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '316.00', averageAmount: '158.00' },
+    insights: buildEmptyFinancialInsights(PERIOD),
   },
   filters: { status: 'PAID' },
 };
@@ -68,6 +76,22 @@ const COMPARISON_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
     comparison: {
       totalAmount: { current: '150.00', previous: '0.00', absoluteChange: '150.00', percentageChange: null, direction: 'increase' },
       activeInvoiceCount: { current: '3', previous: '0', absoluteChange: '3', percentageChange: null, direction: 'increase' },
+    },
+  },
+  filters: {},
+};
+
+/** Correção pós-revisão (Fase 8.9) — percentagens reais não nulas, para testar a regressão do PERIOD_COMPARISON. */
+const COMPARISON_RESULT_WITH_PERCENTAGE: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+  kind: 'DATA',
+  period: { from: '2026-06-01', to: '2026-06-30' },
+  data: {
+    intent: 'PERIOD_COMPARISON',
+    current: { period: { from: '2026-06-01', to: '2026-06-30' }, totals: { invoiceCount: 6, activeInvoiceCount: 6, cancelledInvoiceCount: 0, totalAmount: '300.00', averageAmount: '50.00' } },
+    previous: { period: { from: '2026-05-01', to: '2026-05-31' }, totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '200.00', averageAmount: '66.67' } },
+    comparison: {
+      totalAmount: { current: '300.00', previous: '200.00', absoluteChange: '100.00', percentageChange: 50, direction: 'increase' },
+      activeInvoiceCount: { current: '6', previous: '3', absoluteChange: '3', percentageChange: 100, direction: 'increase' },
     },
   },
   filters: {},
@@ -181,7 +205,11 @@ describe('validateFinancialGrounding', () => {
     it('aceita o valor sem casas decimais quando os dados reais são um valor inteiro (ex. "0.00")', () => {
       const zeroResult: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
         ...SUMMARY_RESULT,
-        data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' } },
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
+          insights: buildEmptyFinancialInsights(PERIOD),
+        },
       };
       expect(validateFinancialGrounding('Não gastou nada este mês (0 EUR).', zeroResult)).toEqual({ grounded: true });
     });
@@ -195,10 +223,11 @@ describe('validateFinancialGrounding', () => {
     function resultWithAmount(totalAmount: string): Extract<FinancialRetrievalResult, { kind: 'DATA' }> {
       return {
         kind: 'DATA',
-        period: { from: '2026-07-01', to: '2026-07-31' },
+        period: PERIOD,
         data: {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount, averageAmount: totalAmount },
+          insights: buildEmptyFinancialInsights(PERIOD),
         },
         filters: {},
       };
@@ -263,6 +292,107 @@ describe('validateFinancialGrounding', () => {
     it('um número grande sem nenhum separador de milhares (ex. "12345,67 EUR") nunca é cortado a meio', () => {
       const result = resultWithAmount('12345.67');
       expect(validateFinancialGrounding('Valor: 12345,67 EUR.', result)).toEqual({ grounded: true });
+    });
+  });
+
+  describe('Fase 8.9 — percentagens dos Financial Insights (concentração, ranking, tendência)', () => {
+    const RESULT_WITH_INSIGHTS: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+      kind: 'DATA',
+      period: PERIOD,
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
+        insights: buildFinancialInsights(
+          {
+            period: PERIOD,
+            totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
+            byStatus: [{ status: 'PENDING', count: 5, totalAmount: '1000.00' }],
+            monthlyTrend: [
+              { month: '2026-06', count: 2, totalAmount: '400.00' },
+              { month: '2026-07', count: 3, totalAmount: '600.00' },
+            ],
+            byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 5, totalAmount: '1000.00' }],
+            topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00' }],
+          },
+          [],
+        ),
+      },
+      filters: {},
+    };
+
+    it('aceita a percentagem real do maior fornecedor (share "60.00"), com "%" e vírgula decimal', () => {
+      expect(validateFinancialGrounding('A Hetzner representa 60% do total.', RESULT_WITH_INSIGHTS)).toEqual({ grounded: true });
+      expect(validateFinancialGrounding('A Hetzner representa 60,00% do total.', RESULT_WITH_INSIGHTS)).toEqual({ grounded: true });
+      expect(validateFinancialGrounding('A Hetzner representa 60.00% do total.', RESULT_WITH_INSIGHTS)).toEqual({ grounded: true });
+    });
+
+    it('aceita a percentagem real da tendência (aumento de 50% face ao mês anterior)', () => {
+      expect(validateFinancialGrounding('As despesas aumentaram 50% face ao mês anterior.', RESULT_WITH_INSIGHTS)).toEqual({
+        grounded: true,
+      });
+    });
+
+    it('aceita a concentração de categoria (100%, única categoria do período)', () => {
+      expect(validateFinancialGrounding('Hosting concentra 100% da despesa.', RESULT_WITH_INSIGHTS)).toEqual({ grounded: true });
+    });
+
+    it('rejeita uma percentagem fabricada, não coincidente com nenhum valor real dos Financial Insights', () => {
+      expect(validateFinancialGrounding('A Hetzner representa 61% do total.', RESULT_WITH_INSIGHTS)).toEqual({
+        grounded: false,
+        reason: 'PERCENTAGE_NOT_ALLOWED',
+      });
+    });
+
+    it('rejeita um arredondamento diferente do valor autorizado — sem tolerâncias aproximadas', () => {
+      expect(validateFinancialGrounding('A Hetzner representa 60,50% do total.', RESULT_WITH_INSIGHTS)).toEqual({
+        grounded: false,
+        reason: 'PERCENTAGE_NOT_ALLOWED',
+      });
+    });
+
+    it('uma resposta fabricada é sempre rejeitável — o fallback determinístico (buildFinancialContextMessage) nunca precisa de ser reescrito para substituir uma resposta rejeitada', () => {
+      // Confirma só a garantia de rejeição em si — a substituição pelo
+      // fallback é responsabilidade de AiChatService/AiToolOrchestratorService
+      // (já coberta em ai-chat.service.spec.ts), nunca deste validador.
+      const result = validateFinancialGrounding('A Hetzner representa 99% do total.', RESULT_WITH_INSIGHTS);
+      expect(result.grounded).toBe(false);
+    });
+  });
+
+  describe('Correção pós-revisão — regressão do PERIOD_COMPARISON (percentagens em falta do conjunto permitido)', () => {
+    it('percentagem válida — comparação monetária (totalAmount.percentageChange = 50) é aceite', () => {
+      expect(
+        validateFinancialGrounding('As despesas aumentaram 50% face ao mês anterior.', COMPARISON_RESULT_WITH_PERCENTAGE),
+      ).toEqual({ grounded: true });
+    });
+
+    it('percentagem válida — comparação por contagem (activeInvoiceCount.percentageChange = 100) é aceite', () => {
+      expect(
+        validateFinancialGrounding('O número de faturas ativas duplicou — 100% de aumento.', COMPARISON_RESULT_WITH_PERCENTAGE),
+      ).toEqual({ grounded: true });
+    });
+
+    it('percentagem inválida — fabricada, não coincidente com nenhuma das duas percentagens reais, é rejeitada', () => {
+      expect(validateFinancialGrounding('Aumento de 37% face ao mês anterior.', COMPARISON_RESULT_WITH_PERCENTAGE)).toEqual({
+        grounded: false,
+        reason: 'PERCENTAGE_NOT_ALLOWED',
+      });
+    });
+
+    it('percentagem nula — período anterior zero (percentageChange: null) — qualquer percentagem mencionada é sempre rejeitada, nunca adicionada ao conjunto permitido', () => {
+      expect(validateFinancialGrounding('Aumento de 100% face ao mês anterior.', COMPARISON_RESULT)).toEqual({
+        grounded: false,
+        reason: 'PERCENTAGE_NOT_ALLOWED',
+      });
+    });
+
+    it('a mesma resposta com os valores reais (montante, contagem, sem percentagem) continua aceite — regressão não introduzida pela correção', () => {
+      expect(
+        validateFinancialGrounding(
+          'Este mês (300,00 EUR) representa um aumento de 100,00 EUR face ao mês anterior (200,00 EUR).',
+          COMPARISON_RESULT_WITH_PERCENTAGE,
+        ),
+      ).toEqual({ grounded: true });
     });
   });
 });

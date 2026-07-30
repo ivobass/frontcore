@@ -414,6 +414,29 @@
   package novo, migration, alteração Prisma, ao frontend, ou ao tool
   registry
   (`docs/phases/phase-8.8-financial-ai-reliability-strict-grounding-foundation.md`).
+- **Fase 8.9 — Financial Insights Foundation**: camada determinística de
+  Financial Insights (concentração, ranking, saldo por pagar, maior
+  fatura/fornecedor/categoria, tendência) — novo módulo puro
+  `apps/frontrest/api/src/financial-insights/` (`buildFinancialInsights()`
+  e helpers, funções nunca um serviço), calculada uma única vez a partir
+  de `DashboardService.getFinancialSummary()`/`getLargestInvoices()`
+  (já existentes, inalterados) e reutilizada sem duplicação por Chat IA
+  (`FINANCIAL_SUMMARY` ganha `insights`), novo `GET /dashboard/
+  financial-insights`, e `ReportsService`/`MonthlyFinancialReport`
+  (JSON/CSV/PDF). Contrato `FinancialInsights` deliberadamente separado
+  de `FinancialDashboardSummary` — `SupplierInsight`/`CategoryInsight`/
+  `OutstandingInsight`/`LargestExpenseInsight`/`TrendInsight`;
+  `share`/percentagens sempre string decimal a 2 casas via
+  `Prisma.Decimal` (nunca `number`), `FINANCIAL_INSIGHTS_SUPPLIER_TOP_N`/
+  `CATEGORY_TOP_N = 3` fixos, sem configuração. Chamadas independentes
+  sempre em paralelo (`Promise.all`), nunca sequenciais; nenhuma query
+  Prisma nova nem duplicada. Strict Grounding (Fase 8.8) estendido, nunca
+  enfraquecido — nova categoria de facto `percentages` (normalizada,
+  sem tolerâncias aproximadas). Frontend `/dashboard`/`/reports` ganham
+  secção "Destaques". Sem filtros HTTP novos, relatório anual, intervalo
+  personalizado, forecasting, recomendações, scoring, agentes,
+  `InvoiceItem`, package novo ou migration
+  (`docs/phases/phase-8.9-financial-insights-foundation.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify. Inclui a criação do
   documento dedicado de entrega de infraestrutura ao responsável pela

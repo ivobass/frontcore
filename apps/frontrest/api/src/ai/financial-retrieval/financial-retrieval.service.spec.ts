@@ -3,6 +3,7 @@ import type { DashboardService } from '../../dashboard/dashboard.service';
 import type { FinancialDashboardSummary, LargestInvoice } from '../../dashboard/dashboard.service';
 import type { FinancialEntityResolverService, EntityMentionResolution } from './entity-resolver.service';
 import type { FinancialConversationContextV1 } from './financial-conversation-context';
+import { buildFinancialInsights } from '../../financial-insights/financial-insights.util';
 
 const NOW = new Date('2026-07-16T12:00:00Z');
 
@@ -52,7 +53,9 @@ describe('FinancialRetrievalService', () => {
   ) {
     const dashboardService = {
       getFinancialSummary,
-      getLargestInvoices: options.getLargestInvoices ?? jest.fn(),
+      // Fase 8.9 — FINANCIAL_SUMMARY chama getFinancialSummary()/getLargestInvoices()
+      // em paralelo (Promise.all); omissão devolve sempre uma lista vazia, nunca undefined.
+      getLargestInvoices: options.getLargestInvoices ?? jest.fn().mockResolvedValue({ period: { from: '', to: '' }, invoices: [] }),
     } as unknown as DashboardService;
     const entityResolver = {
       resolveSupplierMention: options.resolveSupplierMention ?? jest.fn().mockResolvedValue(NONE),
@@ -104,9 +107,39 @@ describe('FinancialRetrievalService', () => {
     expect(result).toEqual({
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
-      data: { intent: 'FINANCIAL_SUMMARY', totals: FILLED_SUMMARY.totals },
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: FILLED_SUMMARY.totals,
+        insights: buildFinancialInsights(FILLED_SUMMARY, []),
+      },
       filters: {},
     });
+  });
+
+  it('Fase 8.9 — FINANCIAL_SUMMARY chama getFinancialSummary()/getLargestInvoices() com a mesma query, e os Financial Insights refletem a maior fatura devolvida', async () => {
+    const getLargestInvoices = jest.fn().mockResolvedValue({
+      period: FILLED_SUMMARY.period,
+      invoices: [
+        { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PENDING', totalAmount: '354.00' },
+      ],
+    });
+    const getFinancialSummary = jest.fn().mockResolvedValue(FILLED_SUMMARY);
+    const { service } = buildService(getFinancialSummary, { getLargestInvoices });
+
+    const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
+
+    expect(getLargestInvoices).toHaveBeenCalledWith('org-1', {
+      from: '2026-07-01',
+      to: '2026-07-31',
+      status: undefined,
+      supplierId: undefined,
+      categoryId: undefined,
+    });
+    if (result.kind === 'DATA' && result.data.intent === 'FINANCIAL_SUMMARY') {
+      expect(result.data.insights.largestExpense.invoice?.id).toBe('inv-1');
+    } else {
+      throw new Error('esperado kind=DATA, intent=FINANCIAL_SUMMARY');
+    }
   });
 
   it('OUTSTANDING_BALANCE calcula Pendente + Vencida via Decimal, nunca inclui Paga', async () => {
@@ -199,7 +232,11 @@ describe('FinancialRetrievalService', () => {
     expect(result).toEqual({
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
-      data: { intent: 'FINANCIAL_SUMMARY', totals: EMPTY_SUMMARY.totals },
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: EMPTY_SUMMARY.totals,
+        insights: buildFinancialInsights(EMPTY_SUMMARY, []),
+      },
       filters: {},
     });
   });
@@ -235,7 +272,11 @@ describe('FinancialRetrievalService', () => {
       expect(result).toEqual({
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
-        data: { intent: 'FINANCIAL_SUMMARY', totals: FILLED_SUMMARY.totals },
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: FILLED_SUMMARY.totals,
+          insights: buildFinancialInsights(FILLED_SUMMARY, []),
+        },
         filters: {},
       });
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });

@@ -15,14 +15,21 @@ import type { FinancialRetrievalService, FinancialRetrievalResult } from './fina
 import type { AiToolOrchestratorService, AiToolOrchestratorResult } from './tools/ai-tool-orchestrator.service';
 import { createMockPrismaService } from '../../test/utils/mock-prisma';
 import type { MockPrismaService } from '../../test/utils/mock-prisma';
+import { buildEmptyFinancialInsights } from '../financial-insights/financial-insights.test-fixtures';
 
 const SYSTEM_MESSAGE: AiMessage = { role: 'system', content: 'regras + dados da organização' };
 const GENERAL_SYSTEM_MESSAGE: AiMessage = { role: 'system', content: 'regras gerais, sem dados da organização' };
 
+const PERIOD = { from: '2026-07-01', to: '2026-07-31' };
+
 const DEFAULT_DATA_RESULT: FinancialRetrievalResult = {
   kind: 'DATA',
-  period: { from: '2026-07-01', to: '2026-07-31' },
-  data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' } },
+  period: PERIOD,
+  data: {
+    intent: 'FINANCIAL_SUMMARY',
+    totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' },
+    insights: buildEmptyFinancialInsights(PERIOD),
+  },
   filters: {},
 };
 
@@ -355,8 +362,12 @@ describe('AiChatService', () => {
   describe('Fase 8.7 — contexto financeiro conversacional (snapshot persistido)', () => {
     const dataResult: FinancialRetrievalResult = {
       kind: 'DATA',
-      period: { from: '2026-07-01', to: '2026-07-31' },
-      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' } },
+      period: PERIOD,
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' },
+        insights: buildEmptyFinancialInsights(PERIOD),
+      },
       filters: { status: 'PENDING' },
     };
 
@@ -551,31 +562,47 @@ describe('AiChatService', () => {
   describe('Fase 8.8 — Strict Grounding (fronteira determinística entre FinancialRetrievalResult e a resposta final)', () => {
     const groundedDataResult: FinancialRetrievalResult = {
       kind: 'DATA',
-      period: { from: '2026-07-01', to: '2026-07-31' },
-      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' } },
+      period: PERIOD,
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' },
+        insights: buildEmptyFinancialInsights(PERIOD),
+      },
       filters: {},
     };
     const filteredBySupplierResult: FinancialRetrievalResult = {
       kind: 'DATA',
-      period: { from: '2026-07-01', to: '2026-07-31' },
-      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' } },
+      period: PERIOD,
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
+        insights: buildEmptyFinancialInsights(PERIOD),
+      },
       filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
     };
     const filteredByCategoryResult: FinancialRetrievalResult = {
       kind: 'DATA',
-      period: { from: '2026-07-01', to: '2026-07-31' },
-      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' } },
+      period: PERIOD,
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
+        insights: buildEmptyFinancialInsights(PERIOD),
+      },
       filters: { categoryId: 'cat-1', categoryName: 'Hosting' },
     };
     const filteredByStatusResult: FinancialRetrievalResult = {
       kind: 'DATA',
-      period: { from: '2026-07-01', to: '2026-07-31' },
-      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '316.00', averageAmount: '158.00' } },
+      period: PERIOD,
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '316.00', averageAmount: '158.00' },
+        insights: buildEmptyFinancialInsights(PERIOD),
+      },
       filters: { status: 'PAID' },
     };
     const largestInvoicesResult: FinancialRetrievalResult = {
       kind: 'DATA',
-      period: { from: '2026-07-01', to: '2026-07-31' },
+      period: PERIOD,
       data: { intent: 'LARGEST_INVOICES', invoices: [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '300.00' }] },
       filters: {},
     };

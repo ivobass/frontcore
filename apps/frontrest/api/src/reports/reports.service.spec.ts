@@ -2,6 +2,7 @@ import { ReportsService } from './reports.service';
 import type { DashboardService, FinancialDashboardSummary } from '../dashboard/dashboard.service';
 import { createMockPrismaService } from '../../test/utils/mock-prisma';
 import type { MockPrismaService } from '../../test/utils/mock-prisma';
+import { buildFinancialInsights } from '../financial-insights/financial-insights.util';
 
 function summary(
   overrides: Partial<FinancialDashboardSummary['totals']> = {},
@@ -26,8 +27,12 @@ function summary(
 }
 
 describe('ReportsService', () => {
-  function buildService(getFinancialSummary: jest.Mock, prisma?: MockPrismaService) {
-    const dashboardService = { getFinancialSummary } as unknown as DashboardService;
+  function buildService(getFinancialSummary: jest.Mock, prisma?: MockPrismaService, getLargestInvoices?: jest.Mock) {
+    const dashboardService = {
+      getFinancialSummary,
+      // Fase 8.9 — insights derivam de getLargestInvoices() também; omissão devolve sempre lista vazia, nunca undefined.
+      getLargestInvoices: getLargestInvoices ?? jest.fn().mockResolvedValue({ period: { from: '', to: '' }, invoices: [] }),
+    } as unknown as DashboardService;
     const prismaService = prisma ?? createMockPrismaService();
     prismaService.invoice.findMany.mockResolvedValue([]);
     return { service: new ReportsService(dashboardService, prismaService as never), prisma: prismaService };
@@ -216,6 +221,38 @@ describe('ReportsService', () => {
 
       // 0.30 - 0.10 com number puro dá frequentemente 0.19999999999999998 — aqui tem de ser exatamente 0.20.
       expect(report.comparison.totalAmount.absoluteChange).toBe('0.20');
+    });
+  });
+
+  describe('Fase 8.9 — Financial Insights', () => {
+    it('chama getLargestInvoices() com o mesmo período do mês selecionado, em paralelo com as restantes chamadas', async () => {
+      const currentSummary = summary({ activeInvoiceCount: 3, totalAmount: '600.00' });
+      currentSummary.topSuppliers = [{ supplierId: 's1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00' }];
+      const getFinancialSummary = jest.fn().mockResolvedValueOnce(currentSummary).mockResolvedValueOnce(summary());
+      const getLargestInvoices = jest.fn().mockResolvedValue({
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        invoices: [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' }],
+      });
+      const { service } = buildService(getFinancialSummary, undefined, getLargestInvoices);
+
+      const report = await service.getMonthlyReport('org-1', '2026-07');
+
+      expect(getLargestInvoices).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
+      expect(report.insights).toEqual(buildFinancialInsights(currentSummary, [
+        { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' },
+      ]));
+      expect(report.insights.largestSupplier).toMatchObject({ supplierId: 's1', share: '100.00' });
+    });
+
+    it('mês sem faturas devolve Financial Insights vazios, nunca erro', async () => {
+      const getFinancialSummary = jest.fn().mockResolvedValue(summary());
+      const { service } = buildService(getFinancialSummary);
+
+      const report = await service.getMonthlyReport('org-1', '2026-07');
+
+      expect(report.insights.largestSupplier).toBeNull();
+      expect(report.insights.outstanding).toEqual({ count: 0, totalAmount: '0.00' });
+      expect(report.insights.trend.direction).toBe('insufficient_data');
     });
   });
 });

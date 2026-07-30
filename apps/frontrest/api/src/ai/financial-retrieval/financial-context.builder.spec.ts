@@ -1,5 +1,7 @@
 import { buildFinancialContextMessage, buildDeterministicReply } from './financial-context.builder';
 import type { FinancialRetrievalResult } from './financial-retrieval.service';
+import { buildEmptyFinancialInsights } from '../../financial-insights/financial-insights.test-fixtures';
+import { buildFinancialInsights } from '../../financial-insights/financial-insights.util';
 
 const PERIOD = { from: '2026-07-01', to: '2026-07-31' };
 
@@ -11,6 +13,7 @@ describe('buildFinancialContextMessage', () => {
       data: {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' },
+        insights: buildEmptyFinancialInsights(PERIOD),
       },
       filters: {},
     };
@@ -31,11 +34,106 @@ describe('buildFinancialContextMessage', () => {
       data: {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
+        insights: buildEmptyFinancialInsights(PERIOD),
       },
       filters: {},
     };
 
     expect(buildFinancialContextMessage(result)).toContain('Sem faturas confirmadas neste período.');
+  });
+
+  describe('Fase 8.9 — bloco "Destaques" (Financial Insights) em FINANCIAL_SUMMARY', () => {
+    function summaryResultWithInsights(): Extract<FinancialRetrievalResult, { kind: 'DATA' }> {
+      return {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
+          insights: buildFinancialInsights(
+            {
+              period: PERIOD,
+              totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
+              byStatus: [
+                { status: 'PENDING', count: 3, totalAmount: '600.00' },
+                { status: 'PAID', count: 2, totalAmount: '400.00' },
+              ],
+              monthlyTrend: [
+                { month: '2026-06', count: 2, totalAmount: '400.00' },
+                { month: '2026-07', count: 3, totalAmount: '600.00' },
+              ],
+              byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 5, totalAmount: '1000.00' }],
+              topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00' }],
+            },
+            [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' }],
+          ),
+        },
+        filters: {},
+      };
+    }
+
+    it('inclui maior fornecedor/categoria com a percentagem real, concentração, por pagar, maior fatura e tendência', () => {
+      const text = buildFinancialContextMessage(summaryResultWithInsights());
+
+      expect(text).toContain('Maior fornecedor: Hetzner (60.00% do total).');
+      expect(text).toContain('Maior categoria: Hosting (100.00% do total).');
+      // Só 1 fornecedor/1 categoria na fixture — topN reflete a quantidade
+      // efetivamente considerada (correção pós-revisão), nunca "Top 3"
+      // enganador quando só existe 1 elemento real.
+      expect(text).toContain('Concentração de fornecedores: os 1 principais representam 60.00% do total.');
+      expect(text).toContain('Por pagar: 3 fatura(s), 600.00 EUR.');
+      expect(text).toContain('Maior fatura: 2026-07-20 — Hetzner (Hosting, Pendente): 300.00 EUR.');
+      // percentageChange é agora string canónica a 2 casas (correção pós-revisão) — "50.00%", nunca "50%".
+      expect(text).toContain('Tendência mensal: 2026-07 (600.00 EUR) face a 2026-06 (400.00 EUR) — 50.00% de aumento.');
+    });
+
+    it('menos de 2 meses com dados → tendência "dados insuficientes", nunca uma conclusão fabricada', () => {
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '100.00' },
+          insights: buildFinancialInsights(
+            {
+              period: PERIOD,
+              totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '100.00' },
+              byStatus: [{ status: 'PENDING', count: 1, totalAmount: '100.00' }],
+              monthlyTrend: [{ month: '2026-07', count: 1, totalAmount: '100.00' }],
+              byCategory: [],
+              topSuppliers: [],
+            },
+            [],
+          ),
+        },
+        filters: {},
+      };
+
+      const text = buildFinancialContextMessage(result);
+
+      expect(text).toContain('Tendência mensal: dados insuficientes para uma conclusão.');
+      expect(text).not.toContain('Maior fornecedor');
+      expect(text).not.toContain('Maior categoria');
+      expect(text).not.toContain('Maior fatura');
+    });
+
+    it('sem nenhum destaque real (Financial Insights vazios) só mostra "Por pagar" a zero — nunca lança nem inventa', () => {
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
+          insights: buildEmptyFinancialInsights(PERIOD),
+        },
+        filters: {},
+      };
+
+      // Com zero faturas, o texto usa NO_INVOICES_LINE (já coberto pelo teste
+      // acima) — este teste confirma antes disso que o bloco de destaques em
+      // si, perante insights vazios, nunca lança e nunca fabrica um valor.
+      expect(() => buildFinancialContextMessage(result)).not.toThrow();
+    });
   });
 
   it('DATA/OUTSTANDING_BALANCE inclui o valor pré-calculado, mesmo a zero — nunca omitido', () => {
@@ -168,6 +266,7 @@ describe('buildFinancialContextMessage', () => {
         data: {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '50.00' },
+          insights: buildEmptyFinancialInsights(PERIOD),
         },
         filters: { status: 'PAID' },
       };
@@ -185,6 +284,7 @@ describe('buildFinancialContextMessage', () => {
         data: {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '50.00', averageAmount: '50.00' },
+          insights: buildEmptyFinancialInsights(PERIOD),
         },
         filters: { supplierName: 'Hetzner', categoryName: 'Hosting' },
       };
@@ -201,6 +301,7 @@ describe('buildFinancialContextMessage', () => {
         data: {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '50.00', averageAmount: '50.00' },
+          insights: buildEmptyFinancialInsights(PERIOD),
         },
         filters: {},
       };
@@ -342,7 +443,11 @@ describe('buildFinancialContextMessage', () => {
       const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
         kind: 'DATA',
         period: PERIOD,
-        data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' } },
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' },
+          insights: buildEmptyFinancialInsights(PERIOD),
+        },
         filters: { supplierName: maliciousName },
       };
 

@@ -43,7 +43,8 @@ function currentMonthValue(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function DirectionBadge({ value }: { value: PeriodComparisonValue }) {
+/** Tipo estrutural mínimo — aceita `PeriodComparisonValue` (Fase 9, `percentageChange: number`) e `TrendComparison` dos Financial Insights (Fase 8.9, `percentageChange: string`), nunca precisa de mais do que `direction`/`percentageChange`. */
+function DirectionBadge({ value }: { value: { direction: PeriodComparisonValue['direction']; percentageChange: number | string | null } }) {
   const label = value.direction === 'increase' ? 'Aumento' : value.direction === 'decrease' ? 'Redução' : 'Sem alteração';
   // Aumento de despesa é desfavorável (destructive); redução é favorável (success) — leitura financeira, não genérica.
   const variant = value.direction === 'increase' ? 'destructive' : value.direction === 'decrease' ? 'success' : 'outline';
@@ -245,6 +246,71 @@ export default function ReportsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {report.insights ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Destaques</CardTitle>
+                <CardDescription>Conclusões determinísticas (Financial Insights) sobre o período selecionado.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1">
+                    <Typography variant="small">Maior fornecedor</Typography>
+                    {report.insights.largestSupplier ? (
+                      <Typography variant="muted">
+                        {report.insights.largestSupplier.supplierName}
+                        {report.insights.largestSupplier.share !== null ? ` (${report.insights.largestSupplier.share}% do total)` : ''}
+                      </Typography>
+                    ) : (
+                      <Typography variant="muted">Sem dados</Typography>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Typography variant="small">Maior categoria</Typography>
+                    {report.insights.largestCategory ? (
+                      <Typography variant="muted">
+                        {report.insights.largestCategory.categoryName}
+                        {report.insights.largestCategory.share !== null ? ` (${report.insights.largestCategory.share}% do total)` : ''}
+                      </Typography>
+                    ) : (
+                      <Typography variant="muted">Sem dados</Typography>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Typography variant="small">Por pagar (Pendente + Vencida)</Typography>
+                    <Typography variant="muted">
+                      {report.insights.outstanding.count} fatura(s) · {formatCurrency(report.insights.outstanding.totalAmount)}
+                    </Typography>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <Typography variant="small">Maior fatura</Typography>
+                    {report.insights.largestExpense.invoice ? (
+                      <Typography variant="muted">
+                        {report.insights.largestExpense.invoice.supplierName} — {formatCurrency(report.insights.largestExpense.invoice.totalAmount)}
+                      </Typography>
+                    ) : (
+                      <Typography variant="muted">Sem dados</Typography>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Typography variant="small">Tendência mensal</Typography>
+                  {report.insights.trend.direction === 'insufficient_data' || !report.insights.trend.comparison ? (
+                    <Typography variant="muted">Dados insuficientes para uma conclusão.</Typography>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Typography variant="muted">
+                        {report.insights.trend.previousMonth} → {report.insights.trend.latestMonth}:{' '}
+                        {formatCurrency(report.insights.trend.comparison.previous)} → {formatCurrency(report.insights.trend.comparison.current)}
+                      </Typography>
+                      <DirectionBadge value={report.insights.trend.comparison} />
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>

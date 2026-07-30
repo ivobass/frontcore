@@ -107,6 +107,43 @@ export function serializeMonthlyReportToCsv(report: MonthlyFinancialReport): str
   }
   lines.push('');
 
+  lines.push(csvRow(['Destaques (Financial Insights)']));
+  const { insights } = report;
+  if (insights.largestSupplier) {
+    lines.push(
+      csvRow(['Maior fornecedor', insights.largestSupplier.supplierName, formatShare(insights.largestSupplier.share)]),
+    );
+  }
+  if (insights.largestCategory) {
+    lines.push(
+      csvRow(['Maior categoria', insights.largestCategory.categoryName, formatShare(insights.largestCategory.share)]),
+    );
+  }
+  lines.push(
+    csvRow([`Concentração — top ${insights.supplierConcentration.topN} fornecedores`, formatShare(insights.supplierConcentration.share)]),
+  );
+  lines.push(
+    csvRow([`Concentração — top ${insights.categoryConcentration.topN} categorias`, formatShare(insights.categoryConcentration.share)]),
+  );
+  lines.push(csvRow(['Por pagar (Pendente + Vencida)', insights.outstanding.count, insights.outstanding.totalAmount]));
+  if (insights.largestExpense.invoice) {
+    const invoice = insights.largestExpense.invoice;
+    lines.push(csvRow(['Maior fatura', invoice.issueDate, invoice.supplierName, invoice.totalAmount]));
+  }
+  if (insights.trend.comparison) {
+    lines.push(
+      csvRow([
+        `Tendência mensal (${insights.trend.previousMonth} → ${insights.trend.latestMonth})`,
+        insights.trend.comparison.absoluteChange,
+        insights.trend.comparison.percentageChange === null ? 'Sem dados no período anterior' : `${insights.trend.comparison.percentageChange}%`,
+        translateDirection(insights.trend.comparison.direction),
+      ]),
+    );
+  } else {
+    lines.push(csvRow(['Tendência mensal', 'Dados insuficientes para uma conclusão']));
+  }
+  lines.push('');
+
   lines.push(csvRow(['Detalhe das faturas']));
   lines.push(csvRow(['Número', 'Fornecedor', 'Categoria', 'Data de emissão', 'Data de vencimento', 'Estado', 'Montante']));
   for (const invoice of report.invoices) {
@@ -135,4 +172,9 @@ function translateDirection(direction: 'increase' | 'decrease' | 'unchanged'): s
     case 'unchanged':
       return 'Sem alteração';
   }
+}
+
+/** `share` já vem normalizado a 2 casas (`financial-insights.util.ts`) — o "%" é acrescentado só aqui, na camada de apresentação. */
+function formatShare(share: string | null): string {
+  return share === null ? 'Sem dados' : `${share}%`;
 }

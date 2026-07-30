@@ -169,4 +169,90 @@ describe('Dashboard (e2e)', () => {
       );
     });
   });
+
+  describe('Fase 8.9 — GET /dashboard/financial-insights', () => {
+    it('sem token → 401', async () => {
+      await request(app.getHttpServer()).get('/api/dashboard/financial-insights').expect(401);
+    });
+
+    it('período vazio devolve insights vazios (nulls/zeros), nunca erro', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/api/dashboard/financial-insights?from=2020-01-01&to=2020-01-31')
+        .set('Authorization', authHeader())
+        .expect(200);
+
+      expect(response.body.largestSupplier).toBeNull();
+      expect(response.body.largestCategory).toBeNull();
+      // topN reflete a quantidade efetivamente considerada (correção
+      // pós-revisão, Fase 8.9) — 0 sem nenhum fornecedor no período,
+      // nunca o limite configurado (3) quando não há dados reais.
+      expect(response.body.supplierConcentration).toEqual({ topN: 0, share: null });
+      expect(response.body.outstanding).toEqual({ count: 0, totalAmount: '0.00' });
+      expect(response.body.largestExpense).toEqual({ invoice: null });
+      expect(response.body.trend.direction).toBe('insufficient_data');
+    });
+
+    it('a organização usada nas queries vem sempre da identidade autenticada — isolamento confirmado', async () => {
+      await request(app.getHttpServer())
+        .get('/api/dashboard/financial-insights')
+        .set('Authorization', authHeader({ organizationId: 'org-a' }))
+        .expect(200);
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org-a' }) }),
+      );
+      expect(prisma.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ organizationId: 'org-a' }) }),
+      );
+    });
+
+    it('com dados reais, devolve concentração/ranking/maior fatura calculados a partir dos mesmos agregados de financial-summary', async () => {
+      prisma.invoice.aggregate.mockResolvedValue({
+        _count: 3,
+        _sum: { totalAmount: '600.00' },
+        _avg: { totalAmount: '200.00' },
+      });
+      prisma.invoice.groupBy.mockImplementation((args: { by: string[] }) => {
+        if (args.by[0] === 'status') {
+          return Promise.resolve([{ status: 'PENDING', _count: 3, _sum: { totalAmount: '600.00' } }]);
+        }
+        if (args.by[0] === 'supplierId') {
+          return Promise.resolve([{ supplierId: 'sup-1', _count: 3, _sum: { totalAmount: '600.00' } }]);
+        }
+        if (args.by[0] === 'categoryId') {
+          return Promise.resolve([{ categoryId: 'cat-1', _count: 3, _sum: { totalAmount: '600.00' } }]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.invoice.findMany.mockImplementation((args: { select?: { issueDate?: boolean }; include?: unknown }) => {
+        if (args.include) {
+          // getLargestInvoices() — única chamada com `include`, nunca `select`.
+          return Promise.resolve([
+            {
+              id: 'inv-1',
+              issueDate: new Date('2026-07-20T00:00:00.000Z'),
+              status: 'PENDING',
+              totalAmount: '300.00',
+              supplier: { name: 'Hetzner' },
+              category: { name: 'Hosting' },
+            },
+          ]);
+        }
+        if (args.select?.issueDate) {
+          return Promise.resolve([{ issueDate: new Date('2026-07-05T00:00:00.000Z'), totalAmount: '600.00' }]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.supplier.findMany.mockResolvedValue([{ id: 'sup-1', name: 'Hetzner' }]);
+      prisma.expenseCategory.findMany.mockResolvedValue([{ id: 'cat-1', name: 'Hosting' }]);
+
+      const response = await request(app.getHttpServer())
+        .get('/api/dashboard/financial-insights?from=2026-07-01&to=2026-07-31')
+        .set('Authorization', authHeader())
+        .expect(200);
+
+      expect(response.body.largestSupplier).toMatchObject({ supplierId: 'sup-1', supplierName: 'Hetzner', share: '100.00' });
+      expect(response.body.largestExpense.invoice).toMatchObject({ id: 'inv-1', supplierName: 'Hetzner', totalAmount: '300.00' });
+    });
+  });
 });

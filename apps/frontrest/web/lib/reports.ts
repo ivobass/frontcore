@@ -1,4 +1,5 @@
 import { API_URL, ApiError, authHeaders, buildQuery, parseJsonOrThrow } from './api';
+import type { FinancialInsights } from './dashboard';
 
 export type InvoiceStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'CANCELLED';
 
@@ -45,6 +46,15 @@ export interface MonthlyFinancialReport {
   byCategory: Array<{ categoryId: string | null; categoryName: string; count: number; totalAmount: string }>;
   topSuppliers: Array<{ supplierId: string; supplierName: string; count: number; totalAmount: string }>;
   invoices: MonthlyReportInvoiceDetail[];
+  /**
+   * Financial Insights (Fase 8.9) do mês selecionado — contrato
+   * separado, nunca fundido com `totals`/`byStatus`/etc. Opcional
+   * (correção pós-revisão): uma resposta antiga (deploy faseado,
+   * resposta em cache anterior a esta fase) pode não incluir este
+   * campo — a API em si nunca deixou de o devolver, o frontend é que
+   * nunca deve assumir a sua presença.
+   */
+  insights?: FinancialInsights;
 }
 
 export async function getMonthlyReport(accessToken: string, month: string): Promise<MonthlyFinancialReport> {

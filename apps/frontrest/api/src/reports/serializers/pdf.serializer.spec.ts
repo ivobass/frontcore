@@ -1,5 +1,6 @@
 import { serializeMonthlyReportToPdf } from './pdf.serializer';
 import type { MonthlyFinancialReport } from '../reports.service';
+import { buildEmptyFinancialInsights } from '../../financial-insights/financial-insights.test-fixtures';
 
 function buildReport(overrides: Partial<MonthlyFinancialReport> = {}): MonthlyFinancialReport {
   return {
@@ -13,6 +14,7 @@ function buildReport(overrides: Partial<MonthlyFinancialReport> = {}): MonthlyFi
     byStatus: [{ status: 'PENDING', count: 1, totalAmount: '370.00' }],
     byCategory: [],
     topSuppliers: [],
+    insights: buildEmptyFinancialInsights({ from: '2026-07-01', to: '2026-07-31' }),
     invoices: [
       {
         id: 'inv-1',

@@ -4,13 +4,18 @@ import {
   parseFinancialConversationContext,
 } from './financial-conversation-context';
 import type { FinancialRetrievalResult } from './financial-retrieval.service';
+import { buildEmptyFinancialInsights } from '../../financial-insights/financial-insights.test-fixtures';
 
 const NOW = new Date('2026-07-19T10:00:00.000Z');
 
 const DATA_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
   kind: 'DATA',
   period: { from: '2026-07-01', to: '2026-07-31' },
-  data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' } },
+  data: {
+    intent: 'FINANCIAL_SUMMARY',
+    totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' },
+    insights: buildEmptyFinancialInsights({ from: '2026-07-01', to: '2026-07-31' }),
+  },
   filters: { status: 'PENDING', supplierId: 'sup-1', supplierName: 'Hetzner' },
 };
 

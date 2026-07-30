@@ -6,6 +6,8 @@ import type { FinancialDashboardSummary } from '../dashboard/dashboard.service';
 import { compareAmount, compareCount } from '../dashboard/period-comparison.util';
 import type { PeriodComparisonValue } from '../dashboard/period-comparison.util';
 import { resolveMonth, previousMonth } from './month.util';
+import { buildFinancialInsights } from '../financial-insights/financial-insights.util';
+import type { FinancialInsights } from '../financial-insights/financial-insights.types';
 
 export type { PeriodComparisonValue } from '../dashboard/period-comparison.util';
 
@@ -40,6 +42,8 @@ export interface MonthlyFinancialReport {
   byCategory: FinancialDashboardSummary['byCategory'];
   topSuppliers: FinancialDashboardSummary['topSuppliers'];
   invoices: MonthlyReportInvoiceDetail[];
+  /** Financial Insights (Fase 8.9) do mês selecionado — contrato separado de `totals`/`byStatus`/etc., nunca fundido com eles. */
+  insights: FinancialInsights;
 }
 
 /**
@@ -61,10 +65,15 @@ export class ReportsService {
     const period = resolveMonth(month);
     const previous = resolveMonth(previousMonth(month));
 
-    const [summary, previousSummary, invoices] = await Promise.all([
+    // Fase 8.9 — `getLargestInvoices()` é independente das restantes três
+    // chamadas (nenhuma depende do resultado de outra), por isso corrida
+    // no mesmo `Promise.all` — nunca sequencialmente. `buildFinancialInsights()`
+    // deriva só do `summary`/`largest` já obtidos, nunca uma query nova.
+    const [summary, previousSummary, invoices, largest] = await Promise.all([
       this.dashboardService.getFinancialSummary(organizationId, { from: period.from, to: period.to }),
       this.dashboardService.getFinancialSummary(organizationId, { from: previous.from, to: previous.to }),
       this.fetchInvoiceDetails(organizationId, period.gte, period.lt),
+      this.dashboardService.getLargestInvoices(organizationId, { from: period.from, to: period.to }),
     ]);
 
     return {
@@ -82,6 +91,7 @@ export class ReportsService {
       byCategory: summary.byCategory,
       topSuppliers: summary.topSuppliers,
       invoices,
+      insights: buildFinancialInsights(summary, largest.invoices),
     };
   }
 

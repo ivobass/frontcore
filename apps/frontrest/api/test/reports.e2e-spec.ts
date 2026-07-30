@@ -47,6 +47,9 @@ function wireInvoiceData(prisma: MockPrismaService, organizationId: string, mont
 
   prisma.invoice.findMany.mockImplementation((args: any) => {
     const isDetailQuery = args.select?.supplier !== undefined;
+    // Fase 8.9 — DashboardService.getLargestInvoices() é a única chamada a
+    // `invoice.findMany()` com `include` (nunca `select`) e `orderBy: totalAmount desc`.
+    const isLargestInvoicesQuery = args.include?.supplier !== undefined;
     const hit = matches(args) ? fixture : { count: 0, total: '0.00' };
     if (hit.count === 0) return Promise.resolve([]);
 
@@ -57,6 +60,19 @@ function wireInvoiceData(prisma: MockPrismaService, organizationId: string, mont
           number: `F${index}`,
           issueDate: new Date(`${monthKey}-05T00:00:00.000Z`),
           dueDate: null,
+          status: 'PENDING',
+          totalAmount: (Number(hit.total) / hit.count).toFixed(2),
+          supplier: { name: `Fornecedor ${index}` },
+          category: null,
+        })),
+      );
+    }
+
+    if (isLargestInvoicesQuery) {
+      return Promise.resolve(
+        Array.from({ length: hit.count }, (_, index) => ({
+          id: `inv-${index}`,
+          issueDate: new Date(`${monthKey}-05T00:00:00.000Z`),
           status: 'PENDING',
           totalAmount: (Number(hit.total) / hit.count).toFixed(2),
           supplier: { name: `Fornecedor ${index}` },

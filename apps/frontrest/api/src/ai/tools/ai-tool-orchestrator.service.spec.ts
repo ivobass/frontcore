@@ -2,6 +2,7 @@ import { AiToolOrchestratorService } from './ai-tool-orchestrator.service';
 import type { AiCompletionProvider, AiMessage } from '@frontcore/ai';
 import type { FinancialRetrievalService } from '../financial-retrieval/financial-retrieval.service';
 import type { FinancialRetrievalResult } from '../financial-retrieval/financial-retrieval.service';
+import { buildEmptyFinancialInsights } from '../../financial-insights/financial-insights.test-fixtures';
 
 const HISTORY: AiMessage[] = [{ role: 'user', content: 'Onde estou a gastar mais dinheiro este período?' }];
 
@@ -330,10 +331,15 @@ describe('AiToolOrchestratorService', () => {
   });
 
   describe('Fase 8.8 — Strict Grounding (fronteira determinística da resposta final após tool calling)', () => {
+    const PERIOD = { from: '2026-07-01', to: '2026-07-31' };
     const FILTERED_BY_SUPPLIER_RESULT: FinancialRetrievalResult = {
       kind: 'DATA',
-      period: { from: '2026-07-01', to: '2026-07-31' },
-      data: { intent: 'FINANCIAL_SUMMARY', totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' } },
+      period: PERIOD,
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
+        insights: buildEmptyFinancialInsights(PERIOD),
+      },
       filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
     };
 

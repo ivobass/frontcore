@@ -24,6 +24,11 @@ function formatPercentage(value: number | null): string {
   return value === null ? 'sem dados no período anterior' : `${value}%`;
 }
 
+/** `share` já vem normalizado a 2 casas (`financial-insights.util.ts`) — o "%" é acrescentado só aqui, na camada de apresentação. */
+function formatShare(share: string | null): string {
+  return share === null ? 'sem dados' : `${share}%`;
+}
+
 export interface SerializePdfOptions {
   /**
    * Só para testes: `false` desativa a compressão `flate` dos streams
@@ -78,6 +83,33 @@ export function serializeMonthlyReportToPdf(
       `Faturas ativas: ${report.comparison.activeInvoiceCount.current} (anterior: ${report.comparison.activeInvoiceCount.previous}; ` +
         `${translateDirection(report.comparison.activeInvoiceCount.direction)})`,
     );
+    doc.moveDown();
+
+    doc.fontSize(14).text('Destaques');
+    doc.fontSize(10);
+    const { insights } = report;
+    if (insights.largestSupplier) {
+      doc.text(`Maior fornecedor: ${insights.largestSupplier.supplierName} (${formatShare(insights.largestSupplier.share)} do total)`);
+    }
+    if (insights.largestCategory) {
+      doc.text(`Maior categoria: ${insights.largestCategory.categoryName} (${formatShare(insights.largestCategory.share)} do total)`);
+    }
+    doc.text(
+      `Concentração: top ${insights.supplierConcentration.topN} fornecedores ${formatShare(insights.supplierConcentration.share)}; ` +
+        `top ${insights.categoryConcentration.topN} categorias ${formatShare(insights.categoryConcentration.share)}`,
+    );
+    doc.text(`Por pagar (Pendente + Vencida): ${insights.outstanding.count} fatura(s), ${insights.outstanding.totalAmount} EUR`);
+    if (insights.largestExpense.invoice) {
+      const invoice = insights.largestExpense.invoice;
+      doc.text(`Maior fatura: ${invoice.issueDate} — ${invoice.supplierName}, ${invoice.totalAmount} EUR`);
+    }
+    if (insights.trend.comparison) {
+      doc.text(
+        `Tendência mensal (${insights.trend.previousMonth} → ${insights.trend.latestMonth}): ${formatShare(insights.trend.comparison.percentageChange)} (${translateDirection(insights.trend.comparison.direction)})`,
+      );
+    } else {
+      doc.text('Tendência mensal: dados insuficientes para uma conclusão');
+    }
     doc.moveDown();
 
     doc.fontSize(14).text('Detalhe das faturas');

@@ -1,5 +1,6 @@
 import type { FinancialIntentData, FinancialRetrievalResult } from './financial-retrieval.service';
 import type { PeriodComparisonValue } from '../../dashboard/period-comparison.util';
+import type { FinancialInsights } from '../../financial-insights/financial-insights.types';
 
 const NO_INVOICES_LINE = 'Sem faturas confirmadas neste período.';
 
@@ -58,6 +59,60 @@ export function sanitizeDomainText(text: string): string {
 }
 
 /**
+ * Bloco "Destaques" (Fase 8.9, Financial Insights) — só para a intenção
+ * `FINANCIAL_SUMMARY`, única integração dos KPIs derivados no Chat. Todos
+ * os valores vêm já calculados de `FinancialInsights` (nunca recalculados
+ * aqui); cada linha só aparece quando o campo correspondente não é
+ * `null` — "Por pagar" é a única exceção, sempre presente mesmo a zero
+ * (mesma disciplina de `OUTSTANDING_BALANCE`, acima). Tendência com
+ * `insufficient_data` produz sempre uma nota explícita, nunca uma
+ * conclusão fabricada a partir de um único mês.
+ */
+function buildInsightsLines(insights: FinancialInsights): string[] {
+  const lines: string[] = [];
+
+  if (insights.largestSupplier) {
+    const shareText = insights.largestSupplier.share !== null ? ` (${insights.largestSupplier.share}% do total)` : '';
+    lines.push(`Maior fornecedor: ${sanitizeDomainText(insights.largestSupplier.supplierName)}${shareText}.`);
+  }
+  if (insights.largestCategory) {
+    const shareText = insights.largestCategory.share !== null ? ` (${insights.largestCategory.share}% do total)` : '';
+    lines.push(`Maior categoria: ${sanitizeDomainText(insights.largestCategory.categoryName)}${shareText}.`);
+  }
+  if (insights.supplierConcentration.share !== null) {
+    lines.push(
+      `Concentração de fornecedores: os ${insights.supplierConcentration.topN} principais representam ${insights.supplierConcentration.share}% do total.`,
+    );
+  }
+  if (insights.categoryConcentration.share !== null) {
+    lines.push(
+      `Concentração de categorias: as ${insights.categoryConcentration.topN} principais representam ${insights.categoryConcentration.share}% do total.`,
+    );
+  }
+  lines.push(`Por pagar: ${insights.outstanding.count} fatura(s), ${insights.outstanding.totalAmount} EUR.`);
+  if (insights.largestExpense.invoice) {
+    const invoice = insights.largestExpense.invoice;
+    lines.push(
+      `Maior fatura: ${invoice.issueDate} — ${sanitizeDomainText(invoice.supplierName)} (${sanitizeDomainText(invoice.categoryName)}, ${translateStatus(invoice.status)}): ${invoice.totalAmount} EUR.`,
+    );
+  }
+  if (insights.trend.direction === 'insufficient_data' || !insights.trend.comparison) {
+    lines.push('Tendência mensal: dados insuficientes para uma conclusão.');
+  } else {
+    const { comparison, latestMonth, previousMonth } = insights.trend;
+    const percentagePart =
+      comparison.percentageChange === null
+        ? 'variação percentual não aplicável (mês anterior é zero)'
+        : `${comparison.percentageChange}% de ${DIRECTION_LABELS[comparison.direction]}`;
+    lines.push(
+      `Tendência mensal: ${latestMonth} (${comparison.current} EUR) face a ${previousMonth} (${comparison.previous} EUR) — ${percentagePart}.`,
+    );
+  }
+
+  return lines;
+}
+
+/**
  * Constrói o bloco de dados da mensagem `system` a partir de um resultado
  * `DATA` do retrieval financeiro — pura, sem I/O. Só chamada quando o
  * `provider` vai mesmo ser invocado (Fase 8.3: os outros 4 `kind` nunca
@@ -81,13 +136,14 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
 
   switch (data.intent) {
     case 'FINANCIAL_SUMMARY': {
-      const { totals } = data;
+      const { totals, insights } = data;
       if (totals.activeInvoiceCount === 0 && totals.cancelledInvoiceCount === 0) {
         lines.push(NO_INVOICES_LINE);
       } else {
         lines.push(
           `Faturas ativas: ${totals.activeInvoiceCount} (total: ${totals.totalAmount} EUR; média: ${totals.averageAmount} EUR).`,
           `Faturas canceladas: ${totals.cancelledInvoiceCount}.`,
+          ...buildInsightsLines(insights),
         );
       }
       break;

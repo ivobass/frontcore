@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@frontcore/database';
 import type { InvoiceStatus } from '@frontcore/database';
 import { resolvePeriod } from '../../dashboard/period.util';
 import { DashboardService } from '../../dashboard/dashboard.service';
@@ -15,9 +14,8 @@ import { resolveStatusFilter } from './financial-filter.extractor';
 import { compareAmount, compareCount } from '../../dashboard/period-comparison.util';
 import type { PeriodComparisonValue } from '../../dashboard/period-comparison.util';
 import type { FinancialConversationContextV1 } from './financial-conversation-context';
-
-/** "Por pagar" = Pendente + Vencida — nunca inclui Paga. Mesma definição já usada pelo contexto do Chat IA (Fase 8). */
-const OUTSTANDING_STATUSES = new Set<string>(['PENDING', 'OVERDUE']);
+import { buildFinancialInsights, resolveOutstanding } from '../../financial-insights/financial-insights.util';
+import type { FinancialInsights } from '../../financial-insights/financial-insights.types';
 
 /**
  * Compara dois nomes de entidade (fornecedor/categoria) de forma
@@ -33,7 +31,7 @@ function sameEntityName(a: string, b: string): boolean {
 }
 
 export type FinancialIntentData =
-  | { intent: 'FINANCIAL_SUMMARY'; totals: FinancialDashboardSummary['totals'] }
+  | { intent: 'FINANCIAL_SUMMARY'; totals: FinancialDashboardSummary['totals']; insights: FinancialInsights }
   | { intent: 'OUTSTANDING_BALANCE'; outstandingCount: number; outstandingAmount: string }
   | { intent: 'BY_STATUS'; byStatus: FinancialDashboardSummary['byStatus'] }
   | { intent: 'BY_CATEGORY'; byCategory: FinancialDashboardSummary['byCategory'] }
@@ -249,6 +247,25 @@ export class FinancialRetrievalService {
       if (intent === 'LARGEST_INVOICES') {
         const { period, invoices } = await this.dashboardService.getLargestInvoices(organizationId, dashboardQuery);
         return { kind: 'DATA', period, data: { intent, invoices }, filters };
+      }
+
+      // Fase 8.9 — FINANCIAL_SUMMARY é o único ponto de entrada dos
+      // Financial Insights no Chat: summary e largestInvoices são
+      // independentes (nenhum depende do resultado do outro), por isso
+      // corridos em paralelo via `Promise.all` — nunca sequencialmente.
+      // `buildFinancialInsights()` nunca acede ao Prisma nem reimplementa
+      // agregação — deriva só do que as duas APIs públicas já devolveram.
+      if (intent === 'FINANCIAL_SUMMARY') {
+        const [summary, largest] = await Promise.all([
+          this.dashboardService.getFinancialSummary(organizationId, dashboardQuery),
+          this.dashboardService.getLargestInvoices(organizationId, dashboardQuery),
+        ]);
+        return {
+          kind: 'DATA',
+          period: { from: summary.period.from, to: summary.period.to },
+          data: { intent, totals: summary.totals, insights: buildFinancialInsights(summary, largest.invoices) },
+          filters,
+        };
       }
 
       const summary = await this.dashboardService.getFinancialSummary(organizationId, dashboardQuery);
@@ -495,16 +512,19 @@ export class FinancialRetrievalService {
     return {};
   }
 
-  /** Seleciona só o subconjunto de `summary` relevante para a intenção — nunca envia ao provider blocos que a pergunta não pediu. */
+  /** Seleciona só o subconjunto de `summary` relevante para a intenção — nunca envia ao provider blocos que a pergunta não pediu. `FINANCIAL_SUMMARY` nunca chega aqui (Fase 8.9 — resolvido em `resolveDataForPeriod()`, precisa também de `getLargestInvoices()` para os Financial Insights). */
   private selectData(
-    intent: Exclude<FinancialIntentType, 'LARGEST_INVOICES' | 'PERIOD_COMPARISON'>,
+    intent: Exclude<FinancialIntentType, 'LARGEST_INVOICES' | 'PERIOD_COMPARISON' | 'FINANCIAL_SUMMARY'>,
     summary: FinancialDashboardSummary,
   ): FinancialIntentData {
     switch (intent) {
-      case 'FINANCIAL_SUMMARY':
-        return { intent, totals: summary.totals };
-      case 'OUTSTANDING_BALANCE':
-        return this.selectOutstanding(summary);
+      case 'OUTSTANDING_BALANCE': {
+        // Fase 8.9 — `resolveOutstanding()` (`financial-insights.util.ts`)
+        // é a única fonte, partilhada com Dashboard/Reports; este bloco só
+        // adapta o formato ao contrato já existente desta intenção.
+        const outstanding = resolveOutstanding(summary.byStatus);
+        return { intent, outstandingCount: outstanding.count, outstandingAmount: outstanding.totalAmount };
+      }
       case 'BY_STATUS':
         return { intent, byStatus: summary.byStatus };
       case 'BY_CATEGORY':
@@ -514,15 +534,5 @@ export class FinancialRetrievalService {
       case 'MONTHLY_TREND':
         return { intent, monthlyTrend: summary.monthlyTrend };
     }
-  }
-
-  /** Soma via `Prisma.Decimal` (nunca `number`) — mesmo cálculo determinístico já validado na Fase 8, agora feito aqui em vez do construtor de contexto. */
-  private selectOutstanding(summary: FinancialDashboardSummary): FinancialIntentData {
-    const outstandingRows = summary.byStatus.filter((row) => OUTSTANDING_STATUSES.has(row.status));
-    const outstandingCount = outstandingRows.reduce((total, row) => total + row.count, 0);
-    const outstandingAmount = outstandingRows
-      .reduce((total, row) => total.plus(row.totalAmount), new Prisma.Decimal(0))
-      .toFixed(2);
-    return { intent: 'OUTSTANDING_BALANCE', outstandingCount, outstandingAmount };
   }
 }

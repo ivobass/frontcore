@@ -18,8 +18,8 @@ import {
   Button,
 } from '@frontcore/ui';
 import { useSession } from '../../../lib/session-context';
-import { getFinancialSummary } from '../../../lib/dashboard';
-import type { FinancialDashboardSummary, InvoiceStatus } from '../../../lib/dashboard';
+import { getFinancialSummary, getFinancialInsights } from '../../../lib/dashboard';
+import type { FinancialDashboardSummary, FinancialInsights, InvoiceStatus } from '../../../lib/dashboard';
 import { formatCurrency, formatDate } from '../../../lib/format';
 import { FinancialSummaryCards } from './financial-summary-cards';
 import { ProportionalBarList } from './proportional-bar-list';
@@ -57,6 +57,7 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState(defaultRange);
 
   const [summary, setSummary] = useState<FinancialDashboardSummary | null>(null);
+  const [insights, setInsights] = useState<FinancialInsights | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,10 +68,21 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
 
-    getFinancialSummary(session.accessToken, period)
-      .then((result) => {
+    // Fase 8.9 — resumo e insights são pedidos independentes (nenhum
+    // depende do resultado do outro), por isso em paralelo via
+    // Promise.all, nunca sequencialmente. Correção pós-revisão: uma
+    // falha em getFinancialInsights() (ex. deploy faseado onde a API
+    // ainda não expõe este endpoint) nunca bloqueia o resumo principal
+    // — degrada para "sem destaques" (`insights: null`), nunca um erro
+    // de página inteira.
+    Promise.all([
+      getFinancialSummary(session.accessToken, period),
+      getFinancialInsights(session.accessToken, period).catch(() => null),
+    ])
+      .then(([summaryResult, insightsResult]) => {
         if (cancelled) return;
-        setSummary(result);
+        setSummary(summaryResult);
+        setInsights(insightsResult);
         setLoading(false);
       })
       .catch((err) => {
@@ -156,6 +168,46 @@ export default function DashboardPage() {
       ) : (
         <>
           <FinancialSummaryCards summary={summary} />
+
+          {insights ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Destaques</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="flex flex-col gap-1">
+                  <Typography variant="small">Maior fornecedor</Typography>
+                  <Typography variant="muted">
+                    {insights.largestSupplier
+                      ? `${insights.largestSupplier.supplierName}${insights.largestSupplier.share !== null ? ` (${insights.largestSupplier.share}% do total)` : ''}`
+                      : 'Sem dados'}
+                  </Typography>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Typography variant="small">Maior categoria</Typography>
+                  <Typography variant="muted">
+                    {insights.largestCategory
+                      ? `${insights.largestCategory.categoryName}${insights.largestCategory.share !== null ? ` (${insights.largestCategory.share}% do total)` : ''}`
+                      : 'Sem dados'}
+                  </Typography>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Typography variant="small">Por pagar</Typography>
+                  <Typography variant="muted">
+                    {insights.outstanding.count} fatura(s) · {formatCurrency(insights.outstanding.totalAmount)}
+                  </Typography>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Typography variant="small">Tendência mensal</Typography>
+                  <Typography variant="muted">
+                    {insights.trend.direction === 'insufficient_data' || !insights.trend.comparison
+                      ? 'Dados insuficientes'
+                      : `${insights.trend.comparison.percentageChange === null ? 'Sem dados no período anterior' : `${insights.trend.comparison.percentageChange}%`} (${insights.trend.direction === 'increase' ? 'aumento' : insights.trend.direction === 'decrease' ? 'redução' : 'sem alteração'})`}
+                  </Typography>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>

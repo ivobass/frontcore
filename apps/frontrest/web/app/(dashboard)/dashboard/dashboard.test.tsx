@@ -3,10 +3,15 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import DashboardPage from './page';
 
 const getFinancialSummary = vi.fn();
+const getFinancialInsights = vi.fn();
 
 vi.mock('../../../lib/dashboard', async () => {
   const actual = await vi.importActual<typeof import('../../../lib/dashboard')>('../../../lib/dashboard');
-  return { ...actual, getFinancialSummary: (...args: unknown[]) => getFinancialSummary(...args) };
+  return {
+    ...actual,
+    getFinancialSummary: (...args: unknown[]) => getFinancialSummary(...args),
+    getFinancialInsights: (...args: unknown[]) => getFinancialInsights(...args),
+  };
 });
 
 vi.mock('../../../lib/session-context', () => ({
@@ -39,9 +44,24 @@ const filledSummary = {
   topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Acme Lda', count: 3, totalAmount: '1234.56' }],
 };
 
+/** Financial Insights (Fase 8.9) vazios — usados por omissão nos testes que não avaliam o novo card "Destaques". */
+const emptyInsights = {
+  period: { from: '2026-07-01', to: '2026-07-31' },
+  largestSupplier: null,
+  largestCategory: null,
+  supplierConcentration: { topN: 3, share: null },
+  categoryConcentration: { topN: 3, share: null },
+  outstanding: { count: 0, totalAmount: '0.00' },
+  largestExpense: { invoice: null },
+  trend: { latestMonth: null, previousMonth: null, comparison: null, direction: 'insufficient_data' },
+  supplierRanking: [],
+  categoryRanking: [],
+};
+
 describe('DashboardPage (Fase 7)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getFinancialInsights.mockResolvedValue(emptyInsights);
   });
 
   it('mostra o estado de loading enquanto o pedido está pendente', async () => {
@@ -60,6 +80,36 @@ describe('DashboardPage (Fase 7)', () => {
     getFinancialSummary.mockResolvedValue(emptySummary);
     render(<DashboardPage />);
     expect(await screen.findByText('Sem faturas neste período')).toBeInTheDocument();
+  });
+
+  it('Fase 8.9 — mostra o card "Destaques" com o maior fornecedor e a percentagem real', async () => {
+    getFinancialSummary.mockResolvedValue(filledSummary);
+    getFinancialInsights.mockResolvedValue({
+      ...emptyInsights,
+      largestSupplier: { supplierId: 'sup-1', supplierName: 'Acme Lda', count: 3, totalAmount: '1234.56', share: '100.00', rank: 1 },
+    });
+    render(<DashboardPage />);
+
+    await screen.findByText('Destaques');
+    expect(screen.getByText('Acme Lda (100.00% do total)')).toBeInTheDocument();
+  });
+
+  it('Correção pós-revisão — getFinancialInsights() a falhar (ex. deploy faseado, endpoint ainda inexistente) nunca bloqueia o resumo principal', async () => {
+    getFinancialSummary.mockResolvedValue(filledSummary);
+    getFinancialInsights.mockRejectedValue(new Error('404'));
+    render(<DashboardPage />);
+
+    expect(await screen.findByText('Total de despesas')).toBeInTheDocument();
+    expect(screen.queryByText('Destaques')).not.toBeInTheDocument();
+  });
+
+  it('Fase 8.9 — sem dados de insights, mostra "Sem dados"/"Dados insuficientes", nunca lança', async () => {
+    getFinancialSummary.mockResolvedValue(filledSummary);
+    render(<DashboardPage />);
+
+    await screen.findByText('Destaques');
+    expect(screen.getAllByText('Sem dados').length).toBeGreaterThan(0);
+    expect(screen.getByText('Dados insuficientes')).toBeInTheDocument();
   });
 
   it('renderiza os cards e as secções com dados preenchidos', async () => {

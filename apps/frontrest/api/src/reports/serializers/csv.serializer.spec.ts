@@ -1,5 +1,8 @@
 import { serializeMonthlyReportToCsv } from './csv.serializer';
 import type { MonthlyFinancialReport } from '../reports.service';
+import { buildEmptyFinancialInsights } from '../../financial-insights/financial-insights.test-fixtures';
+
+const PERIOD = { from: '2026-07-01', to: '2026-07-31' };
 
 function buildReport(overrides: Partial<MonthlyFinancialReport> = {}): MonthlyFinancialReport {
   return {
@@ -25,6 +28,7 @@ function buildReport(overrides: Partial<MonthlyFinancialReport> = {}): MonthlyFi
         totalAmount: '100.00',
       },
     ],
+    insights: buildEmptyFinancialInsights(PERIOD),
     ...overrides,
   };
 }
@@ -102,5 +106,46 @@ describe('serializeMonthlyReportToCsv', () => {
     expect(csv).toContain('Relatório Financeiro Mensal');
     expect(csv).toContain('Resumo');
     expect(csv).toContain('Comparação com o período anterior');
+  });
+
+  describe('Fase 8.9 — Destaques (Financial Insights)', () => {
+    it('inclui a secção de destaques com maior fornecedor/categoria, concentração, por pagar e maior fatura', () => {
+      const report = buildReport({
+        insights: {
+          period: PERIOD,
+          largestSupplier: { supplierId: 's1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00', share: '60.00', rank: 1 },
+          largestCategory: { categoryId: 'c1', categoryName: 'Hosting', count: 5, totalAmount: '1000.00', share: '100.00', rank: 1 },
+          supplierConcentration: { topN: 3, share: '60.00' },
+          categoryConcentration: { topN: 3, share: '100.00' },
+          outstanding: { count: 2, totalAmount: '200.00' },
+          largestExpense: {
+            invoice: { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' },
+          },
+          trend: {
+            latestMonth: '2026-07',
+            previousMonth: '2026-06',
+            comparison: { current: '600.00', previous: '400.00', absoluteChange: '200.00', percentageChange: '50.00', direction: 'increase' },
+            direction: 'increase',
+          },
+          supplierRanking: [],
+          categoryRanking: [],
+        },
+      });
+
+      const csv = serializeMonthlyReportToCsv(report);
+
+      expect(csv).toContain('Destaques (Financial Insights)');
+      expect(csv).toContain('Maior fornecedor;Hetzner;60.00%');
+      expect(csv).toContain('Maior categoria;Hosting;100.00%');
+      expect(csv).toContain('Por pagar (Pendente + Vencida);2;200.00');
+      expect(csv).toContain('Maior fatura;2026-07-20;Hetzner;300.00');
+    });
+
+    it('Financial Insights vazios nunca lança nem inventa valores — "Sem dados" em vez de percentagem fabricada', () => {
+      const csv = serializeMonthlyReportToCsv(buildReport());
+
+      expect(csv).toContain('Concentração — top 3 fornecedores;Sem dados');
+      expect(csv).toContain('Tendência mensal;Dados insuficientes para uma conclusão');
+    });
   });
 });

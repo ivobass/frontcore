@@ -28,6 +28,20 @@ vi.mock('../../../lib/session-context', () => ({
   }),
 }));
 
+/** Financial Insights (Fase 8.9) vazios — mesmo formato de `buildEmptyFinancialInsights()` do backend, sem importar entre apps. */
+const emptyInsights = {
+  period: { from: '2026-07-01', to: '2026-07-31' },
+  largestSupplier: null,
+  largestCategory: null,
+  supplierConcentration: { topN: 3, share: null },
+  categoryConcentration: { topN: 3, share: null },
+  outstanding: { count: 0, totalAmount: '0.00' },
+  largestExpense: { invoice: null },
+  trend: { latestMonth: null, previousMonth: null, comparison: null, direction: 'insufficient_data' },
+  supplierRanking: [],
+  categoryRanking: [],
+};
+
 const emptyReport = {
   period: { month: '2026-07', from: '2026-07-01', to: '2026-07-31' },
   previousPeriod: { month: '2026-06', from: '2026-06-01', to: '2026-06-30' },
@@ -40,6 +54,7 @@ const emptyReport = {
   byCategory: [],
   topSuppliers: [],
   invoices: [],
+  insights: emptyInsights,
 };
 
 const filledReport = {
@@ -68,6 +83,11 @@ const filledReport = {
       totalAmount: '316.00',
     },
   ],
+  insights: {
+    ...emptyInsights,
+    largestSupplier: { supplierId: 's1', supplierName: 'Hetzner', count: 2, totalAmount: '316.00', share: '85.41', rank: 1 },
+    outstanding: { count: 2, totalAmount: '316.00' },
+  },
 };
 
 describe('ReportsPage (Fase 9)', () => {
@@ -87,10 +107,36 @@ describe('ReportsPage (Fase 9)', () => {
     expect(await screen.findByText('Falha ao carregar o relatório.')).toBeInTheDocument();
   });
 
+  it('Correção pós-revisão — uma resposta antiga sem o campo "insights" nunca lança, só omite a secção "Destaques"', async () => {
+    const { insights: _insights, ...reportWithoutInsights } = filledReport;
+    getMonthlyReport.mockResolvedValue(reportWithoutInsights);
+    render(<ReportsPage />);
+
+    expect(await screen.findByText('Total de despesas')).toBeInTheDocument();
+    expect(screen.queryByText('Destaques')).not.toBeInTheDocument();
+  });
+
   it('mostra o estado vazio quando o mês não tem faturas', async () => {
     getMonthlyReport.mockResolvedValue(emptyReport);
     render(<ReportsPage />);
     expect(await screen.findByText('Sem faturas neste período')).toBeInTheDocument();
+  });
+
+  it('Fase 8.9 — mostra os Destaques (Financial Insights) com o maior fornecedor e a percentagem real', async () => {
+    getMonthlyReport.mockResolvedValue(filledReport);
+    render(<ReportsPage />);
+
+    await screen.findByText('Destaques');
+    expect(screen.getByText('Hetzner (85.41% do total)')).toBeInTheDocument();
+  });
+
+  it('Fase 8.9 — sem dados de insights, mostra "Sem dados" e "Dados insuficientes", nunca lança', async () => {
+    getMonthlyReport.mockResolvedValue({ ...filledReport, insights: emptyInsights });
+    render(<ReportsPage />);
+
+    await screen.findByText('Destaques');
+    expect(screen.getAllByText('Sem dados').length).toBeGreaterThan(0);
+    expect(screen.getByText('Dados insuficientes para uma conclusão.')).toBeInTheDocument();
   });
 
   it('mostra o resumo, a comparação e a tabela de faturas com dados preenchidos', async () => {
