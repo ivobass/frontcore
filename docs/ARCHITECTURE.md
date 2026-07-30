@@ -720,6 +720,29 @@ que regista também uma nota factual: o commit histórico `58eb497`
 (tag `v0.8.7-...`) alterou só documentação do AI Framework, nunca esta
 implementação.
 
+**Desde a Fase 8.13**, o AI Chat é o terceiro consumidor real do
+Financial Analysis Engine (Dashboard e Reports já integrados nas Fases
+8.11/8.12). `FinancialIntentData`'s `FINANCIAL_SUMMARY` ganha
+`analysis: FinancialAnalysisEngineOutput`, sempre presente;
+`FinancialRetrievalService.resolveDataForPeriod()` — já partilhado
+pelo caminho direto (`retrieve()`) e por tool calling
+(`retrieveForIntent()`, usado por `AiToolOrchestratorService`) —
+constrói `FinancialInsights` uma única vez e executa
+`runFinancialAnalyses()` uma única vez, com seleção própria
+(`AI_CHAT_FINANCIAL_ANALYSES`, uma terceira constante independente das
+de Dashboard/Reports). `buildFinancialContextMessage()` ganha
+`buildAnalysisLines()` (mensagem explícita quando `analysis.results`
+está vazio, no mesmo ramo que já omite os Financial Insights perante
+um período sem faturas). `validateFinancialGrounding()` **sem
+alteração funcional** — a evidência de `monthlyTrendAnalysis`/
+`relativeConcentrationAnalysis` é sempre uma cópia verbatim de campos
+já presentes em `insights`, por isso `collectInsightFacts()` já
+autoriza qualquer valor/percentagem que a análise possa introduzir
+(`collectAnalysisFacts()` avaliada e conscientemente não criada,
+YAGNI). `AiToolOrchestratorService` inalterado — o motor nunca corre
+no orquestrador, só em `FinancialRetrievalService`. Ver
+`docs/phases/phase-8.13-grounded-ai-financial-analysis-integration.md`.
+
 ## Financial Insights (KPIs derivados)
 
 Desde a Fase 8.9, `apps/frontrest/api/src/financial-insights/` é uma

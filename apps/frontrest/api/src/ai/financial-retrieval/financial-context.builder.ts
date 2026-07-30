@@ -1,6 +1,7 @@
 import type { FinancialIntentData, FinancialRetrievalResult } from './financial-retrieval.service';
 import type { PeriodComparisonValue } from '../../dashboard/period-comparison.util';
 import type { FinancialInsights } from '../../financial-insights/financial-insights.types';
+import type { FinancialAnalysisEngineOutput, FinancialAnalysisOutcome } from '../../financial-analysis/types';
 
 const NO_INVOICES_LINE = 'Sem faturas confirmadas neste período.';
 
@@ -112,6 +113,48 @@ function buildInsightsLines(insights: FinancialInsights): string[] {
   return lines;
 }
 
+const ANALYSIS_TITLES: Record<FinancialAnalysisOutcome['id'], string> = {
+  monthly_trend: 'Tendência mensal',
+  relative_concentration: 'Concentração relativa',
+};
+
+/** Local a `financial-retrieval/` deliberadamente — mesma disciplina de duplicação já usada para `STATUS_LABELS` entre os serializers de Reports. */
+const ANALYSIS_CONCLUSION_LABELS: Record<string, string> = {
+  increase: 'aumento face ao mês anterior',
+  decrease: 'redução face ao mês anterior',
+  unchanged: 'sem alteração face ao mês anterior',
+  supplier_more_concentrated: 'fornecedores mais concentrados do que categorias',
+  category_more_concentrated: 'categorias mais concentradas do que fornecedores',
+  equally_concentrated: 'concentração equivalente entre fornecedores e categorias',
+};
+
+/** Só apresenta os campos de evidência já devolvidos pelo motor — nunca recalcula, infere ou aplica threshold aqui. */
+function describeAnalysisEvidence(result: FinancialAnalysisOutcome): string {
+  if (result.id === 'monthly_trend') {
+    const { current, previous, percentageChange } = result.evidence;
+    return `${current} EUR face a ${previous} EUR${percentageChange !== null ? ` (${percentageChange}%)` : ''}`;
+  }
+  const { supplierShare, categoryShare } = result.evidence;
+  return `fornecedores ${supplierShare}%, categorias ${categoryShare}%`;
+}
+
+/**
+ * Bloco "Análise financeira" (Fase 8.13, Financial Analysis Engine) — só
+ * para `FINANCIAL_SUMMARY`; conclusões e evidências já produzidas pelo
+ * motor (Fase 8.10), nunca recalculadas, nunca inferidas, nunca com
+ * threshold aplicado aqui. `analysis.results` vazio produz sempre uma
+ * nota explícita, nunca a secção omitida silenciosamente.
+ */
+function buildAnalysisLines(analysis: FinancialAnalysisEngineOutput): string[] {
+  if (analysis.results.length === 0) {
+    return ['Análise financeira: sem conclusões aplicáveis neste período.'];
+  }
+  return analysis.results.map(
+    (result) =>
+      `${ANALYSIS_TITLES[result.id]}: ${ANALYSIS_CONCLUSION_LABELS[result.conclusion] ?? result.conclusion} (${describeAnalysisEvidence(result)}).`,
+  );
+}
+
 /**
  * Constrói o bloco de dados da mensagem `system` a partir de um resultado
  * `DATA` do retrieval financeiro — pura, sem I/O. Só chamada quando o
@@ -136,7 +179,7 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
 
   switch (data.intent) {
     case 'FINANCIAL_SUMMARY': {
-      const { totals, insights } = data;
+      const { totals, insights, analysis } = data;
       if (totals.activeInvoiceCount === 0 && totals.cancelledInvoiceCount === 0) {
         lines.push(NO_INVOICES_LINE);
       } else {
@@ -144,6 +187,7 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
           `Faturas ativas: ${totals.activeInvoiceCount} (total: ${totals.totalAmount} EUR; média: ${totals.averageAmount} EUR).`,
           `Faturas canceladas: ${totals.cancelledInvoiceCount}.`,
           ...buildInsightsLines(insights),
+          ...buildAnalysisLines(analysis),
         );
       }
       break;

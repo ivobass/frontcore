@@ -16,11 +16,18 @@ import type { AiToolOrchestratorService, AiToolOrchestratorResult } from './tool
 import { createMockPrismaService } from '../../test/utils/mock-prisma';
 import type { MockPrismaService } from '../../test/utils/mock-prisma';
 import { buildEmptyFinancialInsights } from '../financial-insights/financial-insights.test-fixtures';
+import type { FinancialAnalysisEngineOutput } from '../financial-analysis/types';
 
 const SYSTEM_MESSAGE: AiMessage = { role: 'system', content: 'regras + dados da organização' };
 const GENERAL_SYSTEM_MESSAGE: AiMessage = { role: 'system', content: 'regras gerais, sem dados da organização' };
 
 const PERIOD = { from: '2026-07-01', to: '2026-07-31' };
+
+/** Fase 8.13 — insights vazios nunca produzem nenhuma conclusão aplicável. */
+const EMPTY_ANALYSIS: FinancialAnalysisEngineOutput = {
+  results: [],
+  metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 },
+};
 
 const DEFAULT_DATA_RESULT: FinancialRetrievalResult = {
   kind: 'DATA',
@@ -29,6 +36,7 @@ const DEFAULT_DATA_RESULT: FinancialRetrievalResult = {
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' },
     insights: buildEmptyFinancialInsights(PERIOD),
+    analysis: EMPTY_ANALYSIS,
   },
   filters: {},
 };
@@ -367,6 +375,7 @@ describe('AiChatService', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' },
         insights: buildEmptyFinancialInsights(PERIOD),
+        analysis: EMPTY_ANALYSIS,
       },
       filters: { status: 'PENDING' },
     };
@@ -567,6 +576,7 @@ describe('AiChatService', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' },
         insights: buildEmptyFinancialInsights(PERIOD),
+        analysis: EMPTY_ANALYSIS,
       },
       filters: {},
     };
@@ -577,6 +587,7 @@ describe('AiChatService', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
         insights: buildEmptyFinancialInsights(PERIOD),
+        analysis: EMPTY_ANALYSIS,
       },
       filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
     };
@@ -587,6 +598,7 @@ describe('AiChatService', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
         insights: buildEmptyFinancialInsights(PERIOD),
+        analysis: EMPTY_ANALYSIS,
       },
       filters: { categoryId: 'cat-1', categoryName: 'Hosting' },
     };
@@ -597,6 +609,7 @@ describe('AiChatService', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '316.00', averageAmount: '158.00' },
         insights: buildEmptyFinancialInsights(PERIOD),
+        analysis: EMPTY_ANALYSIS,
       },
       filters: { status: 'PAID' },
     };

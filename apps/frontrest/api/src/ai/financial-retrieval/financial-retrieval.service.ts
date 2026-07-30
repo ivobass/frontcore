@@ -16,6 +16,19 @@ import type { PeriodComparisonValue } from '../../dashboard/period-comparison.ut
 import type { FinancialConversationContextV1 } from './financial-conversation-context';
 import { buildFinancialInsights, resolveOutstanding } from '../../financial-insights/financial-insights.util';
 import type { FinancialInsights } from '../../financial-insights/financial-insights.types';
+import { monthlyTrendAnalysis } from '../../financial-analysis/analyses/monthly-trend.analysis';
+import { relativeConcentrationAnalysis } from '../../financial-analysis/analyses/relative-concentration.analysis';
+import { runFinancialAnalyses } from '../../financial-analysis/financial-analysis.engine';
+import type { FinancialAnalysisEngineOutput } from '../../financial-analysis/types';
+
+/**
+ * Seleção explícita do AI Chat (Fase 8.13) — própria deste módulo, nunca
+ * partilhada com a seleção equivalente do Dashboard
+ * (`dashboard.service.ts`, Fase 8.11) nem de Reports
+ * (`reports.service.ts`, Fase 8.12): cada consumidor do motor declara o
+ * seu próprio array, não existe registo global/default implícito.
+ */
+const AI_CHAT_FINANCIAL_ANALYSES = [monthlyTrendAnalysis, relativeConcentrationAnalysis];
 
 /**
  * Compara dois nomes de entidade (fornecedor/categoria) de forma
@@ -31,7 +44,13 @@ function sameEntityName(a: string, b: string): boolean {
 }
 
 export type FinancialIntentData =
-  | { intent: 'FINANCIAL_SUMMARY'; totals: FinancialDashboardSummary['totals']; insights: FinancialInsights }
+  | {
+      intent: 'FINANCIAL_SUMMARY';
+      totals: FinancialDashboardSummary['totals'];
+      insights: FinancialInsights;
+      /** Financial Analysis Engine (Fase 8.10/8.13) sobre os mesmos `insights` acima — sempre presente, nunca opcional. */
+      analysis: FinancialAnalysisEngineOutput;
+    }
   | { intent: 'OUTSTANDING_BALANCE'; outstandingCount: number; outstandingAmount: string }
   | { intent: 'BY_STATUS'; byStatus: FinancialDashboardSummary['byStatus'] }
   | { intent: 'BY_CATEGORY'; byCategory: FinancialDashboardSummary['byCategory'] }
@@ -260,10 +279,12 @@ export class FinancialRetrievalService {
           this.dashboardService.getFinancialSummary(organizationId, dashboardQuery),
           this.dashboardService.getLargestInvoices(organizationId, dashboardQuery),
         ]);
+        const insights = buildFinancialInsights(summary, largest.invoices);
+        const analysis = runFinancialAnalyses(AI_CHAT_FINANCIAL_ANALYSES, insights);
         return {
           kind: 'DATA',
           period: { from: summary.period.from, to: summary.period.to },
-          data: { intent, totals: summary.totals, insights: buildFinancialInsights(summary, largest.invoices) },
+          data: { intent, totals: summary.totals, insights, analysis },
           filters,
         };
       }

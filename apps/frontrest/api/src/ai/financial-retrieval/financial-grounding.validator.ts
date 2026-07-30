@@ -178,6 +178,15 @@ function collectAllowedFacts(result: Extract<FinancialRetrievalResult, { kind: '
   const data: FinancialIntentData = result.data;
   switch (data.intent) {
     case 'FINANCIAL_SUMMARY': {
+      // `data.analysis` (Fase 8.10/8.13, Financial Analysis Engine) nunca
+      // precisa de uma coleta própria aqui: por desenho, a evidência de
+      // `monthlyTrendAnalysis`/`relativeConcentrationAnalysis` é sempre uma
+      // cópia verbatim de campos já presentes em `insights` (`trend.
+      // comparison`, `supplierConcentration.share`, `categoryConcentration.
+      // share`) — `collectInsightFacts()`, abaixo, já autoriza qualquer
+      // valor/percentagem que `analysis` possa introduzir. Reavaliar (YAGNI)
+      // apenas se uma análise futura produzir evidência que não seja um
+      // subconjunto de `insights`.
       const { totals, insights } = data;
       amounts.add(totals.totalAmount);
       amounts.add(totals.averageAmount);

@@ -2,8 +2,18 @@ import { buildFinancialContextMessage, buildDeterministicReply } from './financi
 import type { FinancialRetrievalResult } from './financial-retrieval.service';
 import { buildEmptyFinancialInsights } from '../../financial-insights/financial-insights.test-fixtures';
 import { buildFinancialInsights } from '../../financial-insights/financial-insights.util';
+import { monthlyTrendAnalysis } from '../../financial-analysis/analyses/monthly-trend.analysis';
+import { relativeConcentrationAnalysis } from '../../financial-analysis/analyses/relative-concentration.analysis';
+import { runFinancialAnalyses } from '../../financial-analysis/financial-analysis.engine';
+import type { FinancialAnalysisEngineOutput } from '../../financial-analysis/types';
 
 const PERIOD = { from: '2026-07-01', to: '2026-07-31' };
+
+/** Fase 8.13 — insights vazios nunca produzem nenhuma conclusão aplicável. */
+const EMPTY_ANALYSIS: FinancialAnalysisEngineOutput = {
+  results: [],
+  metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 },
+};
 
 describe('buildFinancialContextMessage', () => {
   it('DATA/FINANCIAL_SUMMARY inclui totais e o período consultado', () => {
@@ -14,6 +24,7 @@ describe('buildFinancialContextMessage', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' },
         insights: buildEmptyFinancialInsights(PERIOD),
+        analysis: EMPTY_ANALYSIS,
       },
       filters: {},
     };
@@ -35,6 +46,7 @@ describe('buildFinancialContextMessage', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
         insights: buildEmptyFinancialInsights(PERIOD),
+        analysis: EMPTY_ANALYSIS,
       },
       filters: {},
     };
@@ -44,29 +56,31 @@ describe('buildFinancialContextMessage', () => {
 
   describe('Fase 8.9 — bloco "Destaques" (Financial Insights) em FINANCIAL_SUMMARY', () => {
     function summaryResultWithInsights(): Extract<FinancialRetrievalResult, { kind: 'DATA' }> {
+      const insights = buildFinancialInsights(
+        {
+          period: PERIOD,
+          totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
+          byStatus: [
+            { status: 'PENDING', count: 3, totalAmount: '600.00' },
+            { status: 'PAID', count: 2, totalAmount: '400.00' },
+          ],
+          monthlyTrend: [
+            { month: '2026-06', count: 2, totalAmount: '400.00' },
+            { month: '2026-07', count: 3, totalAmount: '600.00' },
+          ],
+          byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 5, totalAmount: '1000.00' }],
+          topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00' }],
+        },
+        [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' }],
+      );
       return {
         kind: 'DATA',
         period: PERIOD,
         data: {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
-          insights: buildFinancialInsights(
-            {
-              period: PERIOD,
-              totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
-              byStatus: [
-                { status: 'PENDING', count: 3, totalAmount: '600.00' },
-                { status: 'PAID', count: 2, totalAmount: '400.00' },
-              ],
-              monthlyTrend: [
-                { month: '2026-06', count: 2, totalAmount: '400.00' },
-                { month: '2026-07', count: 3, totalAmount: '600.00' },
-              ],
-              byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 5, totalAmount: '1000.00' }],
-              topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00' }],
-            },
-            [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' }],
-          ),
+          insights,
+          analysis: runFinancialAnalyses([monthlyTrendAnalysis, relativeConcentrationAnalysis], insights),
         },
         filters: {},
       };
@@ -87,24 +101,35 @@ describe('buildFinancialContextMessage', () => {
       expect(text).toContain('Tendência mensal: 2026-07 (600.00 EUR) face a 2026-06 (400.00 EUR) — 50.00% de aumento.');
     });
 
+    it('Fase 8.13 — inclui o bloco "Análise financeira" com as conclusões e evidências do motor, sem recalcular', () => {
+      const text = buildFinancialContextMessage(summaryResultWithInsights());
+
+      expect(text).toContain('Tendência mensal: aumento face ao mês anterior (600.00 EUR face a 400.00 EUR (50.00%)).');
+      expect(text).toContain(
+        'Concentração relativa: categorias mais concentradas do que fornecedores (fornecedores 60.00%, categorias 100.00%).',
+      );
+    });
+
     it('menos de 2 meses com dados → tendência "dados insuficientes", nunca uma conclusão fabricada', () => {
+      const insights = buildFinancialInsights(
+        {
+          period: PERIOD,
+          totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '100.00' },
+          byStatus: [{ status: 'PENDING', count: 1, totalAmount: '100.00' }],
+          monthlyTrend: [{ month: '2026-07', count: 1, totalAmount: '100.00' }],
+          byCategory: [],
+          topSuppliers: [],
+        },
+        [],
+      );
       const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
         kind: 'DATA',
         period: PERIOD,
         data: {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '100.00' },
-          insights: buildFinancialInsights(
-            {
-              period: PERIOD,
-              totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '100.00' },
-              byStatus: [{ status: 'PENDING', count: 1, totalAmount: '100.00' }],
-              monthlyTrend: [{ month: '2026-07', count: 1, totalAmount: '100.00' }],
-              byCategory: [],
-              topSuppliers: [],
-            },
-            [],
-          ),
+          insights,
+          analysis: runFinancialAnalyses([monthlyTrendAnalysis, relativeConcentrationAnalysis], insights),
         },
         filters: {},
       };
@@ -115,6 +140,44 @@ describe('buildFinancialContextMessage', () => {
       expect(text).not.toContain('Maior fornecedor');
       expect(text).not.toContain('Maior categoria');
       expect(text).not.toContain('Maior fatura');
+      // monthly_trend fica inaplicável (tendência insuficiente), mas
+      // relative_concentration continua aplicável — sem fornecedores/
+      // categorias reais, ambos os `share`/`topN` são "0.00"/0 (não
+      // `null`, já que o total do período não é zero), logo comparáveis
+      // e "equally_concentrated" por construção, nunca uma conclusão
+      // fabricada.
+      expect(text).toContain(
+        'Concentração relativa: concentração equivalente entre fornecedores e categorias (fornecedores 0.00%, categorias 0.00%).',
+      );
+    });
+
+    it('Fase 8.13 — quando nenhuma análise é aplicável (topN incomparável e tendência insuficiente), apresenta a mensagem explícita, nunca omite a secção', () => {
+      const insights = buildFinancialInsights(
+        {
+          period: PERIOD,
+          totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '100.00' },
+          byStatus: [{ status: 'PENDING', count: 1, totalAmount: '100.00' }],
+          monthlyTrend: [{ month: '2026-07', count: 1, totalAmount: '100.00' }],
+          byCategory: [],
+          topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 1, totalAmount: '100.00' }],
+        },
+        [],
+      );
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '100.00' },
+          insights,
+          analysis: runFinancialAnalyses([monthlyTrendAnalysis, relativeConcentrationAnalysis], insights),
+        },
+        filters: {},
+      };
+
+      const text = buildFinancialContextMessage(result);
+
+      expect(text).toContain('Análise financeira: sem conclusões aplicáveis neste período.');
     });
 
     it('sem nenhum destaque real (Financial Insights vazios) só mostra "Por pagar" a zero — nunca lança nem inventa', () => {
@@ -125,6 +188,7 @@ describe('buildFinancialContextMessage', () => {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
           insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
         },
         filters: {},
       };
@@ -267,6 +331,7 @@ describe('buildFinancialContextMessage', () => {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '100.00', averageAmount: '50.00' },
           insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
         },
         filters: { status: 'PAID' },
       };
@@ -285,6 +350,7 @@ describe('buildFinancialContextMessage', () => {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '50.00', averageAmount: '50.00' },
           insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
         },
         filters: { supplierName: 'Hetzner', categoryName: 'Hosting' },
       };
@@ -302,6 +368,7 @@ describe('buildFinancialContextMessage', () => {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '50.00', averageAmount: '50.00' },
           insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
         },
         filters: {},
       };
@@ -447,6 +514,7 @@ describe('buildFinancialContextMessage', () => {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' },
           insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
         },
         filters: { supplierName: maliciousName },
       };

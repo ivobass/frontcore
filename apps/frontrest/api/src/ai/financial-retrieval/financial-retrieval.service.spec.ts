@@ -4,8 +4,14 @@ import type { FinancialDashboardSummary, LargestInvoice } from '../../dashboard/
 import type { FinancialEntityResolverService, EntityMentionResolution } from './entity-resolver.service';
 import type { FinancialConversationContextV1 } from './financial-conversation-context';
 import { buildFinancialInsights } from '../../financial-insights/financial-insights.util';
+import { monthlyTrendAnalysis } from '../../financial-analysis/analyses/monthly-trend.analysis';
+import { relativeConcentrationAnalysis } from '../../financial-analysis/analyses/relative-concentration.analysis';
+import { runFinancialAnalyses } from '../../financial-analysis/financial-analysis.engine';
 
 const NOW = new Date('2026-07-16T12:00:00Z');
+
+/** Fase 8.13 — mesma seleção usada por `AI_CHAT_FINANCIAL_ANALYSES` em `financial-retrieval.service.ts`, reproduzida aqui só para calcular o valor esperado nos testes. */
+const CHAT_ANALYSES = [monthlyTrendAnalysis, relativeConcentrationAnalysis];
 
 const FILLED_SUMMARY: FinancialDashboardSummary = {
   period: { from: '2026-07-01', to: '2026-07-31' },
@@ -104,13 +110,15 @@ describe('FinancialRetrievalService', () => {
 
     const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
 
+    const expectedInsights = buildFinancialInsights(FILLED_SUMMARY, []);
     expect(result).toEqual({
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: {
         intent: 'FINANCIAL_SUMMARY',
         totals: FILLED_SUMMARY.totals,
-        insights: buildFinancialInsights(FILLED_SUMMARY, []),
+        insights: expectedInsights,
+        analysis: runFinancialAnalyses(CHAT_ANALYSES, expectedInsights),
       },
       filters: {},
     });
@@ -229,13 +237,15 @@ describe('FinancialRetrievalService', () => {
 
     const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
 
+    const expectedInsights = buildFinancialInsights(EMPTY_SUMMARY, []);
     expect(result).toEqual({
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: {
         intent: 'FINANCIAL_SUMMARY',
         totals: EMPTY_SUMMARY.totals,
-        insights: buildFinancialInsights(EMPTY_SUMMARY, []),
+        insights: expectedInsights,
+        analysis: runFinancialAnalyses(CHAT_ANALYSES, expectedInsights),
       },
       filters: {},
     });
@@ -269,13 +279,15 @@ describe('FinancialRetrievalService', () => {
         NOW,
       );
 
+      const expectedInsights = buildFinancialInsights(FILLED_SUMMARY, []);
       expect(result).toEqual({
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
         data: {
           intent: 'FINANCIAL_SUMMARY',
           totals: FILLED_SUMMARY.totals,
-          insights: buildFinancialInsights(FILLED_SUMMARY, []),
+          insights: expectedInsights,
+          analysis: runFinancialAnalyses(CHAT_ANALYSES, expectedInsights),
         },
         filters: {},
       });
@@ -932,6 +944,50 @@ describe('FinancialRetrievalService', () => {
       // uma mensagem sem sinal de continuação — "compara maio com abril"
       // não ativa `hasContinuationSignal()`.
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', expect.objectContaining({ supplierId: undefined }));
+    });
+  });
+
+  describe('Fase 8.13 — Financial Analysis Engine em FINANCIAL_SUMMARY', () => {
+    it('caminho direto (retrieve): analysis é calculado sobre exatamente os insights construídos, com a seleção própria do Chat', async () => {
+      const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
+
+      if (result.kind === 'DATA' && result.data.intent === 'FINANCIAL_SUMMARY') {
+        expect(result.data.analysis).toEqual(runFinancialAnalyses(CHAT_ANALYSES, result.data.insights));
+        expect(result.data.analysis.results.map((r) => r.id)).toEqual(['relative_concentration']);
+      } else {
+        throw new Error('esperado kind=DATA, intent=FINANCIAL_SUMMARY');
+      }
+    });
+
+    it('caminho de tool calling (retrieveForIntent): mesma analysis do caminho direto, para os mesmos dados — motor nunca duplicado nem reimplementado no orquestrador', async () => {
+      const { service } = buildService(jest.fn().mockResolvedValue(FILLED_SUMMARY));
+
+      const direct = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
+      const viaTool = await service.retrieveForIntent('org-1', 'FINANCIAL_SUMMARY', 'este mês', {}, NOW);
+
+      if (direct.kind === 'DATA' && direct.data.intent === 'FINANCIAL_SUMMARY' && viaTool.kind === 'DATA' && viaTool.data.intent === 'FINANCIAL_SUMMARY') {
+        expect(viaTool.data.analysis).toEqual(direct.data.analysis);
+      } else {
+        throw new Error('esperado kind=DATA, intent=FINANCIAL_SUMMARY em ambos os caminhos');
+      }
+    });
+
+    it('período sem faturas devolve analysis.results: [], nunca erro', async () => {
+      const { service } = buildService(jest.fn().mockResolvedValue(EMPTY_SUMMARY));
+
+      const result = await service.retrieve('org-1', 'Quanto gastei este mês?', [], NOW);
+
+      if (result.kind === 'DATA' && result.data.intent === 'FINANCIAL_SUMMARY') {
+        expect(result.data.analysis.results).toEqual([]);
+        expect(result.data.analysis.metadata).toEqual({
+          analysesRun: ['monthly_trend', 'relative_concentration'],
+          conclusionsProduced: 0,
+        });
+      } else {
+        throw new Error('esperado kind=DATA, intent=FINANCIAL_SUMMARY');
+      }
     });
   });
 });

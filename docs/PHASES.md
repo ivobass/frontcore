@@ -498,6 +498,28 @@
   abstração partilhada, relatórios anuais, intervalos personalizados,
   ou alteração ao Dashboard/AI Chat/`financial-insights/`/`financial-analysis/`
   (`docs/phases/phase-8.12-reports-financial-analysis-integration-foundation.md`).
+- **Fase 8.13 — Grounded AI Financial Analysis Integration**: AI Chat
+  como terceiro consumidor real do Financial Analysis Engine (Fase
+  8.10), depois do Dashboard (8.11) e Reports (8.12).
+  `FinancialIntentData`'s `FINANCIAL_SUMMARY` ganha
+  `analysis: FinancialAnalysisEngineOutput`, sempre presente;
+  `FinancialRetrievalService.resolveDataForPeriod()` (partilhado pelo
+  caminho direto e por tool calling) constrói `FinancialInsights` uma
+  única vez e executa `runFinancialAnalyses()` uma única vez, com
+  seleção própria (`AI_CHAT_FINANCIAL_ANALYSES`, nunca partilhada com
+  Dashboard/Reports). `buildFinancialContextMessage()` ganha
+  `buildAnalysisLines()` (mensagem explícita quando
+  `analysis.results` está vazio, nunca omissão silenciosa).
+  `validateFinancialGrounding()` sem alteração funcional —
+  `collectInsightFacts()` já cobre toda a evidência da análise, por
+  esta ser sempre uma cópia verbatim de campos de `insights`
+  (`collectAnalysisFacts()` avaliada e não criada, YAGNI). Nenhuma
+  alteração a `AiToolOrchestratorService` — o motor nunca corre no
+  orquestrador. Sem novas análises, métricas, thresholds,
+  recomendações, scoring, forecasting, agentes, RAG, embeddings, tools,
+  intenções, queries Prisma, migrations, ou alteração a
+  Dashboard/Reports/frontend/`financial-insights/`/`financial-analysis/`
+  (`docs/phases/phase-8.13-grounded-ai-financial-analysis-integration.md`).
 - **Fase 10 — Admin & operação**: painel admin, gestão, activity logs,
   métricas, health dashboard, deploy Coolify. Inclui a criação do
   documento dedicado de entrega de infraestrutura ao responsável pela

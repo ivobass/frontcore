@@ -2,8 +2,45 @@ import { validateFinancialGrounding } from './financial-grounding.validator';
 import type { FinancialRetrievalResult } from './financial-retrieval.service';
 import { buildEmptyFinancialInsights } from '../../financial-insights/financial-insights.test-fixtures';
 import { buildFinancialInsights } from '../../financial-insights/financial-insights.util';
+import { monthlyTrendAnalysis } from '../../financial-analysis/analyses/monthly-trend.analysis';
+import { relativeConcentrationAnalysis } from '../../financial-analysis/analyses/relative-concentration.analysis';
+import { runFinancialAnalyses } from '../../financial-analysis/financial-analysis.engine';
+import type { FinancialAnalysisEngineOutput } from '../../financial-analysis/types';
 
 const PERIOD = { from: '2026-07-01', to: '2026-07-31' };
+
+/** Fase 8.13 — insights vazios nunca produzem nenhuma conclusão aplicável. */
+const EMPTY_ANALYSIS: FinancialAnalysisEngineOutput = {
+  results: [],
+  metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 },
+};
+
+/** Módulo (não local a um describe) — reutilizado tanto pelos testes de percentagens dos Financial Insights (Fase 8.9) como pelos de Financial Analysis Engine (Fase 8.13), sobre exatamente os mesmos dados. */
+const INSIGHTS_FOR_RESULT_WITH_INSIGHTS = buildFinancialInsights(
+  {
+    period: PERIOD,
+    totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
+    byStatus: [{ status: 'PENDING', count: 5, totalAmount: '1000.00' }],
+    monthlyTrend: [
+      { month: '2026-06', count: 2, totalAmount: '400.00' },
+      { month: '2026-07', count: 3, totalAmount: '600.00' },
+    ],
+    byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 5, totalAmount: '1000.00' }],
+    topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00' }],
+  },
+  [],
+);
+const RESULT_WITH_INSIGHTS: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+  kind: 'DATA',
+  period: PERIOD,
+  data: {
+    intent: 'FINANCIAL_SUMMARY',
+    totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
+    insights: INSIGHTS_FOR_RESULT_WITH_INSIGHTS,
+    analysis: runFinancialAnalyses([monthlyTrendAnalysis, relativeConcentrationAnalysis], INSIGHTS_FOR_RESULT_WITH_INSIGHTS),
+  },
+  filters: {},
+};
 
 const SUMMARY_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
   kind: 'DATA',
@@ -12,6 +49,7 @@ const SUMMARY_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 1, totalAmount: '370.00', averageAmount: '92.50' },
     insights: buildEmptyFinancialInsights(PERIOD),
+    analysis: EMPTY_ANALYSIS,
   },
   filters: {},
 };
@@ -23,6 +61,7 @@ const FILTERED_BY_SUPPLIER_RESULT: Extract<FinancialRetrievalResult, { kind: 'DA
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
     insights: buildEmptyFinancialInsights(PERIOD),
+    analysis: EMPTY_ANALYSIS,
   },
   filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
 };
@@ -34,6 +73,7 @@ const FILTERED_BY_CATEGORY_RESULT: Extract<FinancialRetrievalResult, { kind: 'DA
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
     insights: buildEmptyFinancialInsights(PERIOD),
+    analysis: EMPTY_ANALYSIS,
   },
   filters: { categoryId: 'cat-1', categoryName: 'Hosting' },
 };
@@ -45,6 +85,7 @@ const FILTERED_BY_STATUS_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '316.00', averageAmount: '158.00' },
     insights: buildEmptyFinancialInsights(PERIOD),
+    analysis: EMPTY_ANALYSIS,
   },
   filters: { status: 'PAID' },
 };
@@ -209,6 +250,7 @@ describe('validateFinancialGrounding', () => {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 0, activeInvoiceCount: 0, cancelledInvoiceCount: 0, totalAmount: '0.00', averageAmount: '0.00' },
           insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
         },
       };
       expect(validateFinancialGrounding('Não gastou nada este mês (0 EUR).', zeroResult)).toEqual({ grounded: true });
@@ -228,6 +270,7 @@ describe('validateFinancialGrounding', () => {
           intent: 'FINANCIAL_SUMMARY',
           totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount, averageAmount: totalAmount },
           insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
         },
         filters: {},
       };
@@ -296,30 +339,6 @@ describe('validateFinancialGrounding', () => {
   });
 
   describe('Fase 8.9 — percentagens dos Financial Insights (concentração, ranking, tendência)', () => {
-    const RESULT_WITH_INSIGHTS: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
-      kind: 'DATA',
-      period: PERIOD,
-      data: {
-        intent: 'FINANCIAL_SUMMARY',
-        totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
-        insights: buildFinancialInsights(
-          {
-            period: PERIOD,
-            totals: { invoiceCount: 5, activeInvoiceCount: 5, cancelledInvoiceCount: 0, totalAmount: '1000.00', averageAmount: '200.00' },
-            byStatus: [{ status: 'PENDING', count: 5, totalAmount: '1000.00' }],
-            monthlyTrend: [
-              { month: '2026-06', count: 2, totalAmount: '400.00' },
-              { month: '2026-07', count: 3, totalAmount: '600.00' },
-            ],
-            byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 5, totalAmount: '1000.00' }],
-            topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00' }],
-          },
-          [],
-        ),
-      },
-      filters: {},
-    };
-
     it('aceita a percentagem real do maior fornecedor (share "60.00"), com "%" e vírgula decimal', () => {
       expect(validateFinancialGrounding('A Hetzner representa 60% do total.', RESULT_WITH_INSIGHTS)).toEqual({ grounded: true });
       expect(validateFinancialGrounding('A Hetzner representa 60,00% do total.', RESULT_WITH_INSIGHTS)).toEqual({ grounded: true });
@@ -356,6 +375,39 @@ describe('validateFinancialGrounding', () => {
       // (já coberta em ai-chat.service.spec.ts), nunca deste validador.
       const result = validateFinancialGrounding('A Hetzner representa 99% do total.', RESULT_WITH_INSIGHTS);
       expect(result.grounded).toBe(false);
+    });
+  });
+
+  describe('Fase 8.13 — Financial Analysis Engine (conclusões e evidências)', () => {
+    // A evidência de monthlyTrendAnalysis/relativeConcentrationAnalysis é
+    // sempre uma cópia verbatim de campos já presentes em `insights` (Fase
+    // 8.10) — por isso estes testes reutilizam RESULT_WITH_INSIGHTS (já
+    // estendido com `analysis` acima) e confirmam que collectInsightFacts()
+    // já cobre qualquer percentagem que a análise possa mencionar, sem
+    // precisar de uma coleta própria (`collectAnalysisFacts()`, YAGNI).
+    it('aceita a percentagem real da concentração relativa (60%/100%, mesmos valores de supplierConcentration/categoryConcentration)', () => {
+      expect(
+        validateFinancialGrounding('As categorias estão mais concentradas do que os fornecedores: 100% vs 60%.', RESULT_WITH_INSIGHTS),
+      ).toEqual({ grounded: true });
+    });
+
+    it('aceita a percentagem real da tendência mensal, tal como aparece na evidência de monthly_trend', () => {
+      expect(
+        validateFinancialGrounding('A tendência mensal aponta para um aumento de 50%.', RESULT_WITH_INSIGHTS),
+      ).toEqual({ grounded: true });
+    });
+
+    it('rejeita uma percentagem fabricada, mesmo apresentada como se viesse da análise financeira', () => {
+      expect(
+        validateFinancialGrounding('A concentração relativa mostra 75% para as categorias.', RESULT_WITH_INSIGHTS),
+      ).toEqual({ grounded: false, reason: 'PERCENTAGE_NOT_ALLOWED' });
+    });
+
+    it('analysis.results vazio (período sem dados) nunca autoriza uma percentagem inventada', () => {
+      expect(validateFinancialGrounding('A tendência aumentou 10%.', SUMMARY_RESULT)).toEqual({
+        grounded: false,
+        reason: 'PERCENTAGE_NOT_ALLOWED',
+      });
     });
   });
 

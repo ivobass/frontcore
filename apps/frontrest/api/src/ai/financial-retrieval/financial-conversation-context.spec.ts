@@ -5,8 +5,15 @@ import {
 } from './financial-conversation-context';
 import type { FinancialRetrievalResult } from './financial-retrieval.service';
 import { buildEmptyFinancialInsights } from '../../financial-insights/financial-insights.test-fixtures';
+import type { FinancialAnalysisEngineOutput } from '../../financial-analysis/types';
 
 const NOW = new Date('2026-07-19T10:00:00.000Z');
+
+/** Fase 8.13 — `buildFinancialConversationContext()` nunca lê `analysis`, só `intent`/`period`/`filters`; presente aqui só para satisfazer o contrato. */
+const EMPTY_ANALYSIS: FinancialAnalysisEngineOutput = {
+  results: [],
+  metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 },
+};
 
 const DATA_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
   kind: 'DATA',
@@ -15,6 +22,7 @@ const DATA_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
     intent: 'FINANCIAL_SUMMARY',
     totals: { invoiceCount: 1, activeInvoiceCount: 1, cancelledInvoiceCount: 0, totalAmount: '10.00', averageAmount: '10.00' },
     insights: buildEmptyFinancialInsights({ from: '2026-07-01', to: '2026-07-31' }),
+    analysis: EMPTY_ANALYSIS,
   },
   filters: { status: 'PENDING', supplierId: 'sup-1', supplierName: 'Hetzner' },
 };

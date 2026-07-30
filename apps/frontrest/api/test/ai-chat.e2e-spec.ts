@@ -923,4 +923,117 @@ describe('AI Chat (e2e)', () => {
       expect(response.body.message.role).toBe('ASSISTANT');
     });
   });
+
+  /**
+   * Fase 8.13 — AI Chat como terceiro consumidor do Financial Analysis
+   * Engine. `MockAiProvider` ecoa a última mensagem do pedido (`[mock]
+   * <conteúdo>`) — no caminho direto, essa mensagem é a própria pergunta
+   * do utilizador (nunca revela o conteúdo enviado como dados), por isso
+   * estes testes confirmam o caminho direto só por efeito observável
+   * (queries reais ao Prisma); o texto persistido com as conclusões da
+   * análise só é observável no caminho de tool calling, onde a segunda
+   * chamada ao Mock ecoa o conteúdo real da tool
+   * (`buildFinancialContextMessage()`, que já inclui "Análise financeira").
+   */
+  describe('Fase 8.13 — Grounded AI Financial Analysis Integration', () => {
+    function wireTwoConsecutiveMonthsWithMatchingConcentration(prisma: MockPrismaService) {
+      prisma.invoice.aggregate.mockResolvedValue({
+        _count: 3,
+        _sum: { totalAmount: '1000.00' },
+        _avg: { totalAmount: '333.33' },
+      });
+      prisma.invoice.groupBy.mockImplementation((args: { by: string[] }) => {
+        if (args.by[0] === 'status') {
+          return Promise.resolve([{ status: 'PENDING', _count: 3, _sum: { totalAmount: '1000.00' } }]);
+        }
+        if (args.by[0] === 'supplierId') {
+          return Promise.resolve([{ supplierId: 'sup-1', _count: 3, _sum: { totalAmount: '600.00' } }]);
+        }
+        if (args.by[0] === 'categoryId') {
+          return Promise.resolve([{ categoryId: 'cat-1', _count: 3, _sum: { totalAmount: '400.00' } }]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.invoice.findMany.mockImplementation((args: { select?: { issueDate?: boolean }; include?: unknown }) => {
+        if (args.include) {
+          return Promise.resolve([]);
+        }
+        if (args.select?.issueDate) {
+          return Promise.resolve([
+            { issueDate: new Date('2026-06-15T00:00:00.000Z'), totalAmount: '800.00' },
+            { issueDate: new Date('2026-07-05T00:00:00.000Z'), totalAmount: '1000.00' },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.supplier.findMany.mockResolvedValue([{ id: 'sup-1', name: 'Hetzner' }]);
+      prisma.expenseCategory.findMany.mockResolvedValue([{ id: 'cat-1', name: 'Hosting' }]);
+    }
+
+    it('caminho direto: FINANCIAL_SUMMARY reconhecido pelo retrieval determinístico executa o motor sobre dados reais (Prisma)', async () => {
+      wireTwoConsecutiveMonthsWithMatchingConcentration(prisma);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Faz um resumo financeiro da empresa.' })
+        .expect(201);
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalled();
+      expect(prisma.invoice.groupBy).toHaveBeenCalled();
+      expect(response.body.message.role).toBe('ASSISTANT');
+    });
+
+    it('caminho de tool calling: uma pergunta financeira não reconhecida por nenhuma intenção aciona get_financial_summary, e a resposta final inclui as conclusões e evidências da análise', async () => {
+      wireTwoConsecutiveMonthsWithMatchingConcentration(prisma);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Como está o orçamento da empresa?' })
+        .expect(201);
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalled();
+      // Eco real do conteúdo da tool (buildFinancialContextMessage), que já inclui as conclusões e evidências da análise.
+      expect(response.body.message.content).toContain('Tendência mensal: aumento face ao mês anterior');
+      expect(response.body.message.content).toContain('Concentração relativa: fornecedores mais concentrados do que categorias');
+      expect(response.body.message.content).toContain('fornecedores 60.00%, categorias 40.00%');
+    });
+
+    it('faturas existem mas nenhuma análise é aplicável (topN incomparável, tendência de um único mês): a resposta apresenta a mensagem explícita, nunca omite nem lança erro', async () => {
+      prisma.invoice.aggregate.mockResolvedValue({
+        _count: 1,
+        _sum: { totalAmount: '100.00' },
+        _avg: { totalAmount: '100.00' },
+      });
+      prisma.invoice.groupBy.mockImplementation((args: { by: string[] }) => {
+        if (args.by[0] === 'status') {
+          return Promise.resolve([{ status: 'PENDING', _count: 1, _sum: { totalAmount: '100.00' } }]);
+        }
+        if (args.by[0] === 'supplierId') {
+          return Promise.resolve([{ supplierId: 'sup-1', _count: 1, _sum: { totalAmount: '100.00' } }]);
+        }
+        // Nenhuma categoria — topN efetivo de categoria (0) nunca é igual ao de fornecedor (1), relative_concentration fica inaplicável.
+        return Promise.resolve([]);
+      });
+      prisma.invoice.findMany.mockImplementation((args: { select?: { issueDate?: boolean }; include?: unknown }) => {
+        if (args.include) return Promise.resolve([]);
+        if (args.select?.issueDate) {
+          // Um único mês com dados — monthly_trend fica inaplicável (dados insuficientes).
+          return Promise.resolve([{ issueDate: new Date('2026-07-05T00:00:00.000Z'), totalAmount: '100.00' }]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.supplier.findMany.mockResolvedValue([{ id: 'sup-1', name: 'Hetzner' }]);
+      prisma.expenseCategory.findMany.mockResolvedValue([]);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Como está o orçamento da empresa?' })
+        .expect(201);
+
+      expect(response.body.message.content).toContain('Análise financeira: sem conclusões aplicáveis neste período.');
+    });
+  });
 });

@@ -339,6 +339,7 @@ describe('AiToolOrchestratorService', () => {
         intent: 'FINANCIAL_SUMMARY',
         totals: { invoiceCount: 3, activeInvoiceCount: 3, cancelledInvoiceCount: 0, totalAmount: '354.00', averageAmount: '118.00' },
         insights: buildEmptyFinancialInsights(PERIOD),
+        analysis: { results: [], metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 } },
       },
       filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
     };
