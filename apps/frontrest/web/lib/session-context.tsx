@@ -4,8 +4,8 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@frontcore/ui';
-import { getSession, clearSession, logout as logoutRequest, fetchMe } from './auth';
-import type { Session } from './auth';
+import { getSession, saveSession, clearSession, logout as logoutRequest, fetchMe } from './auth';
+import type { Session, RefreshedTokens } from './auth';
 
 interface Me {
   user: { id: string; email: string; name: string | null };
@@ -17,6 +17,14 @@ interface SessionContextValue {
   session: Session;
   me: Me;
   logout: () => Promise<void>;
+  /**
+   * Persiste um par de tokens renovado (`POST /auth/refresh`) na sessão
+   * atual — usado por `withAuthRetry()` (`lib/auth.ts`) depois de uma
+   * renovação silenciosa bem-sucedida, para qualquer pedido seguinte já
+   * usar o `accessToken` novo. Nunca substitui `user`/`organization`/
+   * `role` — só os tokens mudam numa renovação.
+   */
+  updateTokens: (tokens: RefreshedTokens) => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -52,6 +60,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     router.push('/login');
   }
 
+  function updateTokens(tokens: RefreshedTokens) {
+    setState((prev) => {
+      if (!prev) return prev;
+      const nextSession: Session = { ...prev.session, ...tokens };
+      saveSession(nextSession);
+      return { ...prev, session: nextSession };
+    });
+  }
+
   if (!state) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -61,7 +78,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <SessionContext.Provider value={{ session: state.session, me: state.me, logout }}>
+    <SessionContext.Provider value={{ session: state.session, me: state.me, logout, updateTokens }}>
       {children}
     </SessionContext.Provider>
   );

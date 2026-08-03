@@ -162,6 +162,51 @@ describe('InvoiceNumberExtractor', () => {
     });
   });
 
+  describe('separador ":"/";" imediato, sem sub-rótulo "N.º" (Hardening pós-validação manual, documentos reais)', () => {
+    it('extrai "ZFRC B036/9823519819" de "Fatura/Recibo : ..." (achado real, "Coca-Cola")', async () => {
+      const result = await extractor.extract(
+        'Fatura/Recibo : ZFRC B036/9823519819\nData : 29-05-2025',
+      );
+      expect(result?.value).toBe('ZFRC B036/9823519819');
+      expect(result?.confidence).toBe(75);
+    });
+
+    it('extrai "FR U006/46931" de "Número: ..." — sem a palavra "fatura" próxima (achado real, "Farmácia Esperança")', async () => {
+      const result = await extractor.extract('Número: FR U006/46931\nData: 11/07/2026');
+      expect(result?.value).toBe('FR U006/46931');
+    });
+
+    it('reconhece a variante ortográfica "número" com acento', async () => {
+      const result = await extractor.extract('número: FR U006/46931');
+      expect(result?.value).toBe('FR U006/46931');
+    });
+
+    it('reconhece "Documento: X" como rótulo válido', async () => {
+      const result = await extractor.extract('Documento: FA2026/9\nTotal: 10,00€');
+      expect(result?.value).toBe('FA2026/9');
+    });
+
+    it('nunca aceita um candidato sem nenhum dígito (achado real, "Ilha Pan": "Total Documento: ooo")', async () => {
+      const result = await extractor.extract('Total Documento: ooo — Var');
+      expect(result).toBeNull();
+    });
+
+    it('devolve null para "Documento sem identificação" — sem ":" nem dígito imediato', async () => {
+      expect(await extractor.extract('Documento sem identificação')).toBeNull();
+    });
+
+    it('devolve null para "Nº de telefone: 912345678" — "telefone" nunca é palavra-chave', async () => {
+      expect(await extractor.extract('Nº de telefone: 912345678')).toBeNull();
+    });
+
+    it('nunca reintroduz a regressão "Leroy" ("Válido como RECIBO no REGIME IVA...") — "recibo" sem ":" imediato não é candidato', async () => {
+      const result = await extractor.extract(
+        'Válido como RECIBO no REGIME IVA de CAIXA quando aplicável',
+      );
+      expect(result).toBeNull();
+    });
+  });
+
   describe('explainRejection — diagnóstico para a ferramenta de debug (Fase 6.8+)', () => {
     it('explica a rejeição por termo reservado', () => {
       const explanation = extractor.explainRejection('Fatura N.º 1430 Data: 2025-04-15');

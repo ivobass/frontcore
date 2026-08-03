@@ -171,15 +171,15 @@ describe('FiscalParsingService', () => {
       expect(result.totals?.value).toEqual({ totalAmount: 14.5 });
     });
 
-    it('extrai o fornecedor/NIF/total do 2º documento real (número de fatura com prefixo separado por espaço)', async () => {
+    it('extrai o fornecedor/NIF/número/total do 2º documento real (número de fatura com prefixo separado por espaço)', async () => {
       // Campos tal como reportados pelo utilizador a partir do documento
       // real — "Número: FR U006/46931", sem a palavra "fatura" próxima.
-      // `InvoiceNumberExtractor` exige essa palavra-chave (guarda
-      // deliberada contra apanhar um "Nº" solto, ex. telefone — ver
-      // `invoice-number.extractor.ts`) e por isso não extrai este campo
-      // nesta forma exata; ver limitação documentada no relatório desta
-      // fase. Os restantes campos, que não dependem dessa palavra-chave,
-      // são todos extraídos corretamente.
+      // Hardening pós-validação manual: `WITH_COLON_SEPARATOR_PATTERN`
+      // (`invoice-number.extractor.ts`) reconhece agora "Número:" (":"
+      // imediato, sem "N.º") como rótulo válido — antes desta correção
+      // este campo não era extraído (limitação documentada, ver
+      // relatório da Fase 6.8+); os restantes campos já eram extraídos
+      // corretamente e continuam inalterados.
       const text =
         'Fornecedor: FARMACIA ESPERANÇA\nNIF: 509978142\nNúmero: FR U006/46931\n' +
         'Data: 11/07/2026\nTotal: 109,55€';
@@ -188,6 +188,7 @@ describe('FiscalParsingService', () => {
 
       expect(result.supplier?.value).toEqual({ name: 'FARMACIA ESPERANÇA' });
       expect(result.supplierTaxId?.value).toBe('509978142');
+      expect(result.invoice.number?.value).toBe('FR U006/46931');
       expect(result.invoice.issueDate?.value.toISOString()).toBe('2026-07-11T00:00:00.000Z');
       expect(result.totals?.value).toEqual({ totalAmount: 109.55 });
     });
@@ -452,7 +453,7 @@ describe('FiscalParsingService', () => {
       expect(result.totals?.value).toEqual({ totalAmount: 48 });
     });
 
-    it('documento ambíguo — campos perigosos ficam null em vez de um valor duvidoso (achado real, "Coca-Cola")', async () => {
+    it('extrai o número real de "Fatura/Recibo : ZFRC B036/9823519819" (achado real, "Coca-Cola"; hardening pós-validação manual)', async () => {
       const text =
         'Coca-Cola Europacific Partners Portugal, Unipessoal Lda\n' +
         'Fatura/Recibo : ZFRC B036/9823519819\n' +
@@ -460,10 +461,10 @@ describe('FiscalParsingService', () => {
 
       const result = await service.parse(text);
 
-      // Sem "N.º" a ancorar e sem o candidato começar por um dígito
-      // (limitação conhecida e aceite — ver invoice-number.extractor.ts)
-      // — nunca "seu adquirente".
-      expect(result.invoice.number).toBeNull();
+      // "Recibo :" (":"  imediato, sem "N.º") reconhecido pelo
+      // `WITH_COLON_SEPARATOR_PATTERN` — nunca "seu adquirente" (guarda
+      // de falso positivo de "fatura"/"no" preservada, inalterada).
+      expect(result.invoice.number?.value).toBe('ZFRC B036/9823519819');
     });
   });
 });

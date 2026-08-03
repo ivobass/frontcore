@@ -330,6 +330,18 @@ controlo do NIF português (módulo 11) antes de escolher, para nunca
 devolver um número estruturalmente inválido. Ver
 `docs/phases/phase-6.12-ocr-fiscal-parsing-stabilization.md`.
 
+**Hardening pós-validação manual** (documentos reais adicionais):
+`InvoiceNumberExtractor` ganhou um terceiro padrão
+(`WITH_COLON_SEPARATOR_PATTERN`) para números sem sub-rótulo "N.º"
+explícito, só um `":"`/`";"` imediato a seguir a um vocabulário próprio
+(`fatura`/`factura`/`invoice`/`recibo`/`documento`/`número`), guardado
+por exigir pelo menos um dígito no candidato. `InvoiceDraftReviewSheet`
+ganhou renovação silenciosa de sessão (`refreshSession()`/
+`withAuthRetry()`, `lib/auth.ts`) para `Guardar`/`Eliminar`/`Promover`
+depois de um 401 — âmbito só desta sheet, nunca o cliente HTTP global.
+Ver `docs/phases/phase-6.8-invoice-draft-review-ui-foundation.md`,
+secção "Hardening pós-validação manual".
+
 ## Dashboard financeiro
 
 Desde a Fase 7, `apps/frontrest/api/src/dashboard/` (`DashboardService`)
@@ -742,6 +754,19 @@ autoriza qualquer valor/percentagem que a análise possa introduzir
 YAGNI). `AiToolOrchestratorService` inalterado — o motor nunca corre
 no orquestrador, só em `FinancialRetrievalService`. Ver
 `docs/phases/phase-8.13-grounded-ai-financial-analysis-integration.md`.
+
+**Hardening pós-validação manual** (mesma fase, sem nova numeração):
+`resolveFinancialIntent()` reconhece "faturas/facturas
+confirmadas/registadas/oficiais" (sempre `Invoice`, nunca
+`InvoiceDraft`, sempre `FINANCIAL_SUMMARY`) e "quanto
+gastamos"/"gastámos" (1ª pessoa do plural); `FINANCIAL_ADJACENT_PATTERN`
+(router) passou a aceitar também a grafia "factura(s)", não só
+"fatura(s)". `buildFinancialContextMessage()` ganhou uma decomposição
+determinística pago/por pagar (`computePaidAmount()`, exportada:
+`totalAmount − insights.outstanding.totalAmount`, via `Prisma.Decimal`,
+nunca uma nova query nem cálculo pelo LLM), registada em
+`validateFinancialGrounding()` como o único valor derivado adicional.
+Ver a secção "Hardening pós-validação manual" no documento da fase.
 
 ## Financial Insights (KPIs derivados)
 

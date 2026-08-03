@@ -117,13 +117,13 @@ export const REGRESSION_FIXTURES: RegressionFixture[] = [
     name: 'Coca-Cola',
     file: 'coca-cola.txt',
     reason:
-      'Limitação conhecida documentada, não regressão: o único NIF rotulado no documento pertence ao cliente (estruturalmente válido, checksum passa) — protege que continua a ser este valor específico, não um valor pior. Também protege a moeda "USD" (falso positivo pré-existente, ruído de tabela OCR interpretado como "$") — documentado, não corrigido.',
+      'Limitação conhecida documentada, não regressão: o único NIF rotulado no documento pertence ao cliente (estruturalmente válido, checksum passa) — protege que continua a ser este valor específico, não um valor pior. Também protege a moeda "USD" (falso positivo pré-existente, ruído de tabela OCR interpretado como "$") — documentado, não corrigido. `invoiceNumber` (hardening pós-validação manual): "Fatura/Recibo : ZFRC B036/9823519819" não tinha nenhum sub-rótulo "N.º" a ancorar o candidato — corrigido via `WITH_COLON_SEPARATOR_PATTERN` (ver `invoice-number.extractor.ts`); protege que o valor real continua a ser extraído.',
     expected: {
       supplierName: 'Coca-Cola Europacific Partners Portugal, Unipessoal Lda SE oieA',
       supplierConfidence: 80,
       supplierTaxId: '511094949',
       customerName: null,
-      invoiceNumber: null,
+      invoiceNumber: 'ZFRC B036/9823519819',
       issueDate: '2025-05-29T00:00:00.000Z',
       dueDate: null,
       currency: 'USD',

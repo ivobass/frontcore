@@ -232,6 +232,15 @@ describe('ReportsPage (Fase 9)', () => {
     render(<ReportsPage />);
     await screen.findByText('Total de despesas');
 
+    // Mês aplicado explicitamente (nunca o mês corrente real do sistema,
+    // que `currentMonthValue()` deriva de `new Date()`) — a exportação
+    // usa sempre `appliedMonth`, por isso o teste tem de o fixar para
+    // corresponder ao mês de `filledReport`, em vez de depender da data
+    // real em que a suite corre.
+    fireEvent.change(screen.getByLabelText('Mês'), { target: { value: '2026-07' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }));
+    await waitFor(() => expect(getMonthlyReport).toHaveBeenCalledWith('token-abc', '2026-07'));
+
     fireEvent.click(screen.getByRole('button', { name: 'Exportar CSV' }));
 
     await waitFor(() => expect(downloadMonthlyReportCsv).toHaveBeenCalledWith('token-abc', '2026-07'));
@@ -242,6 +251,11 @@ describe('ReportsPage (Fase 9)', () => {
     downloadMonthlyReportPdf.mockResolvedValue(undefined);
     render(<ReportsPage />);
     await screen.findByText('Total de despesas');
+
+    // Ver comentário equivalente no teste de exportação CSV, acima.
+    fireEvent.change(screen.getByLabelText('Mês'), { target: { value: '2026-07' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }));
+    await waitFor(() => expect(getMonthlyReport).toHaveBeenCalledWith('token-abc', '2026-07'));
 
     fireEvent.click(screen.getByRole('button', { name: 'Exportar PDF' }));
 

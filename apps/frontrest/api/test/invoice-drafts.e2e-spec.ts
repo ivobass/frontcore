@@ -380,6 +380,73 @@ describe('Invoice Drafts (e2e)', () => {
       expect(second.body.supplier).toEqual(first.body.supplier);
       expect(second.body.totals).toEqual(first.body.totals);
     });
+
+    describe('Hardening pós-validação manual — documentos reais adicionais (formatos de número de fatura)', () => {
+      it('"Coca-Cola" — extrai "ZFRC B036/9823519819" de "Fatura/Recibo : ..." (sem sub-rótulo "N.º")', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue({
+          id: 'draft-1',
+          organizationId: 'org-1',
+          ocrText:
+            'Coca-Cola Europacific Partners Portugal, Unipessoal Lda\n' +
+            'Fatura/Recibo : ZFRC B036/9823519819\n' +
+            'Data : 29-05-2025\nTotal: 145,54€',
+        });
+
+        const response = await request(app.getHttpServer())
+          .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+          .set('Authorization', authHeader({ organizationId: 'org-1' }))
+          .expect(200);
+
+        expect(response.body.invoice.number.value).toBe('ZFRC B036/9823519819');
+      });
+
+      it('"Farmácia Esperança" — extrai "FR U006/46931" de "Número: ..." (sem a palavra "fatura" próxima)', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue({
+          id: 'draft-1',
+          organizationId: 'org-1',
+          ocrText: 'Fornecedor: FARMACIA ESPERANÇA\nNIF: 509978142\nNúmero: FR U006/46931\nData: 11/07/2026\nTotal: 109,55€',
+        });
+
+        const response = await request(app.getHttpServer())
+          .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+          .set('Authorization', authHeader({ organizationId: 'org-1' }))
+          .expect(200);
+
+        expect(response.body.invoice.number.value).toBe('FR U006/46931');
+      });
+
+      it('"Farmácia Esperança" — variante ortográfica "facturas"/"factura" também reconhecida ("Fatura-Recibo N.:")', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue({
+          id: 'draft-1',
+          organizationId: 'org-1',
+          ocrText: 'FATURA-RECIBO N.: FR U006/46931\nData: 11/07/2026',
+        });
+
+        const response = await request(app.getHttpServer())
+          .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+          .set('Authorization', authHeader({ organizationId: 'org-1' }))
+          .expect(200);
+
+        expect(response.body.invoice.number.value).toBe('FR U006/46931');
+      });
+
+      it('nunca confunde "Documento Int.: 8661869752" (referência interna, "Coca-Cola") com o número real quando ambos aparecem no mesmo texto', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue({
+          id: 'draft-1',
+          organizationId: 'org-1',
+          ocrText:
+            'Fatura/Recibo : ZFRC B036/9823519819\n' +
+            'Documento Int.: 8661869752 Data: 29-05-2025 Total: 145,54',
+        });
+
+        const response = await request(app.getHttpServer())
+          .get('/api/invoices/drafts/draft-1/fiscal-parsing')
+          .set('Authorization', authHeader({ organizationId: 'org-1' }))
+          .expect(200);
+
+        expect(response.body.invoice.number.value).toBe('ZFRC B036/9823519819');
+      });
+    });
   });
 
   describe('promoção', () => {
@@ -434,6 +501,40 @@ describe('Invoice Drafts (e2e)', () => {
         }),
       );
       expect(prisma.invoiceDraft.delete).toHaveBeenCalledWith({ where: { id: 'draft-1' } });
+    });
+
+    describe('Hardening pós-validação manual — documentos "FATURA-RECIBO" sem data de vencimento', () => {
+      it('promove com sucesso sem dueDate — dueDate nunca é campo obrigatório (documentos FATURA-RECIBO tipicamente não têm vencimento)', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue({
+          id: 'draft-1',
+          organizationId: 'org-1',
+          storageObjectId: 'obj-1',
+          supplierId: 'sup-1',
+          categoryId: 'cat-1',
+          number: 'ZFRC B036/9823519819',
+          issueDate: new Date('2025-05-29'),
+          dueDate: null,
+          totalAmount: 145.54,
+          notes: null,
+        });
+        prisma.supplier.findFirst.mockResolvedValue({ id: 'sup-1', organizationId: 'org-1' });
+        prisma.expenseCategory.findFirst.mockResolvedValue({ id: 'cat-1', organizationId: 'org-1' });
+        prisma.invoice.create.mockImplementation(
+          ({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: 'inv-1', ...data }),
+        );
+        prisma.invoiceAttachment.create.mockResolvedValue({ id: 'att-1' });
+        prisma.invoiceDraft.delete.mockResolvedValue({ id: 'draft-1' });
+
+        const response = await request(app.getHttpServer())
+          .post('/api/invoices/drafts/draft-1/promote')
+          .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+          .expect(201);
+
+        expect(response.body.dueDate).toBeNull();
+        expect(prisma.invoice.create).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ dueDate: null }) }),
+        );
+      });
     });
   });
 });

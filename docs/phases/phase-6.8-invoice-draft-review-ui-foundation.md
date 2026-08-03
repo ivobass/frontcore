@@ -404,6 +404,97 @@ considera-se esta fase concluída. As melhorias futuras deverão incidir
 exclusivamente na qualidade do OCR e do parsing fiscal, não na
 arquitetura nem no fluxo de revisão implementado nesta fase.
 
+## Hardening pós-validação manual — OCR Fiscal Parsing & Invoice Promotion (documentos reais)
+
+Nova ronda de validação manual com documentos reais ("Coca-Cola",
+"Farmácia Esperança") encontrou dois problemas de reconhecimento de
+número de fatura e levantou três dúvidas sobre elegibilidade de
+promoção/gestão de sessão — analisadas e, quando confirmadas como
+regressões reais, corrigidas; quando não reproduzidas, documentadas
+como tal em vez de "corrigidas" por precaução.
+
+- **Números de fatura sem sub-rótulo "N.º"** — `InvoiceNumberExtractor`
+  (`invoice-number.extractor.ts`) exigia sempre um sub-rótulo explícito
+  ("N.º"/"Number"/"#") ou um candidato a começar por dígito logo a
+  seguir à palavra-chave. Dois formatos reais não satisfaziam nenhuma
+  das duas condições: `"Fatura/Recibo : ZFRC B036/9823519819"`
+  ("Coca-Cola") e `"Número: FR U006/46931"` ("Farmácia Esperança", sem a
+  palavra "fatura" em lado nenhum próximo — limitação conhecida e aceite
+  até esta correção). Corrigido com um terceiro padrão,
+  `WITH_COLON_SEPARATOR_PATTERN` (confiança 75, entre o sub-rótulo
+  explícito e o fallback "dígito nu"): um `":"`/`";"` imediatamente a
+  seguir a um vocabulário próprio e fixo (`COLON_ANCHORED_KEYWORD` —
+  `fatura`/`factura`/`invoice`/`recibo`/`documento`/`numero`/`número`),
+  guardado por `CANDIDATE_HAS_DIGIT` (o candidato tem de conter pelo
+  menos um dígito, para nunca aceitar ruído de OCR sem dígitos — achado
+  real, "Ilha Pan": `"Total Documento: ooo"` nunca pode virar candidato).
+  **Vocabulário isolado do `KEYWORD` original, nunca fundido nele** —
+  uma primeira tentativa de acrescentar `recibo` ao `KEYWORD` partilhado
+  por `WITH_SUBLABEL_PATTERN` introduziu uma regressão real (fixture
+  "Leroy": `"Válido como RECIBO no REGIME IVA..."` passava a devolver
+  `"REGIME"`, por `"no"` já ser aceite como sub-rótulo minimalista
+  nesse padrão) — corrigida isolando o vocabulário novo num padrão
+  próprio, nunca reutilizando o `KEYWORD` de `WITH_SUBLABEL_PATTERN`/
+  `BARE_DIGIT_FIRST_PATTERN`.
+- **Biblioteca de regressão (Fase 6.13)** — fixture "Coca-Cola"
+  atualizada (`invoiceNumber` deixa de ser `null`, passa a
+  `"ZFRC B036/9823519819"`); os dois testes que documentavam a
+  limitação anterior em `fiscal-parsing.service.spec.ts` reescritos para
+  confirmar o valor correto, em vez da ausência.
+- **Data de vencimento nunca foi obrigatória** — confirmado por leitura
+  direta do schema Prisma (`Invoice.dueDate DateTime?`), do
+  `CreateInvoiceDto`/`UpdateInvoiceDraftDto` (`@IsOptional()`), de
+  `InvoiceDraftsService.promote()` (só exige `supplierId`/`issueDate`/
+  `totalAmount`) e de `canPromote` no frontend (mesmos três campos, nunca
+  `dueDate`) — e por um teste e2e já existente que promove com sucesso
+  com `dueDate: null` (`invoice-drafts.service.spec.ts`, `completeDraft()`).
+  **Não é uma regressão de código, nunca foi corrigida uma regra que não
+  existia.** A perceção de obrigatoriedade reportada na validação manual
+  é só de UX — o campo "Data de vencimento" não distinguia visualmente
+  de um campo obrigatório. Corrigido só a etiqueta
+  (`FieldLabel`: "Data de vencimento" → "Data de vencimento
+  (opcional)"), sem qualquer alteração de validação. Reforçado com um
+  novo teste e2e explícito para documentos `FATURA-RECIBO` sem
+  vencimento (`invoice-drafts.e2e-spec.ts`).
+- **Elegibilidade de promoção já consistente entre frontend e
+  backend** — confirmado, não alterado: `canPromote`
+  (`invoice-draft-review-sheet.tsx`) e `InvoiceDraftsService.promote()`
+  exigem exatamente os mesmos três campos (`supplierId`/`issueDate`/
+  `totalAmount`); nenhuma inconsistência encontrada.
+- **"Token de acesso inválido ou expirado." sem qualquer tentativa de
+  renovação** — `POST /auth/refresh` já existia no backend
+  (`AuthService.refresh()`) mas não tinha nenhum consumidor no
+  frontend; qualquer pedido depois do `accessToken` de curta duração
+  expirar falhava de imediato com o 401 cru, nunca tentando renovar a
+  sessão. Corrigido com `refreshSession()`/`withAuthRetry()`
+  (`lib/auth.ts`) — uma única tentativa de renovação por pedido falhado,
+  nunca um ciclo; falha da própria renovação propaga
+  `SessionExpiredError` (mensagem clara e distinta, "A sua sessão
+  expirou. Inicie sessão novamente.", nunca o 401 cru). Ligado apenas a
+  `InvoiceDraftReviewSheet` (`Guardar`/`Eliminar`/`Promover`) — âmbito
+  desta correção é só Invoice Draft Review/Promotion, nunca uma
+  alteração global ao cliente HTTP do resto da aplicação.
+  `refreshToken`/`onTokensRefreshed` são props opcionais no componente,
+  para preservar compatibilidade com quem já o usa sem sessão renovável
+  (testes existentes); `useSession()` ganhou `updateTokens()` para
+  persistir o par de tokens novo (aditivo, nenhum outro consumidor do
+  contexto precisa de o usar).
+- **Estado inicial `PENDING` da `Invoice` promovida** — reconfirmado
+  como decisão documentada da Fase 6.3 (`status: 'PENDING'` sempre,
+  independentemente do tipo de documento), não uma regressão. Para
+  documentos `FATURA-RECIBO` (fatura+recibo combinados, tipicamente já
+  pagos no ato) isto pode ser semanticamente impreciso — registada como
+  observação para decisão do Product Owner (ver "Observações para fases
+  futuras"), **nenhuma alteração de comportamento estrutural feita**.
+
+**Ficheiros alterados**: `invoice-number.extractor.ts` (+ spec),
+`fiscal-parsing.service.spec.ts`, `fixtures.ts` (Fase 6.13),
+`invoice-drafts.e2e-spec.ts`, `invoice-draft-review-sheet.tsx` (+ spec),
+`invoice-drafts/page.tsx`, `lib/auth.ts`, `lib/session-context.tsx`.
+Nenhuma alteração ao OCR Pipeline, Workers, Dashboard, Reports, AI Chat,
+Financial Insights/Analysis Engine, Prisma/migrations, ou frontend fora
+de Invoice Draft Review/Promotion.
+
 ## Limitações conhecidas
 
 - **A interface está concluída e funcional** — validada tanto contra a
@@ -472,6 +563,24 @@ campo em vez de tudo-ou-nada; preview de PDF/imagem no painel de
 revisão; persistência do parsing fiscal no draft (se um segundo
 consumidor real justificar); endpoint de reagendamento de OCR (já
 preparado desde a Fase 6.5) com botão de retry manual na UI.
+
+## Observações para fases futuras
+
+- **Problema encontrado**: documentos `FATURA-RECIBO` (fatura+recibo
+  combinados, tipicamente já pagos no ato da emissão) são promovidos
+  sempre com `status: 'PENDING'` — a mesma decisão para qualquer
+  documento, independentemente de já estarem pagos ou não, decisão
+  documentada na Fase 6.3 e reconfirmada nesta ronda de hardening.
+  **Impacto**: um `FATURA-RECIBO` promovido aparece como "por pagar" em
+  relatórios/dashboards de outstanding até ser corrigido manualmente
+  para `PAID` — potencial fonte de erro humano recorrente para este tipo
+  de documento especificamente. **Sugestão**: avaliar, numa fase própria
+  e com decisão explícita do Product Owner, se `InvoiceDraft`/
+  `promote()` deveria distinguir este tipo de documento (ex. um sinal
+  detetado no parsing fiscal, ou uma escolha explícita do utilizador no
+  formulário de revisão) para pré-selecionar `PAID` em vez de `PENDING`
+  — nunca inferir isto automaticamente sem confirmação humana.
+  **Prioridade**: Média.
 
 ## Critérios de conclusão
 

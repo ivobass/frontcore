@@ -135,6 +135,17 @@ fase.
   atual, nunca escrita "à mão").
 - `pnpm --filter @frontrest/api test:e2e` — 80/80, inalterado.
 
+## Hardening pós-validação manual
+
+Fixture "Coca-Cola" atualizada: `invoiceNumber` deixa de ser `null` —
+`"Fatura/Recibo : ZFRC B036/9823519819"` passou a ser reconhecido por
+`InvoiceNumberExtractor` (novo padrão `WITH_COLON_SEPARATOR_PATTERN`,
+`invoice-number.extractor.ts`), deixando de ser uma limitação conhecida
+para este campo. Detalhe completo (causa raiz, correção, ficheiros) em
+`docs/phases/phase-6.8-invoice-draft-review-ui-foundation.md`, secção
+"Hardening pós-validação manual — OCR Fiscal Parsing & Invoice
+Promotion" — não repetido aqui.
+
 ## Limitações conhecidas
 
 - A suite protege só a camada `ocrText → FiscalExtractionResult` — não
@@ -143,9 +154,9 @@ fase.
   dedicada (ver "Estado atual dos testes" na análise desta fase),
   deliberadamente fora do âmbito aqui.
 - `expected` inclui, deliberadamente, comportamentos imperfeitos já
-  documentados como limitação conhecida (Coca-Cola, Mercedes) — a
-  suite protege contra regressão, não afirma que estes valores estão
-  corretos.
+  documentados como limitação conhecida (Mercedes — NIF do cliente,
+  moeda "USD" da fixture "Coca-Cola") — a suite protege contra
+  regressão, não afirma que estes valores estão corretos.
 
 ## Observações para fases futuras
 

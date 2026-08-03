@@ -18,7 +18,7 @@ import { OCR_STATUS_BADGE_VARIANT, OCR_STATUS_LABELS } from './constants';
 const PAGE_SIZE = 20;
 
 export default function InvoiceDraftsPage() {
-  const { session, me } = useSession();
+  const { session, me, updateTokens } = useSession();
   const manage = canManage(me.role);
   const { feedback, notifySuccess, notifyError } = useFeedback();
 
@@ -166,6 +166,8 @@ export default function InvoiceDraftsPage() {
         }}
         draftId={reviewingId}
         accessToken={session.accessToken}
+        refreshToken={session.refreshToken}
+        onTokensRefreshed={updateTokens}
         canManage={manage}
         onSaved={() => {
           notifySuccess('Rascunho atualizado.');

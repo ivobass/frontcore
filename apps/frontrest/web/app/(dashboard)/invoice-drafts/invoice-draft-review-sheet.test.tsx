@@ -1,6 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { InvoiceDraftReviewSheet } from './invoice-draft-review-sheet';
+import { ApiError } from '../../../lib/api';
 
 const getInvoiceDraft = vi.fn();
 const updateInvoiceDraft = vi.fn();
@@ -15,6 +16,12 @@ vi.mock('../../../lib/invoice-drafts', () => ({
   promoteInvoiceDraft: (...args: unknown[]) => promoteInvoiceDraft(...args),
   getInvoiceDraftFiscalSuggestions: (...args: unknown[]) => getInvoiceDraftFiscalSuggestions(...args),
 }));
+
+// `withAuthRetry`/`refreshSession` reais (a lógica de retry é o que está
+// a ser testado) — só o `fetch` global (o próprio pedido de rede a
+// `/auth/refresh`) é mockado, hardening pós-validação manual, "Token de
+// acesso inválido ou expirado.".
+const originalFetch = global.fetch;
 
 const listSuppliers = vi.fn();
 
@@ -75,6 +82,10 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
     vi.clearAllMocks();
     getInvoiceDraftFiscalSuggestions.mockResolvedValue(suggestions);
     listSuppliers.mockResolvedValue({ items: [], page: 1, pageSize: 100, total: 0, totalPages: 0 });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   it('MEMBER: vê revisão em modo de leitura, sem formulário nem ações de escrita', async () => {
@@ -498,5 +509,109 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
     fireEvent.click(confirmButton);
 
     await waitFor(() => expect(promoteInvoiceDraft).toHaveBeenCalledWith('token', 'draft-1'));
+  });
+
+  describe('Hardening pós-validação manual — "Token de acesso inválido ou expirado."', () => {
+    const draftReadyToPromote = {
+      ...baseDraft,
+      ocrStatus: 'FAILED' as const,
+      supplierId: 'sup-1',
+      issueDate: '2026-07-01T00:00:00.000Z',
+      totalAmount: '100.00',
+      supplier: { id: 'sup-1', name: 'ACME' },
+    };
+
+    async function clickPromoteAndConfirm() {
+      const promoteTrigger = await screen.findByRole('button', { name: 'Promover a fatura' });
+      await waitFor(() => expect(promoteTrigger).toBeEnabled());
+      fireEvent.click(promoteTrigger);
+      const confirmButton = await screen.findByRole('button', { name: 'Promover' });
+      fireEvent.click(confirmButton);
+    }
+
+    it('401 num pedido de promoção renova a sessão uma única vez e repete a promoção com o token novo', async () => {
+      getInvoiceDraft.mockResolvedValue(draftReadyToPromote);
+      promoteInvoiceDraft
+        .mockRejectedValueOnce(new ApiError('Token de acesso inválido ou expirado.', 401))
+        .mockResolvedValueOnce({ id: 'inv-1' });
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ accessToken: 'token-novo', refreshToken: 'refresh-novo' }), { status: 200 }),
+      );
+      const onTokensRefreshed = vi.fn();
+
+      render(
+        <InvoiceDraftReviewSheet
+          open
+          onOpenChange={() => {}}
+          draftId="draft-1"
+          accessToken="token-antigo"
+          refreshToken="refresh-antigo"
+          onTokensRefreshed={onTokensRefreshed}
+          canManage
+          {...noopProps}
+        />,
+      );
+
+      await clickPromoteAndConfirm();
+
+      await waitFor(() => expect(promoteInvoiceDraft).toHaveBeenCalledTimes(2));
+      expect(promoteInvoiceDraft).toHaveBeenNthCalledWith(1, 'token-antigo', 'draft-1');
+      expect(promoteInvoiceDraft).toHaveBeenNthCalledWith(2, 'token-novo', 'draft-1');
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/refresh'),
+        expect.objectContaining({ body: JSON.stringify({ refreshToken: 'refresh-antigo' }) }),
+      );
+      expect(onTokensRefreshed).toHaveBeenCalledWith({ accessToken: 'token-novo', refreshToken: 'refresh-novo' });
+      expect(screen.queryByText('Token de acesso inválido ou expirado.')).not.toBeInTheDocument();
+    });
+
+    it('refreshToken também expirado — mostra uma mensagem clara e distinta, nunca o 401 cru, e nunca repete a promoção uma segunda vez', async () => {
+      getInvoiceDraft.mockResolvedValue(draftReadyToPromote);
+      promoteInvoiceDraft.mockRejectedValue(new ApiError('Token de acesso inválido ou expirado.', 401));
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ message: 'Refresh token inválido.' }), { status: 401 }),
+      );
+
+      render(
+        <InvoiceDraftReviewSheet
+          open
+          onOpenChange={() => {}}
+          draftId="draft-1"
+          accessToken="token-antigo"
+          refreshToken="refresh-antigo"
+          onTokensRefreshed={() => {}}
+          canManage
+          {...noopProps}
+        />,
+      );
+
+      await clickPromoteAndConfirm();
+
+      await screen.findByText('A sua sessão expirou. Inicie sessão novamente.');
+      expect(promoteInvoiceDraft).toHaveBeenCalledTimes(1);
+    });
+
+    it('sem refreshToken/onTokensRefreshed (retrocompatibilidade) — 401 mostra o erro tal como antes, nunca tenta renovar', async () => {
+      getInvoiceDraft.mockResolvedValue(draftReadyToPromote);
+      promoteInvoiceDraft.mockRejectedValue(new ApiError('Token de acesso inválido ou expirado.', 401));
+      global.fetch = vi.fn();
+
+      render(
+        <InvoiceDraftReviewSheet
+          open
+          onOpenChange={() => {}}
+          draftId="draft-1"
+          accessToken="token-antigo"
+          canManage
+          {...noopProps}
+        />,
+      );
+
+      await clickPromoteAndConfirm();
+
+      await screen.findByText('Token de acesso inválido ou expirado.');
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(promoteInvoiceDraft).toHaveBeenCalledTimes(1);
+    });
   });
 });

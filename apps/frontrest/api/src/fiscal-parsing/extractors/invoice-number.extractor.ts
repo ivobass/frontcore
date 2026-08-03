@@ -73,6 +73,28 @@ const WITH_SUBLABEL_PATTERN = new RegExp(
 // e não há sub-rótulo a ancorar o candidato.
 const BARE_DIGIT_FIRST_PATTERN = new RegExp(`${KEYWORD}\\s+(?!atcud\\b)(\\d[A-Z0-9/.\\-]{2,24})`, 'i');
 
+// Hardening pós-validação manual — achados reais: "Fatura/Recibo :
+// ZFRC B036/9823519819" ("Coca-Cola") e "Número: FR U006/46931"
+// ("Farmácia Esperança") não têm nenhum sub-rótulo "N.º"/"Number"/"#" —
+// só ":"/";" imediatamente a seguir à palavra-chave. Vocabulário próprio
+// (`COLON_ANCHORED_KEYWORD`), nunca acrescentado a `KEYWORD` partilhado:
+// "recibo" sozinho interage mal com o sub-rótulo solto de
+// `WITH_SUBLABEL_PATTERN` (regressão real detetada — "Válido como
+// RECIBO no REGIME IVA..." de "Leroy" passava a devolver "REGIME", por
+// "no" já ser aceite como sub-rótulo minimalista nesse padrão); isolado
+// aqui, o novo vocabulário só entra em jogo com um ":"/";" imediato a
+// seguir, nunca com o intervalo largo (`[^\n]{0,20}?`) do padrão
+// original. `CANDIDATE_HAS_DIGIT` exige que o candidato contenha pelo
+// menos um dígito — todo número de fatura real tem — para nunca aceitar
+// ruído de OCR sem dígitos (achado real, "Ilha Pan": "Total Documento:
+// ooo" nunca deve virar candidato).
+const COLON_ANCHORED_KEYWORD = String.raw`(?:fatura|factura|invoice|recibo|documento|n[uú]mero)\b`;
+const CANDIDATE_HAS_DIGIT = String.raw`(?=[A-Z0-9 /.\-]*\d)`;
+const WITH_COLON_SEPARATOR_PATTERN = new RegExp(
+  `${COLON_ANCHORED_KEYWORD}\\s*[:;]\\s*(?!atcud\\b)${CANDIDATE_HAS_DIGIT}(${CANDIDATE})`,
+  'i',
+);
+
 // Padrão "solto" (sem as guardas de termos reservados) — usado só por
 // `explainRejection()` para mostrar ao utilizador o que teria casado
 // sem a proteção, nunca para decidir o resultado de `extract()`.
@@ -90,6 +112,15 @@ export class InvoiceNumberExtractor implements FiscalExtractor<string>, Explains
     const withSublabel = ocrText.match(WITH_SUBLABEL_PATTERN);
     if (withSublabel) {
       return { value: withSublabel[1].trim(), confidence: 85, source: withSublabel[0].trim() };
+    }
+
+    // Confiança intermédia — o separador ":"/";" imediatamente a seguir
+    // à palavra-chave é um sinal mais forte que a simples adjacência
+    // (abaixo), mas mais fraco que um sub-rótulo "N.º"/"Number"
+    // explícito (acima).
+    const withColonSeparator = ocrText.match(WITH_COLON_SEPARATOR_PATTERN);
+    if (withColonSeparator) {
+      return { value: withColonSeparator[1].trim(), confidence: 75, source: withColonSeparator[0].trim() };
     }
 
     // Confiança média — achado real ("JMV"): sem "N.º" a ancorar

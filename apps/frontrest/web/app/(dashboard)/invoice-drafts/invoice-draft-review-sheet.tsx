@@ -26,6 +26,8 @@ import {
   getInvoiceDraftFiscalSuggestions,
 } from '../../../lib/invoice-drafts';
 import type { InvoiceDraft, DraftFiscalSuggestions, UpdateInvoiceDraftInput } from '../../../lib/invoice-drafts';
+import { withAuthRetry } from '../../../lib/auth';
+import type { RefreshedTokens } from '../../../lib/auth';
 import { listSuppliers } from '../../../lib/suppliers';
 import type { Supplier } from '../../../lib/suppliers';
 import { listExpenseCategories } from '../../../lib/expense-categories';
@@ -202,6 +204,18 @@ export interface InvoiceDraftReviewSheetProps {
   onSaved: () => void;
   onDeleted: () => void;
   onPromoted: () => void;
+  /**
+   * `refreshToken`/`onTokensRefreshed` (Hardening pós-validação manual —
+   * "Token de acesso inválido ou expirado."): opcionais, para preservar
+   * compatibilidade com quem já usa este componente sem sessão renovável
+   * (ex. testes existentes, que só passam `accessToken`). Quando ambos
+   * presentes, `Guardar`/`Eliminar`/`Promover` tentam renovar a sessão
+   * uma única vez (`withAuthRetry()`, `lib/auth.ts`) antes de mostrar um
+   * erro — nunca mais do que uma tentativa, nunca repetida em silêncio
+   * indefinidamente.
+   */
+  refreshToken?: string;
+  onTokensRefreshed?: (tokens: RefreshedTokens) => void;
 }
 
 export function InvoiceDraftReviewSheet({
@@ -213,6 +227,8 @@ export function InvoiceDraftReviewSheet({
   onSaved,
   onDeleted,
   onPromoted,
+  refreshToken,
+  onTokensRefreshed,
 }: InvoiceDraftReviewSheetProps) {
   const [draft, setDraft] = useState<InvoiceDraft | null>(null);
   const [loading, setLoading] = useState(false);
@@ -391,6 +407,22 @@ export function InvoiceDraftReviewSheet({
     }));
   }
 
+  /**
+   * Tenta `request(accessToken)`; se `refreshToken`/`onTokensRefreshed`
+   * estiverem disponíveis, renova a sessão uma única vez num 401 antes
+   * de desistir (`withAuthRetry()`, `lib/auth.ts`) — hardening
+   * pós-validação manual, "Token de acesso inválido ou expirado.".
+   * Sem os dois props (ex. testes existentes que só passam
+   * `accessToken`), comportamento inalterado: chama `request()` uma
+   * única vez, sem tentativa de renovação.
+   */
+  function callWithRetry<T>(request: (token: string) => Promise<T>): Promise<T> {
+    if (!refreshToken || !onTokensRefreshed) {
+      return request(accessToken);
+    }
+    return withAuthRetry(accessToken, refreshToken, request, onTokensRefreshed);
+  }
+
   async function handleSave() {
     if (!draftId) return;
     const patch = buildPatch(formValues, savedValues);
@@ -399,7 +431,7 @@ export function InvoiceDraftReviewSheet({
     setSaving(true);
     setSaveError(null);
     try {
-      const updated = await updateInvoiceDraft(accessToken, draftId, patch);
+      const updated = await callWithRetry((token) => updateInvoiceDraft(token, draftId, patch));
       applyDraft(updated);
       onSaved();
     } catch (err) {
@@ -413,7 +445,7 @@ export function InvoiceDraftReviewSheet({
     if (!draftId) return;
     setDeleting(true);
     try {
-      await deleteInvoiceDraft(accessToken, draftId);
+      await callWithRetry((token) => deleteInvoiceDraft(token, draftId));
       setDeleteConfirmOpen(false);
       onDeleted();
     } catch (err) {
@@ -428,7 +460,7 @@ export function InvoiceDraftReviewSheet({
     setPromoting(true);
     setPromoteError(null);
     try {
-      await promoteInvoiceDraft(accessToken, draftId);
+      await callWithRetry((token) => promoteInvoiceDraft(token, draftId));
       setPromoteConfirmOpen(false);
       onPromoted();
     } catch (err) {
@@ -613,7 +645,7 @@ export function InvoiceDraftReviewSheet({
                   </FormField>
 
                   <FormField>
-                    <FieldLabel>Data de vencimento</FieldLabel>
+                    <FieldLabel>Data de vencimento (opcional)</FieldLabel>
                     <Input
                       type="date"
                       value={formValues.dueDate}
