@@ -16,6 +16,22 @@ describe('resolveFinancialIntent', () => {
     ['Onde estou a gastar mais dinheiro?', 'BY_CATEGORY'],
     ['Qual é o fornecedor onde mais gastamos?', 'TOP_SUPPLIERS'],
     ['Faz um resumo financeiro da empresa.', 'FINANCIAL_SUMMARY'],
+    // Hardening pós-Fase 8.13 — "faturas/facturas confirmadas/registadas/
+    // oficiais" referem-se sempre a Invoice, nunca InvoiceDraft; nunca um
+    // estado novo, sempre FINANCIAL_SUMMARY (mesmo totals já existente).
+    ['Quantas faturas confirmadas existem em julho de 2026?', 'FINANCIAL_SUMMARY'],
+    ['Qual foi o valor total das faturas confirmadas em julho de 2026?', 'FINANCIAL_SUMMARY'],
+    ['Tenho faturas confirmadas este mês?', 'FINANCIAL_SUMMARY'],
+    ['Quantas facturas confirmadas existem este mês?', 'FINANCIAL_SUMMARY'],
+    ['Mostra-me as faturas registadas deste mês.', 'FINANCIAL_SUMMARY'],
+    ['Mostra-me as facturas registadas deste mês.', 'FINANCIAL_SUMMARY'],
+    ['Quais são as faturas oficiais deste mês?', 'FINANCIAL_SUMMARY'],
+    ['Quais são as facturas oficiais deste mês?', 'FINANCIAL_SUMMARY'],
+    // Hardening pós-Fase 8.13 — "quanto gastámos"/"quanto gastamos" (1ª
+    // pessoa do plural) resolvem diretamente, mesma disciplina de "quanto
+    // gastei" já existente.
+    ['Quanto gastámos este mês?', 'FINANCIAL_SUMMARY'],
+    ['Quanto gastámos no mês passado?', 'FINANCIAL_SUMMARY'],
   ] as const)('reconhece "%s" como %s', (message, expected) => {
     expect(resolveFinancialIntent(message)).toEqual({ kind: 'SUPPORTED', intent: expected });
   });

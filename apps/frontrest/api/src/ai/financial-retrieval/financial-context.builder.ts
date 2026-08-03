@@ -1,9 +1,24 @@
+import { Prisma } from '@frontcore/database';
 import type { FinancialIntentData, FinancialRetrievalResult } from './financial-retrieval.service';
 import type { PeriodComparisonValue } from '../../dashboard/period-comparison.util';
 import type { FinancialInsights } from '../../financial-insights/financial-insights.types';
 import type { FinancialAnalysisEngineOutput, FinancialAnalysisOutcome } from '../../financial-analysis/types';
 
 const NO_INVOICES_LINE = 'Sem faturas confirmadas neste período.';
+
+/**
+ * Decomposição determinística entre despesa registada/paga/por pagar
+ * (Hardening pós-Fase 8.13) — `paidAmount` é sempre derivado, nunca
+ * inventado nem calculado pelo LLM: total registado (`totalAmount`, já
+ * exclui `CANCELLED`, Fase 7) menos "por pagar"
+ * (`insights.outstanding.totalAmount`, Pendente+Vencida, Fase 8.9), via
+ * `Prisma.Decimal` — nunca `number` intermédio, nunca uma nova query.
+ * Exportada para `financial-grounding.validator.ts` reutilizar
+ * exatamente a mesma fórmula, nunca uma segunda cópia divergente.
+ */
+export function computePaidAmount(totalAmount: string, insights: FinancialInsights): string {
+  return new Prisma.Decimal(totalAmount).minus(insights.outstanding.totalAmount).toFixed(2);
+}
 
 /** Tradução dos estados internos (`InvoiceStatus`) — nunca expor o enum bruto ao modelo. */
 const STATUS_LABELS: Record<string, string> = {
@@ -18,8 +33,9 @@ export function translateStatus(status: string): string {
   return STATUS_LABELS[status] ?? status;
 }
 
+/** Hardening pós-Fase 8.13 — "faturas confirmadas" acrescentado para anunciar a vocabulário já reconhecido (`CONFIRMED_OFFICIAL_INVOICES_PATTERN`), nunca uma reformulação global da lista. */
 const SUPPORTED_QUERIES_HINT =
-  'resumo financeiro, valores por pagar, valores por estado, despesas por categoria, principais fornecedores, evolução mensal';
+  'resumo financeiro, faturas confirmadas, valores por pagar, valores por estado, despesas por categoria, principais fornecedores, evolução mensal';
 
 /** Nunca um "nome" desenhado para dominar o prompt — generoso para qualquer nome real de fornecedor/categoria, sem ser ilimitado. */
 const MAX_DOMAIN_TEXT_LENGTH = 200;
@@ -183,9 +199,11 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
       if (totals.activeInvoiceCount === 0 && totals.cancelledInvoiceCount === 0) {
         lines.push(NO_INVOICES_LINE);
       } else {
+        const paidAmount = computePaidAmount(totals.totalAmount, insights);
         lines.push(
           `Faturas ativas: ${totals.activeInvoiceCount} (total: ${totals.totalAmount} EUR; média: ${totals.averageAmount} EUR).`,
           `Faturas canceladas: ${totals.cancelledInvoiceCount}.`,
+          `Foram registados ${totals.totalAmount} EUR em despesas neste período. Deste valor, ${paidAmount} EUR estão pagos e ${insights.outstanding.totalAmount} EUR continuam por pagar.`,
           ...buildInsightsLines(insights),
           ...buildAnalysisLines(analysis),
         );

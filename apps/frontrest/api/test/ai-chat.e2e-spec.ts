@@ -1036,4 +1036,139 @@ describe('AI Chat (e2e)', () => {
       expect(response.body.message.content).toContain('Análise financeira: sem conclusões aplicáveis neste período.');
     });
   });
+
+  /**
+   * Hardening pós-Fase 8.13 — Financial Language Consistency. Dois
+   * problemas semânticos encontrados na validação manual: (1) "faturas
+   * confirmadas/registadas/oficiais" não eram reconhecidas, apesar do
+   * próprio texto do sistema já usar "confirmadas" (`NO_INVOICES_LINE`);
+   * (2) "quanto gastámos" não distinguia despesa registada de valor
+   * pago/por pagar. Mesma limitação do Mock já documentada nos testes da
+   * Fase 8.13 acima: no caminho direto, o eco é sempre a própria
+   * pergunta do utilizador (nunca revela os dados enviados como
+   * contexto) — por isso a decomposição só é observável via o eco real
+   * da tool no caminho de tool calling.
+   */
+  describe('Hardening pós-Fase 8.13 — Financial Language Consistency', () => {
+    it.each([
+      'Quantas faturas confirmadas existem em julho de 2026?',
+      'Qual foi o valor total das faturas confirmadas em julho de 2026?',
+      'Quantas facturas confirmadas existem este mês?',
+      'Quanto gastámos este mês?',
+      'Quanto gastámos no mês passado?',
+    ])('"%s" é reconhecida pelo retrieval determinístico — nunca "não tenho essa informação" (caminho direto, Prisma real)', async (message) => {
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message })
+        .expect(201);
+
+      expect(prisma.invoice.aggregate).toHaveBeenCalled();
+      expect(response.body.message.role).toBe('ASSISTANT');
+    });
+
+    it('"faturas confirmadas"/"facturas confirmadas" nunca consultam InvoiceDraft — referem-se sempre a Invoice', async () => {
+      await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quantas facturas confirmadas existem este mês?' })
+        .expect(201);
+
+      expect(prisma.invoiceDraft.findMany).not.toHaveBeenCalled();
+    });
+
+    it('continuidade conversacional: "Quantas faturas confirmadas existem em julho?" seguido de "E qual é o valor total?" recupera o período pelo histórico', async () => {
+      const first = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Quantas faturas confirmadas existem em julho de 2026?' })
+        .expect(201);
+
+      const second = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ conversationId: first.body.conversationId, message: 'E qual é o valor total?' })
+        .expect(201);
+
+      expect(second.body.message.role).toBe('ASSISTANT');
+      expect(prisma.invoice.aggregate).toHaveBeenCalled();
+    });
+
+    it('"quanto gastámos": a resposta final (via tool calling, eco real da tool) decompõe despesa registada/paga/por pagar, sem inventar nem calcular no LLM', async () => {
+      prisma.invoice.aggregate.mockResolvedValue({
+        _count: 4,
+        _sum: { totalAmount: '500.00' },
+        _avg: { totalAmount: '125.00' },
+      });
+      prisma.invoice.groupBy.mockImplementation((args: { by: string[] }) => {
+        if (args.by[0] === 'status') {
+          return Promise.resolve([
+            { status: 'PAID', _count: 2, _sum: { totalAmount: '350.00' } },
+            { status: 'PENDING', _count: 2, _sum: { totalAmount: '150.00' } },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.invoice.findMany.mockImplementation((args: { select?: { issueDate?: boolean }; include?: unknown }) => {
+        if (args.include) return Promise.resolve([]);
+        if (args.select?.issueDate) {
+          return Promise.resolve([{ issueDate: new Date('2026-07-05T00:00:00.000Z'), totalAmount: '500.00' }]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.supplier.findMany.mockResolvedValue([]);
+      prisma.expenseCategory.findMany.mockResolvedValue([]);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Como está o orçamento da empresa?' })
+        .expect(201);
+
+      // 500.00 registados − 150.00 por pagar (Pendente) = 350.00 pago — nunca inventado, nunca calculado pelo LLM.
+      expect(response.body.message.content).toContain(
+        'Foram registados 500.00 EUR em despesas neste período. Deste valor, 350.00 EUR estão pagos e 150.00 EUR continuam por pagar.',
+      );
+    });
+
+    it('CANCELLED nunca entra na decomposição pago/por pagar (totals já a exclui, Fase 7)', async () => {
+      prisma.invoice.aggregate.mockResolvedValue({
+        _count: 4,
+        _sum: { totalAmount: '500.00' },
+        _avg: { totalAmount: '125.00' },
+      });
+      prisma.invoice.count.mockResolvedValue(1); // cancelledInvoiceCount
+      prisma.invoice.groupBy.mockImplementation((args: { by: string[] }) => {
+        if (args.by[0] === 'status') {
+          return Promise.resolve([
+            { status: 'PAID', _count: 2, _sum: { totalAmount: '350.00' } },
+            { status: 'PENDING', _count: 2, _sum: { totalAmount: '150.00' } },
+            { status: 'CANCELLED', _count: 1, _sum: { totalAmount: '999.00' } },
+          ]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.invoice.findMany.mockImplementation((args: { select?: { issueDate?: boolean }; include?: unknown }) => {
+        if (args.include) return Promise.resolve([]);
+        if (args.select?.issueDate) {
+          return Promise.resolve([{ issueDate: new Date('2026-07-05T00:00:00.000Z'), totalAmount: '500.00' }]);
+        }
+        return Promise.resolve([]);
+      });
+      prisma.supplier.findMany.mockResolvedValue([]);
+      prisma.expenseCategory.findMany.mockResolvedValue([]);
+
+      const response = await request(app.getHttpServer())
+        .post('/api/ai/chat')
+        .set('Authorization', authHeader())
+        .send({ message: 'Como está o orçamento da empresa?' })
+        .expect(201);
+
+      // Os 999.00 EUR cancelados nunca entram em totalAmount nem na decomposição — continua exatamente 500.00/350.00/150.00.
+      expect(response.body.message.content).toContain(
+        'Foram registados 500.00 EUR em despesas neste período. Deste valor, 350.00 EUR estão pagos e 150.00 EUR continuam por pagar.',
+      );
+      expect(response.body.message.content).not.toContain('999.00');
+    });
+  });
 });

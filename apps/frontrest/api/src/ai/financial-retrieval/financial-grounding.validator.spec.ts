@@ -411,6 +411,49 @@ describe('validateFinancialGrounding', () => {
     });
   });
 
+  describe('Hardening pós-Fase 8.13 — decomposição paga/por pagar ("Foram registados X EUR... Deste valor, Y EUR estão pagos")', () => {
+    const INSIGHTS_WITH_PARTIAL_OUTSTANDING = buildFinancialInsights(
+      {
+        period: PERIOD,
+        totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 0, totalAmount: '500.00', averageAmount: '125.00' },
+        byStatus: [
+          { status: 'PAID', count: 2, totalAmount: '350.00' },
+          { status: 'PENDING', count: 2, totalAmount: '150.00' },
+        ],
+        monthlyTrend: [],
+        byCategory: [],
+        topSuppliers: [],
+      },
+      [],
+    );
+    const RESULT_WITH_PARTIAL_OUTSTANDING: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+      kind: 'DATA',
+      period: PERIOD,
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: { invoiceCount: 4, activeInvoiceCount: 4, cancelledInvoiceCount: 0, totalAmount: '500.00', averageAmount: '125.00' },
+        insights: INSIGHTS_WITH_PARTIAL_OUTSTANDING,
+        analysis: EMPTY_ANALYSIS,
+      },
+      filters: {},
+    };
+
+    it('aceita o valor pago real (500.00 − 150.00 por pagar = 350.00 pago), derivado, nunca uma nova fonte de dados', () => {
+      expect(
+        validateFinancialGrounding(
+          'Foram registados 500,00 EUR em despesas. Deste valor, 350,00 EUR estão pagos e 150,00 EUR continuam por pagar.',
+          RESULT_WITH_PARTIAL_OUTSTANDING,
+        ),
+      ).toEqual({ grounded: true });
+    });
+
+    it('rejeita um valor pago fabricado, mesmo plausível, que não corresponde a totalAmount − outstanding', () => {
+      expect(
+        validateFinancialGrounding('Deste valor, 400,00 EUR estão pagos.', RESULT_WITH_PARTIAL_OUTSTANDING),
+      ).toEqual({ grounded: false, reason: 'AMOUNT_NOT_ALLOWED' });
+    });
+  });
+
   describe('Correção pós-revisão — regressão do PERIOD_COMPARISON (percentagens em falta do conjunto permitido)', () => {
     it('percentagem válida — comparação monetária (totalAmount.percentageChange = 50) é aceite', () => {
       expect(

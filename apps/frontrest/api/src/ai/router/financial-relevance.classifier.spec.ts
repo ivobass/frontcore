@@ -128,4 +128,15 @@ describe('classifyMessageRelevance', () => {
       expect(classifyMessageRelevance('Vi uma cobra no jardim ontem.', [])).toBe('GENERAL');
     });
   });
+
+  describe('Hardening pós-Fase 8.13 — grafia alternativa "factura"', () => {
+    it('uma mensagem que só usa "factura(s)" (sem nenhuma outra palavra da lista) é FINANCIAL, nunca GENERAL por engano', () => {
+      // Bug real encontrado durante a implementação desta correção: antes,
+      // FINANCIAL_ADJACENT_PATTERN só reconhecia "fatura(s)" — uma mensagem
+      // com a grafia "factura(s)" e nenhuma outra palavra financeira era
+      // classificada GERAL, nunca chegando ao retrieval nem às tools.
+      expect(classifyMessageRelevance('Quantas facturas confirmadas existem este mês?', [])).toBe('FINANCIAL');
+      expect(classifyMessageRelevance('Mostra-me as facturas oficiais.', [])).toBe('FINANCIAL');
+    });
+  });
 });

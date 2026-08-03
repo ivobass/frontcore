@@ -73,9 +73,24 @@ const TOP_SUPPLIERS_PATTERN = /\bfornecedor(es)?\b/;
 const MONTHLY_TREND_PATTERN = /\bevolucao mensal\b|\bevolucao\b.*\bmensal\b/;
 // "quantas faturas"/"faturas existem"/"numero de faturas" — contagem de
 // faturas é parte de `totals` (FINANCIAL_SUMMARY), nunca uma intenção
-// própria (sem novo tipo de dado a expor).
+// própria (sem novo tipo de dado a expor). "quanto gastamos" (Hardening
+// pós-Fase 8.13) — só a 1ª pessoa do plural; `normalize()` já remove
+// acentos, por isso "gastámos"/"gastamos" caem ambos aqui, sem precisar
+// de duas entradas.
 const FINANCIAL_SUMMARY_PATTERN =
-  /\bquanto gastei\b|\bresumo financeiro\b|\bresumo\b|\btotal\b|\bquantas faturas\b|\bfaturas existem\b|\bnumero de faturas\b|\bmedia\b/;
+  /\bquanto gastei\b|\bquanto gastamos\b|\bresumo financeiro\b|\bresumo\b|\btotal\b|\bquantas faturas\b|\bfaturas existem\b|\bnumero de faturas\b|\bmedia\b/;
+
+// Hardening pós-Fase 8.13 — "faturas/facturas confirmadas/registadas/
+// oficiais" referem-se sempre a `Invoice` (nunca `InvoiceDraft`); o
+// próprio texto determinístico do sistema já usa "confirmadas"
+// (`NO_INVOICES_LINE`, `financial-context.builder.ts`) — esta fase
+// elimina a inconsistência de o utilizador usar a mesma palavra e o
+// sistema não a reconhecer. Nunca introduz um estado novo: mapeia
+// sempre para FINANCIAL_SUMMARY, reutilizando `totals` já existente.
+// `fac?tura` cobre as duas grafias ("fatura"/"factura") sem duas
+// entradas; "oficia(l|is)" cobre o plural irregular do português
+// ("oficial" → "oficiais", nunca "oficials").
+const CONFIRMED_OFFICIAL_INVOICES_PATTERN = /\bfac?tura(s)?\s+(confirmada(s)?|registada(s)?|oficia(l|is))\b/;
 
 // Vocabulário novo na Fase 8.4 — "maiores despesas" é ambíguo por
 // natureza (faturas individuais vs. fornecedor vs. categoria agregados,
@@ -133,6 +148,7 @@ export function resolveFinancialIntent(text: string): FinancialIntentResolution 
   if (BY_CATEGORY_PATTERN.test(normalized)) return { kind: 'SUPPORTED', intent: 'BY_CATEGORY' };
   if (TOP_SUPPLIERS_PATTERN.test(normalized)) return { kind: 'SUPPORTED', intent: 'TOP_SUPPLIERS' };
   if (MONTHLY_TREND_PATTERN.test(normalized)) return { kind: 'SUPPORTED', intent: 'MONTHLY_TREND' };
+  if (CONFIRMED_OFFICIAL_INVOICES_PATTERN.test(normalized)) return { kind: 'SUPPORTED', intent: 'FINANCIAL_SUMMARY' };
   if (FINANCIAL_SUMMARY_PATTERN.test(normalized)) return { kind: 'SUPPORTED', intent: 'FINANCIAL_SUMMARY' };
 
   return { kind: 'UNSUPPORTED' };

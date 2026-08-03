@@ -142,6 +142,53 @@ Strict Grounding já existentes. Dashboard, Reports e
   incómoda — nunca extrair uma abstração partilhada antecipadamente.
   **Prioridade**: Baixa.
 
+## Hardening pós-validação manual — Financial Language Consistency
+
+Durante a validação manual no browser desta fase (funcional, sem
+alterações à arquitetura), foram encontrados e corrigidos dois
+problemas de consistência semântica entre o vocabulário do utilizador
+e o vocabulário já usado pelo próprio sistema:
+
+1. **"Faturas confirmadas"** — o texto determinístico já usava
+   "confirmadas" (`NO_INVOICES_LINE = 'Sem faturas confirmadas neste
+   período.'`), mas o utilizador usar a mesma palavra numa pergunta
+   ("Quantas faturas confirmadas existem em julho de 2026?") não era
+   reconhecido. Corrigido com um novo padrão em
+   `financial-intent.resolver.ts`
+   (`CONFIRMED_OFFICIAL_INVOICES_PATTERN`) — "faturas/facturas
+   confirmadas/registadas/oficiais" mapeiam sempre para
+   `FINANCIAL_SUMMARY` (reutiliza `totals` já existente, nunca um
+   estado novo, nunca `InvoiceDraft`). Durante a implementação
+   confirmou-se empiricamente (antes de assumir a causa) que o
+   problema real incluía também o **router**: `financial-relevance
+   .classifier.ts`'s `FINANCIAL_ADJACENT_PATTERN` só reconhecia
+   "fatura(s)", nunca "factura(s)" — uma mensagem que só usasse essa
+   grafia era classificada `GENERAL` por engano, nunca chegando ao
+   retrieval nem às tools. Corrigido no mesmo padrão (`fac?tura`).
+2. **"Quanto gastámos?"** — respondia apenas com o total registado,
+   sem distinguir pago de por pagar. `buildFinancialContextMessage()`
+   ganhou uma linha de decomposição determinística
+   (`computePaidAmount()`, exportada): `paidAmount = totalAmount −
+   insights.outstanding.totalAmount` (Pendente+Vencida, Fase 8.9), via
+   `Prisma.Decimal`, nunca uma nova query nem cálculo pelo LLM.
+   `validateFinancialGrounding()` estendida com este único valor
+   derivado adicional. "Quanto gastamos"/"gastámos" (1ª pessoa do
+   plural) também passaram a resolver diretamente `FINANCIAL_SUMMARY`
+   (antes só "quanto gastei" singular).
+
+**Decisão de documentação**: registado aqui, no documento da fase já
+existente — não foi aberta uma fase numerada nova, por não haver
+alteração de arquitetura, contrato ou âmbito funcional novo; apenas
+correção de vocabulário e uma decomposição textual sobre dados já
+existentes.
+
+**Ficheiros alterados**: `financial-intent.resolver.ts`,
+`financial-relevance.classifier.ts`, `financial-context.builder.ts`,
+`financial-grounding.validator.ts`, e os respetivos ficheiros de teste
+(`*.spec.ts`) mais `test/ai-chat.e2e-spec.ts`. Nenhuma alteração a
+`AiToolOrchestratorService`, Dashboard, Reports, frontend, schema
+Prisma ou ao Financial Analysis Engine.
+
 ## Próxima fase
 
 Não anunciada nesta fase — os três consumidores planeados

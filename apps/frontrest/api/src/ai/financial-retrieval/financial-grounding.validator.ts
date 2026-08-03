@@ -1,7 +1,7 @@
 import { Prisma } from '@frontcore/database';
 import type { FinancialIntentData, FinancialRetrievalResult } from './financial-retrieval.service';
 import type { FinancialInsights } from '../../financial-insights/financial-insights.types';
-import { sanitizeDomainText, translateStatus } from './financial-context.builder';
+import { computePaidAmount, sanitizeDomainText, translateStatus } from './financial-context.builder';
 
 /**
  * Marcadores partilhados (Fase 8.8) para uma mensagem `ASSISTANT`
@@ -190,6 +190,12 @@ function collectAllowedFacts(result: Extract<FinancialRetrievalResult, { kind: '
       const { totals, insights } = data;
       amounts.add(totals.totalAmount);
       amounts.add(totals.averageAmount);
+      // Hardening pós-Fase 8.13 — "Foram registados X EUR... Deste valor, Y
+      // EUR estão pagos" (`financial-context.builder.ts`); `paidAmount` é
+      // sempre derivado de `totals.totalAmount`/`insights.outstanding`, nunca
+      // uma nova fonte de dados — reutiliza exatamente a mesma fórmula
+      // (`computePaidAmount()`), nunca uma segunda cópia divergente.
+      amounts.add(computePaidAmount(totals.totalAmount, insights));
       counts.add(totals.invoiceCount);
       counts.add(totals.activeInvoiceCount);
       counts.add(totals.cancelledInvoiceCount);

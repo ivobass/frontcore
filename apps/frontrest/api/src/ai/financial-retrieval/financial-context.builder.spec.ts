@@ -110,6 +110,34 @@ describe('buildFinancialContextMessage', () => {
       );
     });
 
+    it('Hardening pós-Fase 8.13 — decompõe a despesa registada em pago/por pagar, sempre derivado (nunca inventado)', () => {
+      const text = buildFinancialContextMessage(summaryResultWithInsights());
+
+      // totalAmount 1000.00 − outstanding 600.00 (Pendente+Vencida) = pago 400.00.
+      expect(text).toContain(
+        'Foram registados 1000.00 EUR em despesas neste período. Deste valor, 400.00 EUR estão pagos e 600.00 EUR continuam por pagar.',
+      );
+    });
+
+    it('Hardening pós-Fase 8.13 — CANCELLED nunca entra na decomposição pago/por pagar (totalAmount já a exclui, Fase 7)', () => {
+      const result = summaryResultWithInsights();
+      if (result.data.intent !== 'FINANCIAL_SUMMARY') {
+        throw new Error('esperado intent=FINANCIAL_SUMMARY');
+      }
+      const withCancelled: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        ...result,
+        data: { ...result.data, totals: { ...result.data.totals, invoiceCount: 6, cancelledInvoiceCount: 1 } },
+      };
+
+      const text = buildFinancialContextMessage(withCancelled);
+
+      expect(text).toContain('Faturas canceladas: 1.');
+      // Mesmos 1000.00/400.00/600.00 de antes — CANCELLED nunca altera a decomposição.
+      expect(text).toContain(
+        'Foram registados 1000.00 EUR em despesas neste período. Deste valor, 400.00 EUR estão pagos e 600.00 EUR continuam por pagar.',
+      );
+    });
+
     it('menos de 2 meses com dados → tendência "dados insuficientes", nunca uma conclusão fabricada', () => {
       const insights = buildFinancialInsights(
         {
@@ -549,6 +577,8 @@ describe('buildDeterministicReply', () => {
     expect(text).toContain('Não tenho essa informação disponível');
     expect(text).toContain('resumo financeiro');
     expect(text).toContain('valores por pagar');
+    // Hardening pós-Fase 8.13 — anuncia o vocabulário de "faturas confirmadas" já reconhecido.
+    expect(text).toContain('faturas confirmadas');
   });
 
   it('PERIOD_MISSING pede clarificação do período, com exemplos concretos', () => {

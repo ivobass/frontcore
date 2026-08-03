@@ -28,8 +28,14 @@ function normalize(text: string): string {
  * (serpente); as formas incluídas (`cobranca`/`cobrar`/`cobrado`/`cobrada`)
  * cobrem o mesmo vocabulário financeiro sem essa colisão.
  */
+// Hardening pós-Fase 8.13 — `fac?tura` (não só `fatura`) para "factura"/
+// "facturas" (grafia alternativa) nunca ficar de fora do vocabulário
+// financeiro-adjacente; sem isto, uma mensagem que só usasse essa grafia
+// (ex. "Quantas facturas confirmadas existem?", sem nenhuma outra
+// palavra da lista) era classificada GERAL por engano — nunca chegava
+// ao retrieval nem às tools.
 const FINANCIAL_ADJACENT_PATTERN =
-  /\bfatura(s)?\b|\bpagament(o|os)\b|\bpagar\b|\bpago(s)?\b|\bpaga(s)?\b|\bpaguei\b|\bgastei\b|\bgasto(s)?\b|\bgastar\b|\bgastamos\b|\bdespesa(s)?\b|\bfornecedor(es)?\b|\bcategoria(s)?\b|\beuro(s)?\b|€|\bvalor(es)?\b|\btotal(is)?\b|\bcusto(s)?\b|\bdinheiro\b|\bdivida\b|\bvencida(s)?\b|\bpendente(s)?\b|\bcancelada(s)?\b|\bfinanceir[oa]\b|\bresumo\b|\bmedia\b|\borcamento\b|\breceita(s)?\b|\bsaldo(s)?\b|\bextrato(s)?\b|\bpreco(s)?\b|\bcobranca(s)?\b|\bcobrar\b|\bcobrado(s)?\b|\bcobrada(s)?\b/;
+  /\bfac?tura(s)?\b|\bpagament(o|os)\b|\bpagar\b|\bpago(s)?\b|\bpaga(s)?\b|\bpaguei\b|\bgastei\b|\bgasto(s)?\b|\bgastar\b|\bgastamos\b|\bdespesa(s)?\b|\bfornecedor(es)?\b|\bcategoria(s)?\b|\beuro(s)?\b|€|\bvalor(es)?\b|\btotal(is)?\b|\bcusto(s)?\b|\bdinheiro\b|\bdivida\b|\bvencida(s)?\b|\bpendente(s)?\b|\bcancelada(s)?\b|\bfinanceir[oa]\b|\bresumo\b|\bmedia\b|\borcamento\b|\breceita(s)?\b|\bsaldo(s)?\b|\bextrato(s)?\b|\bpreco(s)?\b|\bcobranca(s)?\b|\bcobrar\b|\bcobrado(s)?\b|\bcobrada(s)?\b/;
 
 /**
  * Classificação híbrida (Fase 8.4) — determinística e defensiva, nunca
