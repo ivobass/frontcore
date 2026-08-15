@@ -29,6 +29,7 @@ function summary(overrides: Partial<FinancialDashboardSummary> = {}): FinancialD
 
 const LARGEST_INVOICE: LargestInvoice = {
   id: 'inv-1',
+  number: 'F-100',
   supplierName: 'Hetzner',
   categoryName: 'Hosting',
   issueDate: '2026-07-10',

@@ -26,7 +26,7 @@ describe('buildFinancialContextMessage', () => {
         insights: buildEmptyFinancialInsights(PERIOD),
         analysis: EMPTY_ANALYSIS,
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     const text = buildFinancialContextMessage(result);
@@ -36,6 +36,64 @@ describe('buildFinancialContextMessage', () => {
     expect(text).toContain('Faturas canceladas: 1.');
     expect(text).not.toContain('Por estado');
     expect(text).not.toContain('Principais fornecedores');
+  });
+
+  describe('Hardening pós-revisão Codex — CANCELLED nunca é apresentado como "pago"', () => {
+    function summaryFilteredByStatus(status: 'CANCELLED' | 'PAID' | 'PENDING' | 'OVERDUE') {
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '30.00', averageAmount: '15.00' },
+          // `outstanding` sempre 0 quando filtrado por um único estado
+          // que não é PENDING/OVERDUE — mesmo cenário real que produzia
+          // "30.00 EUR estão pagos" para faturas CANCELLED antes desta
+          // correção (outstanding=0, paidAmount = totalAmount − 0 = totalAmount).
+          insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
+        },
+        filters: { status }, invoiceIdentityRequested: false,
+      };
+      return result;
+    }
+
+    it('status=CANCELLED nunca inclui a linha "Foram registados... estão pagos" — sem sentido para um universo só de canceladas', () => {
+      const text = buildFinancialContextMessage(summaryFilteredByStatus('CANCELLED'));
+
+      expect(text).not.toContain('estão pagos');
+      expect(text).not.toContain('continuam por pagar');
+      expect(text).not.toContain('30.00 EUR estão pagos');
+      // As restantes linhas (totais, faturas ativas/canceladas) continuam presentes — só a decomposição paga/por pagar é omitida.
+      expect(text).toContain('Faturas ativas: 2 (total: 30.00 EUR; média: 15.00 EUR).');
+    });
+
+    it.each(['PAID', 'PENDING', 'OVERDUE'] as const)(
+      'status=%s preserva a decomposição paga/por pagar existente (comportamento inalterado)',
+      (status) => {
+        const text = buildFinancialContextMessage(summaryFilteredByStatus(status));
+
+        expect(text).toContain('Foram registados 30.00 EUR em despesas neste período.');
+        expect(text).toContain('estão pagos');
+        expect(text).toContain('continuam por pagar');
+      },
+    );
+
+    it('sem filtro (consulta sem status), a decomposição continua presente (comportamento inalterado)', () => {
+      const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 1, totalAmount: '30.00', averageAmount: '15.00' },
+          insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
+        },
+        filters: {}, invoiceIdentityRequested: false,
+      };
+
+      expect(buildFinancialContextMessage(result)).toContain('Foram registados 30.00 EUR em despesas neste período.');
+    });
   });
 
   it('DATA/FINANCIAL_SUMMARY com zero faturas produz nota explícita, não um erro', () => {
@@ -48,7 +106,7 @@ describe('buildFinancialContextMessage', () => {
         insights: buildEmptyFinancialInsights(PERIOD),
         analysis: EMPTY_ANALYSIS,
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     expect(buildFinancialContextMessage(result)).toContain('Sem faturas confirmadas neste período.');
@@ -71,7 +129,7 @@ describe('buildFinancialContextMessage', () => {
           byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 5, totalAmount: '1000.00' }],
           topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '600.00' }],
         },
-        [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' }],
+        [{ id: 'inv-1', number: null, supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' }],
       );
       return {
         kind: 'DATA',
@@ -82,7 +140,7 @@ describe('buildFinancialContextMessage', () => {
           insights,
           analysis: runFinancialAnalyses([monthlyTrendAnalysis, relativeConcentrationAnalysis], insights),
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
     }
 
@@ -159,7 +217,7 @@ describe('buildFinancialContextMessage', () => {
           insights,
           analysis: runFinancialAnalyses([monthlyTrendAnalysis, relativeConcentrationAnalysis], insights),
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       const text = buildFinancialContextMessage(result);
@@ -200,7 +258,7 @@ describe('buildFinancialContextMessage', () => {
           insights,
           analysis: runFinancialAnalyses([monthlyTrendAnalysis, relativeConcentrationAnalysis], insights),
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       const text = buildFinancialContextMessage(result);
@@ -218,7 +276,7 @@ describe('buildFinancialContextMessage', () => {
           insights: buildEmptyFinancialInsights(PERIOD),
           analysis: EMPTY_ANALYSIS,
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       // Com zero faturas, o texto usa NO_INVOICES_LINE (já coberto pelo teste
@@ -233,7 +291,7 @@ describe('buildFinancialContextMessage', () => {
       kind: 'DATA',
       period: PERIOD,
       data: { intent: 'OUTSTANDING_BALANCE', outstandingCount: 0, outstandingAmount: '0.00' },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     expect(buildFinancialContextMessage(result)).toContain('Por pagar (Pendente + Vencida): 0 fatura(s), 0.00 EUR.');
@@ -250,7 +308,7 @@ describe('buildFinancialContextMessage', () => {
           { status: 'OVERDUE', count: 2, totalAmount: '54.00' },
         ],
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     const text = buildFinancialContextMessage(result);
@@ -269,7 +327,7 @@ describe('buildFinancialContextMessage', () => {
         intent: 'BY_CATEGORY',
         byCategory: [{ categoryId: 'cat-1', categoryName: 'Hosting', count: 3, totalAmount: '354.00' }],
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     const text = buildFinancialContextMessage(result);
@@ -286,7 +344,7 @@ describe('buildFinancialContextMessage', () => {
         intent: 'TOP_SUPPLIERS',
         topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '354.00' }],
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     const text = buildFinancialContextMessage(result);
@@ -300,7 +358,7 @@ describe('buildFinancialContextMessage', () => {
       kind: 'DATA',
       period: PERIOD,
       data: { intent: 'MONTHLY_TREND', monthlyTrend: [{ month: '2026-07', count: 4, totalAmount: '370.00' }] },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     const text = buildFinancialContextMessage(result);
@@ -314,7 +372,7 @@ describe('buildFinancialContextMessage', () => {
       kind: 'DATA',
       period: PERIOD,
       data: { intent: 'TOP_SUPPLIERS', topSuppliers: [] },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     expect(buildFinancialContextMessage(result)).toContain('Sem faturas confirmadas neste período.');
@@ -327,10 +385,10 @@ describe('buildFinancialContextMessage', () => {
       data: {
         intent: 'LARGEST_INVOICES',
         invoices: [
-          { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '500.00' },
+          { id: 'inv-1', number: null, supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '500.00' },
         ],
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     const text = buildFinancialContextMessage(result);
@@ -339,12 +397,30 @@ describe('buildFinancialContextMessage', () => {
     expect(text).not.toMatch(/\bPAID\b/);
   });
 
+  it('Hardening pós-validação manual — DATA/LARGEST_INVOICES inclui o número da fatura quando presente ("qual é o número da fatura?")', () => {
+    const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+      kind: 'DATA',
+      period: PERIOD,
+      data: {
+        intent: 'LARGEST_INVOICES',
+        invoices: [
+          { id: 'inv-1', number: 'TEST-002', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '500.00' },
+        ],
+      },
+      filters: {}, invoiceIdentityRequested: false,
+    };
+
+    const text = buildFinancialContextMessage(result);
+
+    expect(text).toContain('Maiores faturas: TEST-002 — 2026-07-10 — Hetzner (Hosting, Paga): 500.00 EUR.');
+  });
+
   it('DATA/LARGEST_INVOICES vazio produz nota explícita', () => {
     const result: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
       kind: 'DATA',
       period: PERIOD,
       data: { intent: 'LARGEST_INVOICES', invoices: [] },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     expect(buildFinancialContextMessage(result)).toContain('Sem faturas confirmadas neste período.');
@@ -361,7 +437,7 @@ describe('buildFinancialContextMessage', () => {
           insights: buildEmptyFinancialInsights(PERIOD),
           analysis: EMPTY_ANALYSIS,
         },
-        filters: { status: 'PAID' },
+        filters: { status: 'PAID' }, invoiceIdentityRequested: false,
       };
 
       const text = buildFinancialContextMessage(result);
@@ -380,7 +456,7 @@ describe('buildFinancialContextMessage', () => {
           insights: buildEmptyFinancialInsights(PERIOD),
           analysis: EMPTY_ANALYSIS,
         },
-        filters: { supplierName: 'Hetzner', categoryName: 'Hosting' },
+        filters: { supplierName: 'Hetzner', categoryName: 'Hosting' }, invoiceIdentityRequested: false,
       };
 
       const text = buildFinancialContextMessage(result);
@@ -398,7 +474,7 @@ describe('buildFinancialContextMessage', () => {
           insights: buildEmptyFinancialInsights(PERIOD),
           analysis: EMPTY_ANALYSIS,
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       expect(buildFinancialContextMessage(result)).not.toContain('Filtros aplicados');
@@ -424,7 +500,7 @@ describe('buildFinancialContextMessage', () => {
           activeInvoiceCount: { current: '4', previous: '2', absoluteChange: '2', percentageChange: 100, direction: 'increase' },
         },
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     it('descreve os dois períodos e a variação — nunca a linha genérica "Período consultado" (pensada para um único período)', () => {
@@ -461,7 +537,7 @@ describe('buildFinancialContextMessage', () => {
             activeInvoiceCount: { current: '3', previous: '0', absoluteChange: '3', percentageChange: null, direction: 'increase' },
           },
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       const text = buildFinancialContextMessage(result);
@@ -475,7 +551,7 @@ describe('buildFinancialContextMessage', () => {
         kind: 'DATA',
         period: COMPARISON_RESULT.period,
         data: COMPARISON_RESULT.data,
-        filters: { supplierName: 'Hetzner' },
+        filters: { supplierName: 'Hetzner' }, invoiceIdentityRequested: false,
       };
 
       expect(buildFinancialContextMessage(result)).toContain('Filtros aplicados: fornecedor Hetzner.');
@@ -489,7 +565,7 @@ describe('buildFinancialContextMessage', () => {
         kind: 'DATA',
         period: PERIOD,
         data: { intent: 'TOP_SUPPLIERS', topSuppliers: [{ supplierId: 'sup-1', supplierName: maliciousName, count: 1, totalAmount: '10.00' }] },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       const text = buildFinancialContextMessage(result);
@@ -506,7 +582,7 @@ describe('buildFinancialContextMessage', () => {
         kind: 'DATA',
         period: PERIOD,
         data: { intent: 'BY_CATEGORY', byCategory: [{ categoryId: 'cat-1', categoryName: controlCharsName, count: 1, totalAmount: '10.00' }] },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       const text = buildFinancialContextMessage(result);
@@ -522,9 +598,9 @@ describe('buildFinancialContextMessage', () => {
         period: PERIOD,
         data: {
           intent: 'LARGEST_INVOICES',
-          invoices: [{ id: 'inv-1', supplierName: hugeName, categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '10.00' }],
+          invoices: [{ id: 'inv-1', number: null, supplierName: hugeName, categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '10.00' }],
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       const text = buildFinancialContextMessage(result);
@@ -544,7 +620,7 @@ describe('buildFinancialContextMessage', () => {
           insights: buildEmptyFinancialInsights(PERIOD),
           analysis: EMPTY_ANALYSIS,
         },
-        filters: { supplierName: maliciousName },
+        filters: { supplierName: maliciousName }, invoiceIdentityRequested: false,
       };
 
       const text = buildFinancialContextMessage(result);
@@ -558,7 +634,7 @@ describe('buildFinancialContextMessage', () => {
         kind: 'DATA',
         period: PERIOD,
         data: { intent: 'TOP_SUPPLIERS', topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner Cloud, Lda.', count: 1, totalAmount: '10.00' }] },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       expect(buildFinancialContextMessage(result)).toContain('Hetzner Cloud, Lda.: 1 fatura(s), 10.00 EUR');

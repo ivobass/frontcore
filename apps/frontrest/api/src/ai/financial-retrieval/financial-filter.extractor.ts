@@ -27,8 +27,30 @@ import type { InvoiceStatus } from '@frontcore/database';
  * `OUTSTANDING_PATTERN`, inalterado.
  */
 
+// "numero d[ae] fac?tura" — hardening pós-validação manual, achado real:
+// "qual é o número da factura paga?" (nomeando o estado na própria
+// mensagem, sem depender de continuidade) não tinha nenhum sinal
+// existente ("numero de" sozinho refere-se a uma contagem — "número DE
+// faturas" —, uma preposição diferente de "número DA fatura"). Mesmo
+// mecanismo, mesma disciplina de sinal explícito antes da palavra de
+// estado — nunca um estado isolado.
 const STATUS_FILTER_SIGNAL_PATTERN =
-  /\b(?:quantas|quantos|numero de|conta(?:gem)?|mostra(?:r)?|lista(?:r)?|so|apenas)\b.*?\b(pendentes?|pagas?|pagos?|vencidas?|canceladas?)\b/;
+  /\b(?:quantas|quantos|numero de|numero d[ae] fac?tura|conta(?:gem)?|mostra(?:r)?|lista(?:r)?|so|apenas)\b.*?\b(pendentes?|pagas?|pagos?|vencidas?|canceladas?)\b/;
+
+/**
+ * Hardening pós-validação manual — achado real: uma continuação
+ * elíptica ("E as pagas?", depois de um filtro "vencidas" já aplicado)
+ * não tem nenhum dos sinais acima ("mostra"/"lista"/"quantas"/"só"/
+ * "apenas") — sem esta forma reconhecida, o estado herdado da mensagem
+ * anterior nunca era substituído (`FinancialRetrievalService.resolveFilters()`
+ * só substitui o filtro herdado quando a mensagem atual resolve o seu
+ * próprio). Padrão fechado e ancorado à mensagem inteira (`^...$`), nunca
+ * em qualquer ponto do texto — cobre só esta forma elíptica exata ("E
+ * as/os <estado>?"), nunca reabre o risco de falso positivo que o sinal
+ * acima já evita (ex. "A fatura está vencida." continua sem sinal).
+ */
+const CONTINUATION_STATUS_PATTERN =
+  /^e?\s*(?:as|os)\s+(pendentes?|pagas?|pagos?|vencidas?|canceladas?)\s*\??$/;
 
 const STATUS_WORD_TO_ENUM: Record<string, InvoiceStatus> = {
   pendente: 'PENDING',
@@ -57,6 +79,7 @@ function normalize(text: string): string {
  * `CANCELLED`), sempre insensível a maiúsculas/minúsculas e acentos.
  */
 export function resolveStatusFilter(message: string): InvoiceStatus | undefined {
-  const match = normalize(message).match(STATUS_FILTER_SIGNAL_PATTERN);
+  const normalized = normalize(message);
+  const match = normalized.match(STATUS_FILTER_SIGNAL_PATTERN) ?? normalized.match(CONTINUATION_STATUS_PATTERN);
   return match ? STATUS_WORD_TO_ENUM[match[1]] : undefined;
 }

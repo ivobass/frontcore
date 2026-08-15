@@ -38,7 +38,7 @@ const DEFAULT_DATA_RESULT: FinancialRetrievalResult = {
     insights: buildEmptyFinancialInsights(PERIOD),
     analysis: EMPTY_ANALYSIS,
   },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 function buildService(overrides: {
@@ -247,7 +247,7 @@ describe('AiChatService', () => {
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
         data: { intent: 'TOP_SUPPLIERS', topSuppliers: [] },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
       const { service, prisma, provider, tenantContext, financialRetrieval } = buildService({ retrievalResult: dataResult });
       prisma.aiConversation.create.mockResolvedValue({ id: 'conv-1', organizationId: 'org-1', userId: 'user-1' });
@@ -317,7 +317,7 @@ describe('AiChatService', () => {
           kind: 'DATA',
           period: { from: '2026-07-01', to: '2026-07-31' },
           data: { intent: 'TOP_SUPPLIERS', topSuppliers: [] },
-          filters: {},
+          filters: {}, invoiceIdentityRequested: false,
         },
       };
       const { service, prisma, provider } = buildService({
@@ -377,7 +377,7 @@ describe('AiChatService', () => {
         insights: buildEmptyFinancialInsights(PERIOD),
         analysis: EMPTY_ANALYSIS,
       },
-      filters: { status: 'PENDING' },
+      filters: { status: 'PENDING' }, invoiceIdentityRequested: false,
     };
 
     function findConversationUpdate(prisma: MockPrismaService) {
@@ -462,7 +462,7 @@ describe('AiChatService', () => {
           version: 1,
           intent: 'FINANCIAL_SUMMARY',
           period: { from: '2026-13-45', to: '2026-13-45' },
-          filters: {},
+          filters: {}, invoiceIdentityRequested: false,
           recordedAt: '2026-07-16T10:00:00.000Z',
         },
       });
@@ -516,7 +516,7 @@ describe('AiChatService', () => {
           kind: 'DATA',
           period: { from: '2026-07-01', to: '2026-07-31' },
           data: { intent: 'TOP_SUPPLIERS', topSuppliers: [] },
-          filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
+          filters: { supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false,
         },
       };
       const { service, prisma } = buildService({
@@ -578,7 +578,7 @@ describe('AiChatService', () => {
         insights: buildEmptyFinancialInsights(PERIOD),
         analysis: EMPTY_ANALYSIS,
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
     const filteredBySupplierResult: FinancialRetrievalResult = {
       kind: 'DATA',
@@ -589,7 +589,7 @@ describe('AiChatService', () => {
         insights: buildEmptyFinancialInsights(PERIOD),
         analysis: EMPTY_ANALYSIS,
       },
-      filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
+      filters: { supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false,
     };
     const filteredByCategoryResult: FinancialRetrievalResult = {
       kind: 'DATA',
@@ -600,7 +600,7 @@ describe('AiChatService', () => {
         insights: buildEmptyFinancialInsights(PERIOD),
         analysis: EMPTY_ANALYSIS,
       },
-      filters: { categoryId: 'cat-1', categoryName: 'Hosting' },
+      filters: { categoryId: 'cat-1', categoryName: 'Hosting' }, invoiceIdentityRequested: false,
     };
     const filteredByStatusResult: FinancialRetrievalResult = {
       kind: 'DATA',
@@ -611,13 +611,13 @@ describe('AiChatService', () => {
         insights: buildEmptyFinancialInsights(PERIOD),
         analysis: EMPTY_ANALYSIS,
       },
-      filters: { status: 'PAID' },
+      filters: { status: 'PAID' }, invoiceIdentityRequested: false,
     };
     const largestInvoicesResult: FinancialRetrievalResult = {
       kind: 'DATA',
       period: PERIOD,
-      data: { intent: 'LARGEST_INVOICES', invoices: [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '300.00' }] },
-      filters: {},
+      data: { intent: 'LARGEST_INVOICES', invoices: [{ id: 'inv-1', number: 'F-100', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '300.00' }] },
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     async function runDataPath(retrievalResult: FinancialRetrievalResult, providerContent: string) {

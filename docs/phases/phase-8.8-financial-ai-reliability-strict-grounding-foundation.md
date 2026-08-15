@@ -406,14 +406,103 @@ por execução real, está em "Comandos de validação executados", abaixo.
   `ai-tool-orchestrator.service.spec.ts`), nunca via a resposta HTTP de
   um teste e2e.
 
+## Hardening pós-validação manual (2026-08-15) — 4 problemas reais corrigidos
+
+Nova ronda de validação manual do AI Financial Chat (3 faturas reais de
+teste, agosto de 2026) confirmou e corrigiu quatro problemas — dois na
+fronteira determinística desta fase, dois na resolução de intenção/
+filtro (Fases 8.4/8.5). Reproduzidos antes de qualquer correção;
+correção mínima em cada caso, sem alterar nenhum comportamento já
+correto.
+
+1. **Métricas combinavam o universo filtrado com um universo não
+   filtrado** — causa raiz em `DashboardService.getFinancialSummary()`
+   (Fase 7): a query `byStatus` (`invoice.groupBy`) nunca aplicava
+   `query.status`, mesmo pedido explicitamente — devolvia sempre a
+   repartição por TODOS os estados do período inteiro, enquanto
+   `totals`/`largestInvoices` já respeitavam o filtro (`activeWhere`).
+   `resolveOutstanding(byStatus)` (Fase 8.9) combinava então esse
+   universo não filtrado com `totals` filtrado — ex. filtrar "vencidas"
+   produzia `totalAmount` corretamente filtrado (25 EUR) mas
+   `outstanding.totalAmount` do período inteiro (125 EUR,
+   Pendente+Vencida sem filtro), e `computePaidAmount()`
+   (Fase 8.13) chegava a um "pago" negativo (25 − 125 = −100). Corrigido
+   com `byStatusWhere` — reutiliza `activeWhere` (o mesmo `where` de
+   `totals`) só quando `query.status` está explicitamente definido;
+   sem filtro explícito, comportamento inalterado (continua a incluir
+   `CANCELLED` como linha própria, nunca escondida — Dashboard/Reports
+   nunca passam `status`, só o Chat IA o faz).
+2. **Continuação elíptica não substituía o estado herdado** —
+   `resolveStatusFilter()` (`financial-filter.extractor.ts`, Fase 8.5)
+   exigia sempre um sinal explícito ("mostra"/"lista"/"quantas"/"só"/
+   "apenas") antes da palavra de estado; "E as pagas?" (sem nenhum
+   desses sinais) não resolvia nenhum filtro próprio, por isso
+   `FinancialRetrievalService.resolveFilters()` nunca substituía o
+   filtro herdado da mensagem anterior (`if (!filters.status &&
+   recovered.status)` nunca via `filters.status` já preenchido pela
+   mensagem atual). Corrigido com um novo padrão fechado e ancorado à
+   mensagem inteira, `CONTINUATION_STATUS_PATTERN` (`^e?\s*(?:as|os)\s+
+   <estado>\s*\??$`) — cobre só esta forma elíptica exata, nunca reabre
+   o falso positivo que o sinal original já evitava (ex. "A fatura está
+   vencida." continua sem sinal, por não ser esta forma).
+3. **"Quanto falta pagar?" não reconhecida** — `OUTSTANDING_PATTERN`
+   (`financial-intent.resolver.ts`, Fase 8.3) não incluía "falta(m)
+   pagar". Acrescentado ao mesmo padrão fechado existente, nunca uma
+   heurística/intent nova.
+4. **Número da fatura ausente de todo o Financial Retrieval** —
+   confirmado por leitura direta: `LargestInvoice`
+   (`dashboard.service.ts`) nunca incluía `Invoice.number`, apesar de a
+   `Invoice` o ter — uma pergunta que resolvia inequivocamente uma
+   única fatura (ex. "qual é o número da fatura paga?", com exatamente
+   uma fatura `PAID` no período) recebia sempre "não tenho essa
+   informação", mesmo o dado existindo na base de dados. Corrigido com
+   suporte grounded mínimo, reutilizando os primitivos já existentes,
+   nunca uma tool/intent nova:
+   - `LargestInvoice.number: string | null` novo (`dashboard.service.ts`,
+     `getLargestInvoices()`), propagado a `insights.largestExpense.invoice`
+     (Fase 8.9) e à intenção `LARGEST_INVOICES` — os dois únicos pontos
+     onde uma `Invoice` individual já chegava ao Financial Retrieval.
+   - `buildFinancialContextMessage()` inclui o número (quando presente,
+     nunca inventado quando ausente) nas linhas "Maior fatura"/"Maiores
+     faturas".
+   - `validateFinancialGrounding()` ganha uma quinta categoria de facto
+     (`invoiceNumbers: Set<string>`) e um quinto token
+     (`INVOICE_NUMBER_TOKEN_PATTERN`, `INVOICE_NUMBER_NOT_ALLOWED`) — só
+     valida uma menção **rotulada explicitamente** ("número"/"número da
+     fatura", intervalo curto até 10 caracteres até um candidato com
+     pelo menos um dígito) — nunca qualquer token alfanumérico solto em
+     qualquer ponto do texto (arriscaria falsos positivos em texto
+     comum). Limitação documentada, mesma categoria de "números por
+     extenso": um número mencionado sem esse rótulo explícito não é
+     validado por esta via.
+   - Resolução de intenção/filtro: `resolveStatusFilter()` ganha
+     "número d[ae] fac?tura" como sinal (mesmo mecanismo da Fase 8.5,
+     nunca um novo); `INVOICE_DETAIL_PATTERN`
+     (`financial-intent.resolver.ts`) deixou de excluir a forma nua
+     `\bnumero da fatura\b` — colidia com "qual é o número da fatura
+     paga?" (o utilizador a PEDIR o número, intenção oposta a "mostra a
+     fatura Nº 123", que as outras 3 alternativas já cobrem).
+
+**Ficheiros alterados**: `dashboard.service.ts` (+ spec),
+`financial-filter.extractor.ts` (+ spec), `financial-intent.resolver.ts`
+(+ spec), `financial-context.builder.ts` (+ spec),
+`financial-grounding.validator.ts` (+ spec), `financial-insights.util.spec.ts`,
+`reports.service.spec.ts`, `csv.serializer.spec.ts`,
+`financial-retrieval.service.spec.ts`, `ai-chat.service.spec.ts`,
+`test/ai-chat.e2e-spec.ts`. Nenhuma alteração a OCR, Fiscal Parsing,
+InvoiceDraft, promoção, IVA, NIF, tools novas, providers, embeddings,
+RAG, agentes, streaming, packages novos, migrations, Prisma (schema) ou
+frontend.
+
 ## Fora do âmbito (confirmado, não implementado)
 
 OCR, Fiscal Parsing, InvoiceDraft, promoção de faturas, validações
-contabilísticas, IVA, NIF, Dashboard, Reports, tools novas, providers
+contabilísticas, IVA, NIF, Reports, tools novas, providers
 novos, embeddings, RAG, agentes autónomos, streaming, packages novos,
 migrations, alterações Prisma, alterações ao frontend, alteração ao
-tool registry. Nenhuma alteração à arquitetura das Fases 8.1–8.7 — só
-reforços internos aos módulos já existentes.
+tool registry. Nenhuma alteração à arquitetura das Fases 8.1–8.7 além do
+hardening pós-validação manual acima (Dashboard `byStatus` — Fase 7 —
+corrigido; sem alteração à sua arquitetura).
 
 ## Critérios de conclusão
 

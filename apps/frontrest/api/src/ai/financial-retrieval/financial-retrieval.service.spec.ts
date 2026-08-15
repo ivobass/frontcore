@@ -120,7 +120,7 @@ describe('FinancialRetrievalService', () => {
         insights: expectedInsights,
         analysis: runFinancialAnalyses(CHAT_ANALYSES, expectedInsights),
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     });
   });
 
@@ -128,7 +128,7 @@ describe('FinancialRetrievalService', () => {
     const getLargestInvoices = jest.fn().mockResolvedValue({
       period: FILLED_SUMMARY.period,
       invoices: [
-        { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PENDING', totalAmount: '354.00' },
+        { id: 'inv-1', number: 'F-100', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PENDING', totalAmount: '354.00' },
       ],
     });
     const getFinancialSummary = jest.fn().mockResolvedValue(FILLED_SUMMARY);
@@ -159,7 +159,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'OUTSTANDING_BALANCE', outstandingCount: 4, outstandingAmount: '370.00' },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     });
   });
 
@@ -176,7 +176,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'OUTSTANDING_BALANCE', outstandingCount: 0, outstandingAmount: '0.00' },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     });
   });
 
@@ -189,7 +189,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'BY_STATUS', byStatus: FILLED_SUMMARY.byStatus },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     });
   });
 
@@ -202,7 +202,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'BY_CATEGORY', byCategory: FILLED_SUMMARY.byCategory },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     });
   });
 
@@ -215,7 +215,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'TOP_SUPPLIERS', topSuppliers: FILLED_SUMMARY.topSuppliers },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     });
   });
 
@@ -228,7 +228,7 @@ describe('FinancialRetrievalService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'MONTHLY_TREND', monthlyTrend: FILLED_SUMMARY.monthlyTrend },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     });
   });
 
@@ -247,7 +247,7 @@ describe('FinancialRetrievalService', () => {
         insights: expectedInsights,
         analysis: runFinancialAnalyses(CHAT_ANALYSES, expectedInsights),
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     });
   });
 
@@ -289,7 +289,7 @@ describe('FinancialRetrievalService', () => {
           insights: expectedInsights,
           analysis: runFinancialAnalyses(CHAT_ANALYSES, expectedInsights),
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       });
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
     });
@@ -308,7 +308,7 @@ describe('FinancialRetrievalService', () => {
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
         data: { intent: 'TOP_SUPPLIERS', topSuppliers: FILLED_SUMMARY.topSuppliers },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       });
     });
 
@@ -365,7 +365,7 @@ describe('FinancialRetrievalService', () => {
   describe('Fase 8.4 — LARGEST_INVOICES (maiores faturas individuais)', () => {
     it('devolve as faturas individuais reais, via DashboardService.getLargestInvoices', async () => {
       const invoices: LargestInvoice[] = [
-        { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '500.00' },
+        { id: 'inv-1', number: 'F-100', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '500.00' },
       ];
       const getLargestInvoices = jest.fn().mockResolvedValue({ period: { from: '2026-07-01', to: '2026-07-31' }, invoices });
       const { service } = buildService(jest.fn(), { getLargestInvoices });
@@ -376,7 +376,7 @@ describe('FinancialRetrievalService', () => {
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
         data: { intent: 'LARGEST_INVOICES', invoices },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       });
       expect(getLargestInvoices).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
     });
@@ -398,7 +398,7 @@ describe('FinancialRetrievalService', () => {
       const result = await service.retrieve('org-1', 'Quantas faturas pagas este mês?', [], NOW);
 
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31', status: 'PAID' });
-      expect(result).toMatchObject({ kind: 'DATA', filters: { status: 'PAID' } });
+      expect(result).toMatchObject({ kind: 'DATA', filters: { status: 'PAID' }, invoiceIdentityRequested: false });
     });
   });
 
@@ -410,7 +410,7 @@ describe('FinancialRetrievalService', () => {
       const result = await service.retrieve('org-1', 'Quanto gastei com a Hetzner este mês?', [], NOW);
 
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31', supplierId: 'sup-1' });
-      expect(result).toMatchObject({ kind: 'DATA', filters: { supplierId: 'sup-1', supplierName: 'Hetzner' } });
+      expect(result).toMatchObject({ kind: 'DATA', filters: { supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false });
     });
 
     it('entidade ambígua (duas correspondências distintas) devolve ENTITY_AMBIGUOUS, nunca escolhe uma arbitrariamente', async () => {
@@ -434,7 +434,7 @@ describe('FinancialRetrievalService', () => {
       const result = await service.retrieve('org-1', 'Quanto gastei com a Hetzner este mês?', [], NOW);
 
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31', supplierId: 'sup-1' });
-      expect(result).toMatchObject({ kind: 'DATA', filters: { supplierId: 'sup-1', supplierName: 'Hetzner' } });
+      expect(result).toMatchObject({ kind: 'DATA', filters: { supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false });
       expect((result as { filters: object }).filters).not.toHaveProperty('categoryId');
     });
 
@@ -456,7 +456,7 @@ describe('FinancialRetrievalService', () => {
       });
       expect(result).toMatchObject({
         kind: 'DATA',
-        filters: { supplierId: 'sup-1', supplierName: 'Hetzner', categoryId: 'cat-1', categoryName: 'Hosting' },
+        filters: { supplierId: 'sup-1', supplierName: 'Hetzner', categoryId: 'cat-1', categoryName: 'Hosting' }, invoiceIdentityRequested: false,
       });
     });
   });
@@ -474,7 +474,7 @@ describe('FinancialRetrievalService', () => {
         status: 'PAID',
         supplierId: 'sup-1',
       });
-      expect(result).toMatchObject({ filters: { status: 'PAID', supplierId: 'sup-1', supplierName: 'Hetzner' } });
+      expect(result).toMatchObject({ filters: { status: 'PAID', supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false });
     });
 
     it('"Mostra apenas as vencidas." substitui o estado herdado pelo indicado na mensagem atual', async () => {
@@ -490,7 +490,7 @@ describe('FinancialRetrievalService', () => {
         status: 'OVERDUE',
         supplierId: 'sup-1',
       });
-      expect(result).toMatchObject({ filters: { status: 'OVERDUE', supplierId: 'sup-1' } });
+      expect(result).toMatchObject({ filters: { status: 'OVERDUE', supplierId: 'sup-1' }, invoiceIdentityRequested: false });
     });
 
     it('sem sinal de continuação, uma pergunta financeira nova NUNCA herda filtros de uma mensagem anterior não relacionada', async () => {
@@ -499,7 +499,7 @@ describe('FinancialRetrievalService', () => {
       const result = await service.retrieve('org-1', 'Quanto gastei este mês?', ['Quantas faturas pagas este mês?'], NOW);
 
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
-      expect(result).toMatchObject({ filters: {} });
+      expect(result).toMatchObject({ filters: {}, invoiceIdentityRequested: false });
     });
   });
 
@@ -522,7 +522,7 @@ describe('FinancialRetrievalService', () => {
         to: '2026-07-31',
         status: expectedStatus,
       });
-      expect(result).toMatchObject({ kind: 'DATA', filters: { status: expectedStatus } });
+      expect(result).toMatchObject({ kind: 'DATA', filters: { status: expectedStatus }, invoiceIdentityRequested: false });
     });
 
     it('substituição explícita do ESTADO herdado — mensagem atual muda só o estado, fornecedor/categoria herdados mantêm-se', async () => {
@@ -548,7 +548,7 @@ describe('FinancialRetrievalService', () => {
         categoryId: 'cat-1',
       });
       expect(result).toMatchObject({
-        filters: { status: 'CANCELLED', supplierId: 'sup-1', categoryId: 'cat-1' },
+        filters: { status: 'CANCELLED', supplierId: 'sup-1', categoryId: 'cat-1' }, invoiceIdentityRequested: false,
       });
     });
 
@@ -574,7 +574,7 @@ describe('FinancialRetrievalService', () => {
         status: 'PAID',
         supplierId: 'sup-nos',
       });
-      expect(result).toMatchObject({ filters: { status: 'PAID', supplierId: 'sup-nos', supplierName: 'NOS' } });
+      expect(result).toMatchObject({ filters: { status: 'PAID', supplierId: 'sup-nos', supplierName: 'NOS' }, invoiceIdentityRequested: false });
     });
 
     it('substituição explícita da CATEGORIA herdada — mensagem atual menciona outra categoria, estado herdado mantém-se', async () => {
@@ -600,7 +600,7 @@ describe('FinancialRetrievalService', () => {
         categoryId: 'cat-eletricidade',
       });
       expect(result).toMatchObject({
-        filters: { status: 'PAID', categoryId: 'cat-eletricidade', categoryName: 'Eletricidade' },
+        filters: { status: 'PAID', categoryId: 'cat-eletricidade', categoryName: 'Eletricidade' }, invoiceIdentityRequested: false,
       });
     });
 
@@ -624,7 +624,7 @@ describe('FinancialRetrievalService', () => {
           status: 'OVERDUE', // substituído pela mensagem atual
           supplierId: 'sup-1', // herdado, mensagem atual não menciona fornecedor
           categoryId: 'cat-1', // herdado, mensagem atual não menciona categoria
-        },
+        }, invoiceIdentityRequested: false,
       });
     });
 
@@ -655,7 +655,7 @@ describe('FinancialRetrievalService', () => {
       expect(result).toMatchObject({
         kind: 'DATA',
         data: { intent: 'FINANCIAL_SUMMARY' },
-        filters: { status: 'OVERDUE' },
+        filters: { status: 'OVERDUE' }, invoiceIdentityRequested: false,
       });
     });
   });
@@ -670,7 +670,7 @@ describe('FinancialRetrievalService', () => {
         kind: 'DATA',
         period: { from: '2026-07-01', to: '2026-07-31' },
         data: { intent: 'TOP_SUPPLIERS', topSuppliers: FILLED_SUMMARY.topSuppliers },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       });
       expect(getFinancialSummary).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
     });
@@ -710,7 +710,7 @@ describe('FinancialRetrievalService', () => {
         status: 'PAID',
         supplierId: 'sup-1',
       });
-      expect(result).toMatchObject({ filters: { status: 'PAID', supplierId: 'sup-1', supplierName: 'Hetzner' } });
+      expect(result).toMatchObject({ filters: { status: 'PAID', supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false });
     });
 
     it('Fase 8.4 — nome de fornecedor ambíguo devolve ENTITY_AMBIGUOUS, nunca escolhe arbitrariamente', async () => {
@@ -755,7 +755,7 @@ describe('FinancialRetrievalService', () => {
             activeInvoiceCount: expect.objectContaining({ direction: 'increase' }),
           },
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       });
     });
 
@@ -810,7 +810,7 @@ describe('FinancialRetrievalService', () => {
         supplierId: 'sup-1',
         categoryId: undefined,
       });
-      expect(result).toMatchObject({ filters: { supplierId: 'sup-1', supplierName: 'Hetzner' } });
+      expect(result).toMatchObject({ filters: { supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false });
     });
 
     it('um lado da comparação sem período reconhecível (ex. comparação de categorias, fora do âmbito) devolve PERIOD_MISSING, nunca dados fabricados', async () => {

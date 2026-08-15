@@ -4,7 +4,7 @@ import { resolvePeriod } from '../../dashboard/period.util';
 import { DashboardService } from '../../dashboard/dashboard.service';
 import type { FinancialDashboardSummary, LargestInvoice } from '../../dashboard/dashboard.service';
 import { FinancialEntityResolverService } from './entity-resolver.service';
-import { resolveFinancialIntent } from './financial-intent.resolver';
+import { resolveFinancialIntent, requestsInvoiceIdentity } from './financial-intent.resolver';
 import type { FinancialIntentResolution, FinancialIntentType } from './financial-intent.resolver';
 import { resolveFinancialPeriod } from './financial-period.resolver';
 import type { FinancialPeriodResolution } from './financial-period.resolver';
@@ -79,7 +79,24 @@ export type FinancialRetrievalResult =
   | { kind: 'PERIOD_AMBIGUOUS' }
   | { kind: 'ENTITY_AMBIGUOUS' }
   | { kind: 'ERROR' }
-  | { kind: 'DATA'; period: { from: string; to: string }; data: FinancialIntentData; filters: ResolvedFinancialFilters };
+  | {
+      kind: 'DATA';
+      period: { from: string; to: string };
+      data: FinancialIntentData;
+      filters: ResolvedFinancialFilters;
+      /**
+       * Hardening pós-revisão Codex — a mensagem atual pediu
+       * explicitamente a identidade/número de uma fatura
+       * (`requestsInvoiceIdentity()`, `financial-intent.resolver.ts`).
+       * Só `true` no caminho direto (`retrieve()`) — a tool calling não
+       * tem acesso ao texto livre da pergunta atual, fica sempre
+       * `false`, preservando a mesma validação de sempre nesse caminho.
+       * Usado exclusivamente por `validateFinancialGrounding()` para
+       * decidir se alarga a validação do número de fatura a menções sem
+       * o rótulo "número" — nunca aplicado indiscriminadamente.
+       */
+      invoiceIdentityRequested: boolean;
+    };
 
 /**
  * Retrieval financeiro estruturado do Chat IA (Fase 8.1, reforçado na
@@ -156,6 +173,7 @@ export class FinancialRetrievalService {
     let intentResolution = resolveFinancialIntent(message);
     const currentPeriodResolution = resolveFinancialPeriod(message, now);
     const isContinuation = hasContinuationSignal(message);
+    const invoiceIdentityRequested = requestsInvoiceIdentity(message);
 
     // Tenta recuperar a intenção de uma mensagem anterior quando a
     // mensagem atual, sozinha, já tem um período válido (ex. "sim este
@@ -208,7 +226,7 @@ export class FinancialRetrievalService {
       }
     }
 
-    return this.resolveDataForPeriod(organizationId, intentResolution.intent, periodResolution, filters);
+    return this.resolveDataForPeriod(organizationId, intentResolution.intent, periodResolution, filters, invoiceIdentityRequested);
   }
 
   /**
@@ -246,6 +264,7 @@ export class FinancialRetrievalService {
     intent: Exclude<FinancialIntentType, 'PERIOD_COMPARISON'>,
     periodResolution: FinancialPeriodResolution,
     filters: ResolvedFinancialFilters,
+    invoiceIdentityRequested = false,
   ): Promise<FinancialRetrievalResult> {
     if (periodResolution.kind === 'MISSING') {
       return { kind: 'PERIOD_MISSING' };
@@ -265,7 +284,7 @@ export class FinancialRetrievalService {
     try {
       if (intent === 'LARGEST_INVOICES') {
         const { period, invoices } = await this.dashboardService.getLargestInvoices(organizationId, dashboardQuery);
-        return { kind: 'DATA', period, data: { intent, invoices }, filters };
+        return { kind: 'DATA', period, data: { intent, invoices }, filters, invoiceIdentityRequested };
       }
 
       // Fase 8.9 — FINANCIAL_SUMMARY é o único ponto de entrada dos
@@ -286,6 +305,7 @@ export class FinancialRetrievalService {
           period: { from: summary.period.from, to: summary.period.to },
           data: { intent, totals: summary.totals, insights, analysis },
           filters,
+          invoiceIdentityRequested,
         };
       }
 
@@ -295,6 +315,7 @@ export class FinancialRetrievalService {
         period: { from: summary.period.from, to: summary.period.to },
         data: this.selectData(intent, summary),
         filters,
+        invoiceIdentityRequested,
       };
     } catch {
       return { kind: 'ERROR' };
@@ -359,6 +380,9 @@ export class FinancialRetrievalService {
           },
         },
         filters,
+        // PERIOD_COMPARISON nunca carrega faturas individuais — nunca
+        // relevante para a identidade de uma fatura.
+        invoiceIdentityRequested: false,
       };
     } catch {
       return { kind: 'ERROR' };

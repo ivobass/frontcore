@@ -58,4 +58,45 @@ describe('resolveStatusFilter', () => {
     expect(resolveStatusFilter('só o pago')).toBe('PAID');
     expect(resolveStatusFilter('só os pagos')).toBe('PAID');
   });
+
+  describe('Correção pós-validação manual (Problema 2) — continuação elíptica "E as/os <estado>?"', () => {
+    it.each([
+      ['E as pagas?', 'PAID'],
+      ['E as vencidas?', 'OVERDUE'],
+      ['E as pendentes?', 'PENDING'],
+      ['E as canceladas?', 'CANCELLED'],
+      ['E os pagos?', 'PAID'],
+      ['as pagas?', 'PAID'],
+      ['E as pagas', 'PAID'],
+    ] as const)('extrai "%s" como %s — substitui o filtro herdado, nunca combina', (message, expected) => {
+      expect(resolveStatusFilter(message)).toBe(expected);
+    });
+
+    it('nunca reabre o falso positivo já evitado pelo sinal explícito — frase declarativa mais longa continua undefined', () => {
+      expect(resolveStatusFilter('A fatura está vencida e o cliente já confirmou.')).toBeUndefined();
+      expect(resolveStatusFilter('As faturas estão pagas desde ontem.')).toBeUndefined();
+    });
+
+    it('nunca corresponde a uma mensagem que só começa por "e"/"as" sem a forma elíptica exata', () => {
+      expect(resolveStatusFilter('E quanto gastei este mês?')).toBeUndefined();
+      expect(resolveStatusFilter('mostra as faturas')).toBeUndefined();
+    });
+  });
+
+  describe('Correção pós-validação manual (Problema 4) — "número da/dessa fatura <estado>"', () => {
+    it.each([
+      ['qual é o numero da factura paga?', 'PAID'],
+      ['qual é o numero da fatura paga?', 'PAID'],
+      ['qual é o número da fatura vencida?', 'OVERDUE'],
+      ['qual é o número da fatura pendente?', 'PENDING'],
+      ['qual é o número da fatura cancelada?', 'CANCELLED'],
+    ] as const)('extrai "%s" como %s', (message, expected) => {
+      expect(resolveStatusFilter(message)).toBe(expected);
+    });
+
+    it('sem estado nomeado na mesma mensagem, "número da fatura" sozinho continua undefined (nunca ambíguo)', () => {
+      expect(resolveStatusFilter('qual é o número da fatura?')).toBeUndefined();
+      expect(resolveStatusFilter('qual é o número dessa fatura?')).toBeUndefined();
+    });
+  });
 });

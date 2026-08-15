@@ -109,8 +109,12 @@ function buildInsightsLines(insights: FinancialInsights): string[] {
   lines.push(`Por pagar: ${insights.outstanding.count} fatura(s), ${insights.outstanding.totalAmount} EUR.`);
   if (insights.largestExpense.invoice) {
     const invoice = insights.largestExpense.invoice;
+    // Número (hardening pós-validação manual) — só quando presente
+    // (`Invoice.number` é opcional ao nível do schema); nunca inventado
+    // quando ausente, a frase simplesmente omite o segmento.
+    const numberText = invoice.number ? `${sanitizeDomainText(invoice.number)} — ` : '';
     lines.push(
-      `Maior fatura: ${invoice.issueDate} — ${sanitizeDomainText(invoice.supplierName)} (${sanitizeDomainText(invoice.categoryName)}, ${translateStatus(invoice.status)}): ${invoice.totalAmount} EUR.`,
+      `Maior fatura: ${numberText}${invoice.issueDate} — ${sanitizeDomainText(invoice.supplierName)} (${sanitizeDomainText(invoice.categoryName)}, ${translateStatus(invoice.status)}): ${invoice.totalAmount} EUR.`,
     );
   }
   if (insights.trend.direction === 'insufficient_data' || !insights.trend.comparison) {
@@ -199,14 +203,27 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
       if (totals.activeInvoiceCount === 0 && totals.cancelledInvoiceCount === 0) {
         lines.push(NO_INVOICES_LINE);
       } else {
-        const paidAmount = computePaidAmount(totals.totalAmount, insights);
-        lines.push(
-          `Faturas ativas: ${totals.activeInvoiceCount} (total: ${totals.totalAmount} EUR; média: ${totals.averageAmount} EUR).`,
-          `Faturas canceladas: ${totals.cancelledInvoiceCount}.`,
-          `Foram registados ${totals.totalAmount} EUR em despesas neste período. Deste valor, ${paidAmount} EUR estão pagos e ${insights.outstanding.totalAmount} EUR continuam por pagar.`,
-          ...buildInsightsLines(insights),
-          ...buildAnalysisLines(analysis),
-        );
+        lines.push(`Faturas ativas: ${totals.activeInvoiceCount} (total: ${totals.totalAmount} EUR; média: ${totals.averageAmount} EUR).`);
+        lines.push(`Faturas canceladas: ${totals.cancelledInvoiceCount}.`);
+        // Hardening pós-revisão Codex — achado real: `computePaidAmount()`
+        // (`totalAmount − outstanding`) só é semanticamente válido quando
+        // `totalAmount` representa despesa ativa (PAID/PENDING/OVERDUE) —
+        // uma fatura CANCELLED nunca é paga nem por pagar, e filtrar
+        // explicitamente por `status=CANCELLED` faz `totalAmount` conter
+        // só o valor cancelado; sem esta guarda, a fórmula apresentava
+        // esse valor cancelado como se fosse "pago" (`outstanding=0` para
+        // CANCELLED, `paidAmount = totalAmount`). Nunca um clamp/valor
+        // artificial — a linha inteira é omitida (nunca sentido a
+        // apresentar "pago"/"por pagar" para um universo só de
+        // canceladas); PAID/PENDING/OVERDUE e consultas sem filtro
+        // continuam com a mesma decomposição de sempre.
+        if (filters.status !== 'CANCELLED') {
+          const paidAmount = computePaidAmount(totals.totalAmount, insights);
+          lines.push(
+            `Foram registados ${totals.totalAmount} EUR em despesas neste período. Deste valor, ${paidAmount} EUR estão pagos e ${insights.outstanding.totalAmount} EUR continuam por pagar.`,
+          );
+        }
+        lines.push(...buildInsightsLines(insights), ...buildAnalysisLines(analysis));
       }
       break;
     }
@@ -271,7 +288,7 @@ export function buildFinancialContextMessage(result: Extract<FinancialRetrievalR
           `Maiores faturas: ${data.invoices
             .map(
               (invoice) =>
-                `${invoice.issueDate} — ${sanitizeDomainText(invoice.supplierName)} (${sanitizeDomainText(invoice.categoryName)}, ${translateStatus(invoice.status)}): ${invoice.totalAmount} EUR`,
+                `${invoice.number ? `${sanitizeDomainText(invoice.number)} — ` : ''}${invoice.issueDate} — ${sanitizeDomainText(invoice.supplierName)} (${sanitizeDomainText(invoice.categoryName)}, ${translateStatus(invoice.status)}): ${invoice.totalAmount} EUR`,
             )
             .join('; ')}.`,
         );

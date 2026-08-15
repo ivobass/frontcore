@@ -3,6 +3,9 @@ import type { INestApplication } from '@nestjs/common';
 import { createTestApp } from './utils/bootstrap-app';
 import { authHeader } from './utils/auth';
 import type { MockPrismaService } from './utils/mock-prisma';
+import { DashboardService } from '../src/dashboard/dashboard.service';
+import { buildFinancialInsights } from '../src/financial-insights/financial-insights.util';
+import { computePaidAmount } from '../src/ai/financial-retrieval/financial-context.builder';
 
 /**
  * `AiTenantContextService` chama sempre `DashboardService.getFinancialSummary()`
@@ -1170,5 +1173,689 @@ describe('AI Chat (e2e)', () => {
       );
       expect(response.body.message.content).not.toContain('999.00');
     });
+  });
+
+  /**
+   * Correção pós-validação manual do AI Financial Chat — reproduz
+   * exatamente as sequências reais do relatório: 3 faturas reais criadas
+   * em agosto de 2026 (`TEST-001` 100 EUR PENDING, `TEST-002` 50 EUR
+   * PAID, `TEST-003` 25 EUR OVERDUE). `mockThreeTestInvoices()` simula
+   * `Invoice.groupBy`/`aggregate`/`findMany` respeitando `where.status`
+   * exatamente como o Postgres real faria — nunca um mock estático que
+   * ignora o filtro (foi precisamente essa omissão, no lado do
+   * `DashboardService`, a causa raiz do Problema 1).
+   */
+  describe('Correção pós-validação manual do AI Financial Chat', () => {
+    interface FakeTestInvoice {
+      id: string;
+      number: string;
+      supplierName: string;
+      categoryName: string;
+      issueDate: string;
+      status: 'PENDING' | 'PAID' | 'OVERDUE' | 'CANCELLED';
+      totalAmount: string;
+    }
+
+    const TEST_INVOICES: FakeTestInvoice[] = [
+      { id: 'inv-test-1', number: 'TEST-001', supplierName: 'ACME', categoryName: 'Hosting', issueDate: '2026-08-05', status: 'PENDING', totalAmount: '100.00' },
+      { id: 'inv-test-2', number: 'TEST-002', supplierName: 'ACME', categoryName: 'Hosting', issueDate: '2026-08-10', status: 'PAID', totalAmount: '50.00' },
+      { id: 'inv-test-3', number: 'TEST-003', supplierName: 'ACME', categoryName: 'Hosting', issueDate: '2026-08-15', status: 'OVERDUE', totalAmount: '25.00' },
+    ];
+
+    function sumAmount(invoices: FakeTestInvoice[]): string {
+      return invoices.reduce((acc, inv) => acc + Number(inv.totalAmount), 0).toFixed(2);
+    }
+
+    function byExplicitStatus(where: { status?: string | { not: string } }): FakeTestInvoice[] | null {
+      return typeof where.status === 'string' ? TEST_INVOICES.filter((inv) => inv.status === where.status) : null;
+    }
+
+    function mockThreeTestInvoices(prisma: MockPrismaService) {
+      const active = TEST_INVOICES.filter((inv) => inv.status !== 'CANCELLED');
+
+      prisma.invoice.aggregate.mockImplementation(({ where }: { where: { status?: string | { not: string } } }) => {
+        const invoices = byExplicitStatus(where) ?? active;
+        return Promise.resolve({
+          _count: invoices.length,
+          _sum: { totalAmount: invoices.length ? sumAmount(invoices) : null },
+          _avg: {
+            totalAmount: invoices.length ? (Number(sumAmount(invoices)) / invoices.length).toFixed(2) : null,
+          },
+        });
+      });
+
+      prisma.invoice.count.mockResolvedValue(0);
+
+      prisma.invoice.groupBy.mockImplementation(
+        ({ by, where }: { by: string[]; where: { status?: string | { not: string } } }) => {
+          if (by[0] !== 'status') return Promise.resolve([]);
+          const invoices = byExplicitStatus(where) ?? TEST_INVOICES;
+          const byStatus = new Map<string, FakeTestInvoice[]>();
+          for (const invoice of invoices) {
+            byStatus.set(invoice.status, [...(byStatus.get(invoice.status) ?? []), invoice]);
+          }
+          return Promise.resolve(
+            [...byStatus.entries()].map(([status, invs]) => ({
+              status,
+              _count: invs.length,
+              _sum: { totalAmount: sumAmount(invs) },
+            })),
+          );
+        },
+      );
+
+      prisma.invoice.findMany.mockImplementation(
+        ({
+          where,
+          select,
+          include,
+        }: {
+          where: { status?: string | { not: string } };
+          select?: { issueDate?: boolean };
+          include?: unknown;
+        }) => {
+          const invoices = byExplicitStatus(where) ?? active;
+          if (select?.issueDate) {
+            return Promise.resolve(invoices.map((inv) => ({ issueDate: new Date(inv.issueDate), totalAmount: inv.totalAmount })));
+          }
+          if (include) {
+            return Promise.resolve(
+              [...invoices]
+                .sort((a, b) => Number(b.totalAmount) - Number(a.totalAmount))
+                .map((inv) => ({
+                  id: inv.id,
+                  number: inv.number,
+                  issueDate: new Date(inv.issueDate),
+                  status: inv.status,
+                  totalAmount: inv.totalAmount,
+                  supplier: { name: inv.supplierName },
+                  category: { name: inv.categoryName },
+                })),
+            );
+          }
+          return Promise.resolve([]);
+        },
+      );
+
+      prisma.supplier.findMany.mockResolvedValue([]);
+      prisma.expenseCategory.findMany.mockResolvedValue([]);
+    }
+
+    beforeEach(() => {
+      mockThreeTestInvoices(prisma);
+    });
+
+    /**
+     * `MockAiProvider` (caminho direto, sem tools) ecoa sempre a última
+     * mensagem do pedido — a mensagem do PRÓPRIO utilizador, nunca o
+     * contexto financeiro — por isso o eco só é substituído pelo
+     * fallback determinístico quando falha `validateFinancialGrounding()`
+     * (ex. `MISSING_REQUIRED_STATUS` — o eco não menciona o estado
+     * pedido). Nunca um sinal fiável de que os dados corretos foram
+     * calculados. A prova real e determinística de que a query certa
+     * chegou à base de dados é sempre o argumento `where` recebido por
+     * `prisma.invoice.groupBy()`/`aggregate()`/`findMany()` — mesmo
+     * padrão já usado em "Fase 8.4 — filtros combinados", acima.
+     */
+    function lastStatusGroupByCall(): { by: string[]; where: { status?: unknown } } | undefined {
+      return prisma.invoice.groupBy.mock.calls
+        .map((call) => call[0] as { by: string[]; where: { status?: unknown } })
+        .filter((call) => call.by[0] === 'status')
+        .pop();
+    }
+
+    describe('Problema 1 — métricas nunca combinam o universo filtrado com aggregates de outro universo', () => {
+      it('"Mostra apenas as vencidas" — byStatus (outstanding) e totals/largestInvoices consultados com o MESMO where.status', async () => {
+        await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ message: 'Mostra apenas as vencidas em agosto de 2026.' })
+          .expect(201);
+
+        // Causa raiz do Problema 1: antes desta correção, esta query de
+        // `byStatus` nunca recebia `status` no `where`, mesmo pedido
+        // explicitamente — devolvia a repartição por TODOS os estados,
+        // combinada depois com `totals` já corretamente filtrado.
+        expect(lastStatusGroupByCall()?.where).toMatchObject({ status: 'OVERDUE' });
+        expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+          expect.objectContaining({ where: expect.objectContaining({ status: 'OVERDUE' }) }),
+        );
+      });
+
+      it('"Mostra apenas as pagas" — mesmo universo filtrado (where.status = PAID) em todas as queries', async () => {
+        await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ message: 'Mostra apenas as pagas em agosto de 2026.' })
+          .expect(201);
+
+        expect(lastStatusGroupByCall()?.where).toMatchObject({ status: 'PAID' });
+        expect(prisma.invoice.aggregate).toHaveBeenCalledWith(
+          expect.objectContaining({ where: expect.objectContaining({ status: 'PAID' }) }),
+        );
+      });
+
+      it('valores computados ficam matematicamente consistentes quando construídos a partir da query corrigida (verificação direta do texto determinístico)', async () => {
+        // Reconstrói exatamente o que `FinancialRetrievalService` monta
+        // para esta pergunta, contra o `DashboardService` real (não
+        // mockado) por cima do Prisma simulado por `mockThreeTestInvoices()`
+        // — a mesma prova de ponta a ponta, sem depender do eco do mock de IA.
+        const dashboardService = new DashboardService(prisma as never);
+        const query = { from: '2026-08-01', to: '2026-08-31', status: 'OVERDUE' as const };
+
+        const [summary, largest] = await Promise.all([
+          dashboardService.getFinancialSummary('org-1', query),
+          dashboardService.getLargestInvoices('org-1', query),
+        ]);
+        const insights = buildFinancialInsights(summary, largest.invoices);
+
+        expect(summary.totals.totalAmount).toBe('25.00');
+        expect(insights.outstanding.totalAmount).toBe('25.00');
+        expect(computePaidAmount(summary.totals.totalAmount, insights)).toBe('0.00');
+      });
+    });
+
+    describe('Problema 2 — continuidade substitui o estado anterior, nunca combina', () => {
+      it('"Mostra apenas as vencidas" → "E dessas, qual é o valor total?" (mantém vencidas) → "E as pagas?" (substitui por PAID)', async () => {
+        const first = await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ message: 'Mostra apenas as vencidas em agosto de 2026.' })
+          .expect(201);
+        expect(lastStatusGroupByCall()?.where).toMatchObject({ status: 'OVERDUE' });
+
+        await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ conversationId: first.body.conversationId, message: 'E dessas, qual é o valor total?' })
+          .expect(201);
+        expect(lastStatusGroupByCall()?.where).toMatchObject({ status: 'OVERDUE' });
+
+        await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ conversationId: first.body.conversationId, message: 'E as pagas?' })
+          .expect(201);
+
+        // Nunca OVERDUE — o filtro herdado tem de ser substituído por
+        // PAID, nunca combinado com o novo.
+        expect(lastStatusGroupByCall()?.where).toMatchObject({ status: 'PAID' });
+      });
+
+      it.each([
+        ['E as pendentes?', 'PENDING'],
+        ['E as vencidas?', 'OVERDUE'],
+        ['E as pagas?', 'PAID'],
+      ] as const)('continuação elíptica "%s" substitui o filtro herdado (CANCELLED) por %s', async (message, expectedStatus) => {
+        const first = await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ message: 'Mostra apenas as canceladas em agosto de 2026.' })
+          .expect(201);
+        expect(lastStatusGroupByCall()?.where).toMatchObject({ status: 'CANCELLED' });
+
+        await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ conversationId: first.body.conversationId, message })
+          .expect(201);
+
+        expect(lastStatusGroupByCall()?.where).toMatchObject({ status: expectedStatus });
+      });
+    });
+
+    describe('Problema 3 — "quanto falta pagar?" reconhecida pelo mecanismo existente (OUTSTANDING_BALANCE)', () => {
+      it('"quanto está por pagar?" (já funcionava) continua a consultar a base de dados (nunca UNSUPPORTED)', async () => {
+        await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ message: 'Quanto está por pagar em agosto de 2026?' })
+          .expect(201);
+
+        expect(prisma.invoice.aggregate).toHaveBeenCalled();
+      });
+
+      it('"quanto falta pagar?" — variante antes não reconhecida, agora consulta a base de dados (OUTSTANDING_BALANCE), nunca fica UNSUPPORTED', async () => {
+        const response = await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ message: 'Quanto falta pagar em agosto de 2026?' })
+          .expect(201);
+
+        // UNSUPPORTED nunca chega a chamar o Prisma — a prova
+        // determinística de que a intenção foi reconhecida é a própria
+        // query ter sido executada, não o texto do eco do mock de IA.
+        expect(prisma.invoice.aggregate).toHaveBeenCalled();
+        expect(response.body.message.role).toBe('ASSISTANT');
+      });
+
+      it.each(['Quanto falta pagar este mês?', 'O que ainda falta pagar em agosto de 2026?', 'Quanto ainda falta pagar em agosto de 2026?'])(
+        'variantes PT-PT equivalentes: "%s" também reconhecida (consulta a base de dados)',
+        async (message) => {
+          await request(app.getHttpServer())
+            .post('/api/ai/chat')
+            .set('Authorization', authHeader())
+            .send({ message })
+            .expect(201);
+
+          expect(prisma.invoice.aggregate).toHaveBeenCalled();
+        },
+      );
+    });
+
+    describe('Problema 4 — número da fatura, suporte grounded mínimo', () => {
+      it('"qual é o número da factura paga?" — resolve inequivocamente FINANCIAL_SUMMARY com status=PAID (nunca UNSUPPORTED)', async () => {
+        await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ message: 'Em agosto de 2026, qual é o numero da factura paga?' })
+          .expect(201);
+
+        expect(lastStatusGroupByCall()?.where).toMatchObject({ status: 'PAID' });
+        // `getLargestInvoices()` — `findMany` com `include`, único ponto
+        // onde `Invoice.number` chega ao Financial Retrieval.
+        expect(prisma.invoice.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ where: expect.objectContaining({ status: 'PAID' }), include: expect.anything() }),
+        );
+      });
+
+      it('"qual é o número dessa factura?" (continuação, depois de filtrar pelas pagas) — resolve inequivocamente TEST-002 (eco rejeitado por Strict Grounding — MISSING_REQUIRED_STATUS — fallback determinístico usado)', async () => {
+        const first = await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ message: 'Mostra apenas as pagas em agosto de 2026.' })
+          .expect(201);
+
+        const second = await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ conversationId: first.body.conversationId, message: 'Qual é o numero dessa factura?' })
+          .expect(201);
+
+        // Este eco do mock nunca menciona "Paga" — falha
+        // MISSING_REQUIRED_STATUS, cai sempre no fallback determinístico
+        // (`buildFinancialContextMessage()`), que agora inclui o número
+        // real — prova de ponta a ponta observável diretamente no texto.
+        expect(second.body.message.content).toContain('TEST-002');
+      });
+
+      it('faturas vencidas — "qual é o número da fatura vencida?" resolve FINANCIAL_SUMMARY com status=OVERDUE, nunca inventa um número diferente', async () => {
+        await request(app.getHttpServer())
+          .post('/api/ai/chat')
+          .set('Authorization', authHeader())
+          .send({ message: 'Em agosto de 2026, qual é o numero da fatura vencida?' })
+          .expect(201);
+
+        expect(lastStatusGroupByCall()?.where).toMatchObject({ status: 'OVERDUE' });
+      });
+    });
+  });
+});
+
+/**
+ * Correção final pós-revisão Codex — prova ponta a ponta de que uma
+ * resposta REALMENTE FABRICADA pelo provider (nunca só um eco do
+ * `MockAiProvider`, que por desenho nunca inventa dados) é rejeitada por
+ * Strict Grounding e substituída pelo fallback determinístico. App
+ * dedicada, com `AI_COMPLETION_PROVIDER` substituído por um duplo cujo
+ * `complete()` devolve sempre um número de fatura inventado — nunca
+ * alcançável com o `MockAiProvider` por omissão (ver
+ * `createTestApp()`, `test/utils/bootstrap-app.ts`).
+ */
+describe('AI Chat (e2e) — Strict Grounding contra uma resposta realmente fabricada pelo provider', () => {
+  let app: INestApplication;
+  let prisma: MockPrismaService;
+
+  const FABRICATED_INVOICE_NUMBER_PROVIDER = {
+    name: 'fabricated-test-double',
+    complete: async () => ({
+      content: 'A fatura paga é XPTO-999.',
+      provider: 'fabricated-test-double',
+      model: 'fabricated-test-double-1',
+    }),
+  };
+
+  beforeAll(async () => {
+    ({ app, prisma } = await createTestApp({ aiProvider: FABRICATED_INVOICE_NUMBER_PROVIDER }));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockEmptyDashboardAggregations(prisma);
+    wireInMemoryAiStore(prisma);
+
+    // Uma única fatura PAID real, com número — o mesmo cenário mínimo
+    // necessário para `invoiceIdentityRequested` resolver e para
+    // `insights.largestExpense.invoice.number` expor "TEST-002" como o
+    // único número real autorizado.
+    prisma.invoice.aggregate.mockResolvedValue({
+      _count: 1,
+      _sum: { totalAmount: '50.00' },
+      _avg: { totalAmount: '50.00' },
+    });
+    prisma.invoice.groupBy.mockImplementation(({ by }: { by: string[] }) =>
+      Promise.resolve(by[0] === 'status' ? [{ status: 'PAID', _count: 1, _sum: { totalAmount: '50.00' } }] : []),
+    );
+    prisma.invoice.findMany.mockImplementation(
+      ({ select, include }: { select?: { issueDate?: boolean }; include?: unknown }) => {
+        if (select?.issueDate) {
+          return Promise.resolve([{ issueDate: new Date('2026-08-10'), totalAmount: '50.00' }]);
+        }
+        if (include) {
+          return Promise.resolve([
+            {
+              id: 'inv-test-2',
+              number: 'TEST-002',
+              issueDate: new Date('2026-08-10'),
+              status: 'PAID',
+              totalAmount: '50.00',
+              supplier: { name: 'ACME' },
+              category: { name: 'Hosting' },
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      },
+    );
+  });
+
+  it('"A fatura paga é XPTO-999." (resposta real do provider, fabricada) nunca é persistida — Strict Grounding rejeita e o fallback determinístico (com o número real, TEST-002) é usado', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/ai/chat')
+      .set('Authorization', authHeader())
+      .send({ message: 'Em agosto de 2026, qual é o numero da factura paga?' })
+      .expect(201);
+
+    // Nunca o número fabricado pelo provider real.
+    expect(response.body.message.content).not.toContain('XPTO-999');
+    // `ChatMessageView` público não expõe `provider`/`model` (contrato
+    // inalterado — ver "contexto enviado ao provider", acima); a prova
+    // observável de que o fallback determinístico foi usado é o próprio
+    // conteúdo conter o número real, nunca o fabricado.
+    expect(response.body.message.content).toContain('TEST-002');
+    expect(response.body.message.role).toBe('ASSISTANT');
+  });
+});
+
+/**
+ * Correção final pós-revisão Codex (Problema 1) — prova ponta a ponta de
+ * que uma resposta REAL do provider a associar semanticamente o universo
+ * CANCELLED a pagamento ("estão pagos") é rejeitada por Strict Grounding
+ * e substituída pelo fallback determinístico, mesmo quando o valor
+ * numérico mencionado (30,00 EUR) É um facto real (o próprio total
+ * cancelado) — nunca alcançável só validando números, sem o nível
+ * semântico. App dedicada com um único `Invoice` CANCELLED real (30.00
+ * EUR, outstanding=0.00 — o mesmo cenário que antes da correção produzia
+ * "30.00 EUR estão pagos").
+ */
+describe('AI Chat (e2e) — Strict Grounding rejeita CANCELLED apresentada como paga (resposta real do provider, fabricada)', () => {
+  let app: INestApplication;
+  let prisma: MockPrismaService;
+
+  const FABRICATED_CANCELLED_PAID_PROVIDER = {
+    name: 'fabricated-cancelled-paid-double',
+    complete: async () => ({
+      content: 'Faturas canceladas: 30,00 EUR estão pagos.',
+      provider: 'fabricated-cancelled-paid-double',
+      model: 'fabricated-cancelled-paid-double-1',
+    }),
+  };
+
+  const CANCELLED_INVOICE = {
+    id: 'inv-cancelled-1',
+    number: 'CANC-001',
+    supplierName: 'ACME',
+    categoryName: 'Hosting',
+    issueDate: '2026-08-10',
+    status: 'CANCELLED' as const,
+    totalAmount: '30.00',
+  };
+
+  function byExplicitCancelledStatus(where: { status?: string | { not: string } }) {
+    return where.status === 'CANCELLED' ? [CANCELLED_INVOICE] : [];
+  }
+
+  beforeAll(async () => {
+    ({ app, prisma } = await createTestApp({ aiProvider: FABRICATED_CANCELLED_PAID_PROVIDER }));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockEmptyDashboardAggregations(prisma);
+    wireInMemoryAiStore(prisma);
+
+    prisma.invoice.aggregate.mockImplementation(({ where }: { where: { status?: string | { not: string } } }) => {
+      const matched = byExplicitCancelledStatus(where);
+      return Promise.resolve({
+        _count: matched.length,
+        _sum: { totalAmount: matched.length ? '30.00' : null },
+        _avg: { totalAmount: matched.length ? '30.00' : null },
+      });
+    });
+
+    // Query fixa de `DashboardService.getFinancialSummary()` para
+    // `cancelledInvoiceCount` — sempre filtra por `status: CANCELLED`,
+    // independentemente de `query.status` (ver dashboard.service.ts) —
+    // real neste período, por isso 1, nunca 0 artificialmente.
+    prisma.invoice.count.mockResolvedValue(1);
+
+    prisma.invoice.groupBy.mockImplementation(
+      ({ by, where }: { by: string[]; where: { status?: string | { not: string } } }) => {
+        if (by[0] !== 'status') return Promise.resolve([]);
+        const matched = byExplicitCancelledStatus(where);
+        return Promise.resolve(matched.length ? [{ status: 'CANCELLED', _count: 1, _sum: { totalAmount: '30.00' } }] : []);
+      },
+    );
+
+    prisma.invoice.findMany.mockImplementation(
+      ({
+        where,
+        select,
+        include,
+      }: {
+        where: { status?: string | { not: string } };
+        select?: { issueDate?: boolean };
+        include?: unknown;
+      }) => {
+        const matched = byExplicitCancelledStatus(where);
+        if (select?.issueDate) {
+          return Promise.resolve(matched.map((inv) => ({ issueDate: new Date(inv.issueDate), totalAmount: inv.totalAmount })));
+        }
+        if (include) {
+          return Promise.resolve(
+            matched.map((inv) => ({
+              id: inv.id,
+              number: inv.number,
+              issueDate: new Date(inv.issueDate),
+              status: inv.status,
+              totalAmount: inv.totalAmount,
+              supplier: { name: inv.supplierName },
+              category: { name: inv.categoryName },
+            })),
+          );
+        }
+        return Promise.resolve([]);
+      },
+    );
+
+    prisma.supplier.findMany.mockResolvedValue([]);
+    prisma.expenseCategory.findMany.mockResolvedValue([]);
+  });
+
+  it('"Faturas canceladas: 30,00 EUR estão pagos." nunca é persistida — Strict Grounding rejeita (nível semântico, não só o número) e o fallback determinístico (sem nenhuma palavra de pagamento) é usado', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/ai/chat')
+      .set('Authorization', authHeader())
+      .send({ message: 'Mostra apenas as canceladas em agosto de 2026.' })
+      .expect(201);
+
+    // Nunca a associação semântica cancelado→pago, mesmo o valor sendo real.
+    expect(response.body.message.content).not.toContain('pagos');
+    expect(response.body.message.content).not.toContain('pago');
+    // Fallback determinístico: continua a apresentar o total real cancelado.
+    expect(response.body.message.content).toContain('30.00');
+    expect(response.body.message.content).toContain('canceladas');
+    expect(response.body.message.role).toBe('ASSISTANT');
+  });
+});
+
+/**
+ * Correção final pós-revisão Codex (Problema 2) — prova ponta a ponta de
+ * que um `Invoice.number` REAL composto por dois segmentos separados por
+ * espaço (ex. "ZFRC B036/9823519819") é reconhecido e aceite pelo Strict
+ * Grounding quando devolvido tal e qual pelo provider — nunca truncado
+ * nem confundido com um número parcial.
+ */
+describe('AI Chat (e2e) — Strict Grounding aceita Invoice.number real composto por espaços (resposta real do provider)', () => {
+  let app: INestApplication;
+  let prisma: MockPrismaService;
+
+  const FABRICATED_COMPOUND_NUMBER_PROVIDER = {
+    name: 'fabricated-compound-number-double',
+    complete: async () => ({
+      content: 'A fatura paga é ZFRC B036/9823519819.',
+      provider: 'fabricated-compound-number-double',
+      model: 'fabricated-compound-number-double-1',
+    }),
+  };
+
+  beforeAll(async () => {
+    ({ app, prisma } = await createTestApp({ aiProvider: FABRICATED_COMPOUND_NUMBER_PROVIDER }));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockEmptyDashboardAggregations(prisma);
+    wireInMemoryAiStore(prisma);
+
+    prisma.invoice.aggregate.mockResolvedValue({
+      _count: 1,
+      _sum: { totalAmount: '300.00' },
+      _avg: { totalAmount: '300.00' },
+    });
+    prisma.invoice.groupBy.mockImplementation(({ by }: { by: string[] }) =>
+      Promise.resolve(by[0] === 'status' ? [{ status: 'PAID', _count: 1, _sum: { totalAmount: '300.00' } }] : []),
+    );
+    prisma.invoice.findMany.mockImplementation(
+      ({ select, include }: { select?: { issueDate?: boolean }; include?: unknown }) => {
+        if (select?.issueDate) {
+          return Promise.resolve([{ issueDate: new Date('2026-08-10'), totalAmount: '300.00' }]);
+        }
+        if (include) {
+          return Promise.resolve([
+            {
+              id: 'inv-compound-1',
+              number: 'ZFRC B036/9823519819',
+              issueDate: new Date('2026-08-10'),
+              status: 'PAID',
+              totalAmount: '300.00',
+              supplier: { name: 'Hetzner' },
+              category: { name: 'Hosting' },
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      },
+    );
+  });
+
+  it('"A fatura paga é ZFRC B036/9823519819." (número real composto por espaço) é aceite — resposta real do provider persistida tal e qual, nunca substituída pelo fallback', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/ai/chat')
+      .set('Authorization', authHeader())
+      .send({ message: 'Em agosto de 2026, qual é o numero da factura paga?' })
+      .expect(201);
+
+    // A resposta real do provider passa Strict Grounding tal e qual — nunca truncada, nunca substituída pelo fallback.
+    expect(response.body.message.content).toBe('A fatura paga é ZFRC B036/9823519819.');
+  });
+});
+
+/**
+ * Correção final pós-revisão Codex (Problema 3) — prova ponta a ponta de
+ * que um NIF mencionado pelo provider mesmo junto à palavra "fatura"
+ * nunca é confundido com `Invoice.number`: a resposta real (que também
+ * inclui o número de fatura real, TEST-002) passa Strict Grounding sem
+ * ser incorretamente rejeitada por causa do NIF.
+ */
+describe('AI Chat (e2e) — Strict Grounding nunca confunde NIF com Invoice.number (resposta real do provider)', () => {
+  let app: INestApplication;
+  let prisma: MockPrismaService;
+
+  const FABRICATED_NIF_NEAR_FATURA_PROVIDER = {
+    name: 'fabricated-nif-double',
+    complete: async () => ({
+      content: 'A fatura paga é TEST-002. A fatura tem NIF 509978142.',
+      provider: 'fabricated-nif-double',
+      model: 'fabricated-nif-double-1',
+    }),
+  };
+
+  beforeAll(async () => {
+    ({ app, prisma } = await createTestApp({ aiProvider: FABRICATED_NIF_NEAR_FATURA_PROVIDER }));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockEmptyDashboardAggregations(prisma);
+    wireInMemoryAiStore(prisma);
+
+    prisma.invoice.aggregate.mockResolvedValue({
+      _count: 1,
+      _sum: { totalAmount: '50.00' },
+      _avg: { totalAmount: '50.00' },
+    });
+    prisma.invoice.groupBy.mockImplementation(({ by }: { by: string[] }) =>
+      Promise.resolve(by[0] === 'status' ? [{ status: 'PAID', _count: 1, _sum: { totalAmount: '50.00' } }] : []),
+    );
+    prisma.invoice.findMany.mockImplementation(
+      ({ select, include }: { select?: { issueDate?: boolean }; include?: unknown }) => {
+        if (select?.issueDate) {
+          return Promise.resolve([{ issueDate: new Date('2026-08-10'), totalAmount: '50.00' }]);
+        }
+        if (include) {
+          return Promise.resolve([
+            {
+              id: 'inv-test-2',
+              number: 'TEST-002',
+              issueDate: new Date('2026-08-10'),
+              status: 'PAID',
+              totalAmount: '50.00',
+              supplier: { name: 'ACME' },
+              category: { name: 'Hosting' },
+            },
+          ]);
+        }
+        return Promise.resolve([]);
+      },
+    );
+  });
+
+  it('"A fatura paga é TEST-002. A fatura tem NIF 509978142." é aceite tal e qual — o NIF nunca é lido como Invoice.number fabricado', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/ai/chat')
+      .set('Authorization', authHeader())
+      .send({ message: 'Em agosto de 2026, qual é o numero da factura paga?' })
+      .expect(201);
+
+    // Resposta real persistida tal e qual — nunca substituída pelo
+    // fallback (que nunca poderia conter "509978142", um NIF, não um facto financeiro).
+    expect(response.body.message.content).toBe('A fatura paga é TEST-002. A fatura tem NIF 509978142.');
   });
 });

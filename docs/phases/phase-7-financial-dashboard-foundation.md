@@ -189,6 +189,16 @@ pedida (confirmado empiricamente antes de decidir).
   ativas no período — decisão explícita para simplificar o consumidor,
   documentada no contrato.
 
+**Hardening pós-validação manual (2026-08-15)** — `byStatus`
+(`getFinancialSummary()`) nunca aplicava `query.status` (Fase 8.4),
+mesmo pedido explicitamente, devolvendo sempre a repartição por todos
+os estados do período inteiro em vez de só o estado pedido; combinado
+com `resolveOutstanding(byStatus)` (Fase 8.9) no Chat IA, produzia
+valores financeiros matematicamente inconsistentes. Corrigido —
+detalhe completo, causa raiz e testes em
+`docs/phases/phase-8.8-financial-ai-reliability-strict-grounding-foundation.md`,
+secção "Hardening pós-validação manual".
+
 ## Fora do âmbito (confirmado, não implementado)
 
 Receitas, vendas, lucro, margem, cash flow, contas bancárias,

@@ -1,4 +1,4 @@
-import { resolveFinancialIntent } from './financial-intent.resolver';
+import { resolveFinancialIntent, requestsInvoiceIdentity } from './financial-intent.resolver';
 
 describe('resolveFinancialIntent', () => {
   it.each([
@@ -32,6 +32,16 @@ describe('resolveFinancialIntent', () => {
     // gastei" já existente.
     ['Quanto gastámos este mês?', 'FINANCIAL_SUMMARY'],
     ['Quanto gastámos no mês passado?', 'FINANCIAL_SUMMARY'],
+    // Correção pós-validação manual (Problema 3) — "falta(m) pagar", mesmo
+    // mecanismo (OUTSTANDING_PATTERN), nunca uma heurística/intent separada.
+    ['Quanto falta pagar este mês?', 'OUTSTANDING_BALANCE'],
+    ['O que ainda falta pagar?', 'OUTSTANDING_BALANCE'],
+    // Correção pós-validação manual (Problema 4) — "número da/dessa fatura
+    // <estado>" nomeando o estado na própria mensagem, sem depender de
+    // continuidade; reutiliza FINANCIAL_SUMMARY (insights.largestExpense),
+    // nunca uma intenção nova.
+    ['Qual é o numero da factura paga?', 'FINANCIAL_SUMMARY'],
+    ['Qual é o numero da fatura vencida?', 'FINANCIAL_SUMMARY'],
   ] as const)('reconhece "%s" como %s', (message, expected) => {
     expect(resolveFinancialIntent(message)).toEqual({ kind: 'SUPPORTED', intent: expected });
   });
@@ -44,6 +54,10 @@ describe('resolveFinancialIntent', () => {
     ['Cria um novo fornecedor.', 'escrita/alteração de dados'],
     ['Aprova o pagamento desta fatura.', 'escrita/alteração de dados'],
     ['Elimina a categoria Hosting.', 'escrita/alteração de dados'],
+    // Correção pós-validação manual (Problema 4) — "número da fatura" sem
+    // estado nomeado nem continuidade continua genuinamente ambíguo, sem
+    // precisar de nenhuma exclusão explícita (ver `INVOICE_DETAIL_PATTERN`).
+    ['Qual é o número da fatura?', 'número da fatura sem estado nomeado — ambíguo'],
   ] as const)('trata "%s" como não suportada (%s)', (message, _reason) => {
     expect(resolveFinancialIntent(message)).toEqual({ kind: 'UNSUPPORTED' });
   });
@@ -179,5 +193,26 @@ describe('resolveFinancialIntent', () => {
         kind: 'UNSUPPORTED',
       });
     });
+  });
+});
+
+describe('requestsInvoiceIdentity', () => {
+  it.each([
+    'Qual é o número da fatura paga?',
+    'qual é o numero da factura paga?',
+    'Qual é o número dessa fatura?',
+    'qual é o numero desta factura?',
+  ])('reconhece "%s" como pedido de identidade de fatura', (message) => {
+    expect(requestsInvoiceIdentity(message)).toBe(true);
+  });
+
+  it.each([
+    'Quantas faturas existem?',
+    'Qual é o número de faturas pagas?', // contagem ("de faturas"), nunca identidade ("da fatura")
+    'Quanto gastei este mês?',
+    'A fatura está paga.',
+    'Mostra a fatura FT 123.',
+  ])('nunca confunde "%s" com um pedido de identidade de fatura', (message) => {
+    expect(requestsInvoiceIdentity(message)).toBe(false);
   });
 });

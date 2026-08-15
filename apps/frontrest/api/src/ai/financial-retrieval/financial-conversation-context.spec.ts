@@ -24,7 +24,7 @@ const DATA_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
     insights: buildEmptyFinancialInsights({ from: '2026-07-01', to: '2026-07-31' }),
     analysis: EMPTY_ANALYSIS,
   },
-  filters: { status: 'PENDING', supplierId: 'sup-1', supplierName: 'Hetzner' },
+  filters: { status: 'PENDING', supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false,
 };
 
 const COMPARISON_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
@@ -39,7 +39,7 @@ const COMPARISON_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
       activeInvoiceCount: { current: '1', previous: '1', absoluteChange: '0', percentageChange: 0, direction: 'unchanged' },
     },
   },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 describe('buildFinancialConversationContext', () => {

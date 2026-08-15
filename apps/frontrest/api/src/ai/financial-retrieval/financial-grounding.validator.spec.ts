@@ -39,7 +39,7 @@ const RESULT_WITH_INSIGHTS: Extract<FinancialRetrievalResult, { kind: 'DATA' }> 
     insights: INSIGHTS_FOR_RESULT_WITH_INSIGHTS,
     analysis: runFinancialAnalyses([monthlyTrendAnalysis, relativeConcentrationAnalysis], INSIGHTS_FOR_RESULT_WITH_INSIGHTS),
   },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 const SUMMARY_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
@@ -51,7 +51,7 @@ const SUMMARY_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
     insights: buildEmptyFinancialInsights(PERIOD),
     analysis: EMPTY_ANALYSIS,
   },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 const FILTERED_BY_SUPPLIER_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
@@ -63,7 +63,7 @@ const FILTERED_BY_SUPPLIER_RESULT: Extract<FinancialRetrievalResult, { kind: 'DA
     insights: buildEmptyFinancialInsights(PERIOD),
     analysis: EMPTY_ANALYSIS,
   },
-  filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
+  filters: { supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false,
 };
 
 const FILTERED_BY_CATEGORY_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
@@ -75,7 +75,7 @@ const FILTERED_BY_CATEGORY_RESULT: Extract<FinancialRetrievalResult, { kind: 'DA
     insights: buildEmptyFinancialInsights(PERIOD),
     analysis: EMPTY_ANALYSIS,
   },
-  filters: { categoryId: 'cat-1', categoryName: 'Hosting' },
+  filters: { categoryId: 'cat-1', categoryName: 'Hosting' }, invoiceIdentityRequested: false,
 };
 
 const FILTERED_BY_STATUS_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
@@ -87,14 +87,14 @@ const FILTERED_BY_STATUS_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA
     insights: buildEmptyFinancialInsights(PERIOD),
     analysis: EMPTY_ANALYSIS,
   },
-  filters: { status: 'PAID' },
+  filters: { status: 'PAID' }, invoiceIdentityRequested: false,
 };
 
 const TOP_SUPPLIERS_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
   kind: 'DATA',
   period: { from: '2026-07-01', to: '2026-07-31' },
   data: { intent: 'TOP_SUPPLIERS', topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '354.00' }] },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 const LARGEST_INVOICES_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
@@ -102,9 +102,9 @@ const LARGEST_INVOICES_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' 
   period: { from: '2026-07-01', to: '2026-07-31' },
   data: {
     intent: 'LARGEST_INVOICES',
-    invoices: [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '300.00' }],
+    invoices: [{ id: 'inv-1', number: 'F-100', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '300.00' }],
   },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 const COMPARISON_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
@@ -119,7 +119,7 @@ const COMPARISON_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
       activeInvoiceCount: { current: '3', previous: '0', absoluteChange: '3', percentageChange: null, direction: 'increase' },
     },
   },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 /** Correção pós-revisão (Fase 8.9) — percentagens reais não nulas, para testar a regressão do PERIOD_COMPARISON. */
@@ -135,7 +135,7 @@ const COMPARISON_RESULT_WITH_PERCENTAGE: Extract<FinancialRetrievalResult, { kin
       activeInvoiceCount: { current: '6', previous: '3', absoluteChange: '3', percentageChange: 100, direction: 'increase' },
     },
   },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 describe('validateFinancialGrounding', () => {
@@ -272,7 +272,7 @@ describe('validateFinancialGrounding', () => {
           insights: buildEmptyFinancialInsights(PERIOD),
           analysis: EMPTY_ANALYSIS,
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
     }
 
@@ -315,7 +315,7 @@ describe('validateFinancialGrounding', () => {
             activeInvoiceCount: { current: '0', previous: '1', absoluteChange: '-1', percentageChange: -100, direction: 'decrease' },
           },
         },
-        filters: {},
+        filters: {}, invoiceIdentityRequested: false,
       };
 
       expect(validateFinancialGrounding(`Uma diminuição de ${formattedAmount} face ao mês anterior.`, comparisonResult)).toEqual({ grounded: true });
@@ -435,7 +435,7 @@ describe('validateFinancialGrounding', () => {
         insights: INSIGHTS_WITH_PARTIAL_OUTSTANDING,
         analysis: EMPTY_ANALYSIS,
       },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     };
 
     it('aceita o valor pago real (500.00 − 150.00 por pagar = 350.00 pago), derivado, nunca uma nova fonte de dados', () => {
@@ -451,6 +451,329 @@ describe('validateFinancialGrounding', () => {
       expect(
         validateFinancialGrounding('Deste valor, 400,00 EUR estão pagos.', RESULT_WITH_PARTIAL_OUTSTANDING),
       ).toEqual({ grounded: false, reason: 'AMOUNT_NOT_ALLOWED' });
+    });
+  });
+
+  describe('Hardening pós-revisão Codex — CANCELLED nunca é semanticamente PAID', () => {
+    // `outstanding` construído artificialmente não-nulo (`5.00`), mesmo
+    // com `filters.status = 'CANCELLED'` — isola o efeito da correção ao
+    // nível do código (deixar de autorizar `computePaidAmount()`) de
+    // forma inequívoca: com `outstanding` real (sempre 0 para CANCELLED,
+    // depois da correção do Problema 1 do `byStatus`), `paidAmount`
+    // coincide sempre com `totalAmount`, e os dois números tornam-se
+    // indistinguíveis para um validador que só compara números — nunca
+    // rótulos. A prova end-to-end de que a linha "estão pagos" nunca é
+    // sequer construída para CANCELLED vive em
+    // `financial-context.builder.spec.ts`.
+    const INSIGHTS_WITH_ARTIFICIAL_OUTSTANDING = buildFinancialInsights(
+      {
+        period: PERIOD,
+        totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '30.00', averageAmount: '15.00' },
+        byStatus: [{ status: 'PENDING', count: 1, totalAmount: '5.00' }],
+        monthlyTrend: [],
+        byCategory: [],
+        topSuppliers: [],
+      },
+      [],
+    );
+    const RESULT_FILTERED_BY_CANCELLED: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+      kind: 'DATA',
+      period: PERIOD,
+      data: {
+        intent: 'FINANCIAL_SUMMARY',
+        totals: { invoiceCount: 2, activeInvoiceCount: 2, cancelledInvoiceCount: 0, totalAmount: '30.00', averageAmount: '15.00' },
+        insights: INSIGHTS_WITH_ARTIFICIAL_OUTSTANDING,
+        analysis: EMPTY_ANALYSIS,
+      },
+      filters: { status: 'CANCELLED' }, invoiceIdentityRequested: false,
+    };
+
+    it('nunca autoriza o valor derivado (computePaidAmount = 30.00 − 5.00 = 25.00) apresentado como "pago" para status=CANCELLED', () => {
+      expect(
+        validateFinancialGrounding('Faturas canceladas. Deste valor, 25,00 EUR estão pagos.', RESULT_FILTERED_BY_CANCELLED),
+      ).toEqual({ grounded: false, reason: 'AMOUNT_NOT_ALLOWED' });
+    });
+
+    it('o total registado em si (nunca rotulado "pago") continua aceite — nunca esconde o valor real', () => {
+      expect(
+        validateFinancialGrounding('Foram registadas 2 faturas canceladas, no valor de 30,00 EUR.', RESULT_FILTERED_BY_CANCELLED),
+      ).toEqual({ grounded: true });
+    });
+
+    it('status=PAID preserva o comportamento existente — computePaidAmount() continua autorizado', () => {
+      const resultPaid: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        ...RESULT_FILTERED_BY_CANCELLED,
+        filters: { status: 'PAID' }, invoiceIdentityRequested: false,
+      };
+      expect(
+        validateFinancialGrounding('Faturas pagas. Deste valor, 25,00 EUR estão pagos.', resultPaid),
+      ).toEqual({ grounded: true });
+    });
+
+    describe('Correção final pós-revisão Codex — nível semântico (não apenas o cálculo de paidAmount)', () => {
+      // Cenário REAL (obrigatório) — `outstanding` genuinamente 0.00 para
+      // CANCELLED (nunca artificial, ao contrário do fixture acima): aqui
+      // `computePaidAmount(totalAmount, insights) === totalAmount`, por
+      // isso "30,00 EUR" É um facto real (o total cancelado) — o problema
+      // nunca foi o número em si, mas associá-lo semanticamente a "pago".
+      const RESULT_REAL_CANCELLED: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: PERIOD,
+        data: {
+          intent: 'FINANCIAL_SUMMARY',
+          totals: { invoiceCount: 1, activeInvoiceCount: 0, cancelledInvoiceCount: 1, totalAmount: '30.00', averageAmount: '30.00' },
+          insights: buildEmptyFinancialInsights(PERIOD),
+          analysis: EMPTY_ANALYSIS,
+        },
+        filters: { status: 'CANCELLED' }, invoiceIdentityRequested: false,
+      };
+
+      it('"Faturas canceladas: 30,00 EUR estão pagos." → rejeitada mesmo com totalAmount=30.00/outstanding=0.00 reais, e usa fallback grounded', () => {
+        const validation = validateFinancialGrounding('Faturas canceladas: 30,00 EUR estão pagos.', RESULT_REAL_CANCELLED);
+        expect(validation).toEqual({ grounded: false, reason: 'CANCELLED_PAYMENT_CLAIM_NOT_ALLOWED' });
+        expect(validation.grounded).toBe(false);
+      });
+
+      it('nunca bloqueia a simples apresentação do valor cancelado, sem nenhuma palavra de pagamento', () => {
+        expect(
+          validateFinancialGrounding('Faturas canceladas: 30,00 EUR.', RESULT_REAL_CANCELLED),
+        ).toEqual({ grounded: true });
+      });
+
+      it.each([
+        'Faturas canceladas: 30,00 EUR. Está pago.',
+        'Faturas canceladas: 30,00 EUR. Foi pago.',
+        'Faturas canceladas: 30,00 EUR. Foram pagos.',
+        'Faturas canceladas: 30,00 EUR. Paga.',
+        'Faturas canceladas: 30,00 EUR. Liquidado.',
+        'Faturas canceladas: 30,00 EUR. Liquidados.',
+      ])('rejeita a formulação equivalente: %s', (response) => {
+        expect(validateFinancialGrounding(response, RESULT_REAL_CANCELLED)).toEqual({
+          grounded: false,
+          reason: 'CANCELLED_PAYMENT_CLAIM_NOT_ALLOWED',
+        });
+      });
+
+      it('PENDING preserva o comportamento existente — "pago"/"paga" nunca é bloqueado fora do universo CANCELLED', () => {
+        const resultPending: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+          ...RESULT_REAL_CANCELLED,
+          filters: { status: 'PENDING' }, invoiceIdentityRequested: false,
+        };
+        expect(
+          validateFinancialGrounding('Faturas pendentes: 30,00 EUR. Ainda não está pago.', resultPending),
+        ).toEqual({ grounded: true });
+      });
+
+      it('OVERDUE preserva o comportamento existente — "pago"/"paga" nunca é bloqueado fora do universo CANCELLED', () => {
+        const resultOverdue: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+          ...RESULT_REAL_CANCELLED,
+          filters: { status: 'OVERDUE' }, invoiceIdentityRequested: false,
+        };
+        expect(
+          validateFinancialGrounding('Faturas vencidas: 30,00 EUR. Ainda não está pago.', resultOverdue),
+        ).toEqual({ grounded: true });
+      });
+
+      it('consulta sem filtro de estado preserva o comportamento existente — "pago"/"paga" nunca é bloqueado', () => {
+        const resultNoFilter: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+          ...RESULT_REAL_CANCELLED,
+          filters: {}, invoiceIdentityRequested: false,
+        };
+        expect(
+          validateFinancialGrounding('Foram registados 30,00 EUR em despesas. Estão pagos.', resultNoFilter),
+        ).toEqual({ grounded: true });
+      });
+    });
+  });
+
+  describe('Correção pós-validação manual (Problema 4) — número de fatura, suporte grounded mínimo', () => {
+    it('aceita o número real, rotulado explicitamente ("número da fatura é F-100")', () => {
+      expect(
+        validateFinancialGrounding('O número da fatura é F-100.', LARGEST_INVOICES_RESULT),
+      ).toEqual({ grounded: true });
+    });
+
+    it('aceita o número real independentemente de maiúsculas/minúsculas', () => {
+      expect(
+        validateFinancialGrounding('O número é f-100.', LARGEST_INVOICES_RESULT),
+      ).toEqual({ grounded: true });
+    });
+
+    it('rejeita um número de fatura fabricado, mesmo plausível, rotulado explicitamente', () => {
+      expect(
+        validateFinancialGrounding('O número da fatura é XPTO-999.', LARGEST_INVOICES_RESULT),
+      ).toEqual({ grounded: false, reason: 'INVOICE_NUMBER_NOT_ALLOWED' });
+    });
+
+    it('sem nenhum número real nos dados, qualquer número rotulado é sempre rejeitado (nunca inventado a partir do vazio)', () => {
+      expect(
+        validateFinancialGrounding('O número da fatura é F-100.', SUMMARY_RESULT),
+      ).toEqual({ grounded: false, reason: 'INVOICE_NUMBER_NOT_ALLOWED' });
+    });
+
+    it('sem `invoiceIdentityRequested` (pergunta atual não pede a identidade da fatura), um número mencionado sem o rótulo "número" continua sem ser validado por esta via — resposta continua aceite', () => {
+      // `LARGEST_INVOICES_RESULT.invoiceIdentityRequested` é `false` —
+      // mesmo comportamento de sempre, nunca aplicado indiscriminadamente.
+      expect(
+        validateFinancialGrounding('A fatura F-100 está paga.', LARGEST_INVOICES_RESULT),
+      ).toEqual({ grounded: true });
+    });
+
+    it('nunca falso positivo — "número" sem nenhum dígito próximo (ex. "o número está disponível") continua aceite', () => {
+      expect(
+        validateFinancialGrounding('O número está disponível no anexo.', LARGEST_INVOICES_RESULT),
+      ).toEqual({ grounded: true });
+    });
+
+    it('nunca falso positivo — "número de faturas" com o dígito longe do rótulo (fora do intervalo de 10 caracteres) continua aceite', () => {
+      expect(
+        validateFinancialGrounding('O número de faturas registadas este mês é 5.', LARGEST_INVOICES_RESULT),
+      ).toEqual({ grounded: true });
+    });
+
+    describe('Correção pós-revisão Codex — invoiceIdentityRequested alarga a validação a menções sem o rótulo "número"', () => {
+      const LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        ...LARGEST_INVOICES_RESULT,
+        invoiceIdentityRequested: true,
+      };
+
+      it('"A fatura paga é XPTO-999." → rejeitada (fabricado), quando a pergunta atual pede a identidade da fatura', () => {
+        expect(
+          validateFinancialGrounding('A fatura paga é XPTO-999.', LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED),
+        ).toEqual({ grounded: false, reason: 'INVOICE_NUMBER_NOT_ALLOWED' });
+      });
+
+      it('"A fatura paga é TEST-002." → aceite quando TEST-002 pertence aos dados recuperados', () => {
+        const resultWithTest002: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+          ...LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED,
+          data: {
+            intent: 'LARGEST_INVOICES',
+            invoices: [
+              { id: 'inv-2', number: 'TEST-002', supplierName: 'ACME', categoryName: 'Hosting', issueDate: '2026-08-10', status: 'PAID', totalAmount: '50.00' },
+            ],
+          },
+        };
+        expect(
+          validateFinancialGrounding('A fatura paga é TEST-002.', resultWithTest002),
+        ).toEqual({ grounded: true });
+      });
+
+      it('"Trata-se da fatura TEST-999." → rejeitada (fabricado, sem "é"/rótulo, só "fatura" + candidato)', () => {
+        expect(
+          validateFinancialGrounding('Trata-se da fatura TEST-999.', LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED),
+        ).toEqual({ grounded: false, reason: 'INVOICE_NUMBER_NOT_ALLOWED' });
+      });
+
+      it('"É a XPTO-999." → rejeitada (resposta elíptica, sem a palavra "fatura") quando a pergunta atual é "qual é o número dessa fatura?"', () => {
+        expect(
+          validateFinancialGrounding('É a XPTO-999.', LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED),
+        ).toEqual({ grounded: false, reason: 'INVOICE_NUMBER_NOT_ALLOWED' });
+      });
+
+      it('"É a F-100." → aceite (resposta elíptica com o número real)', () => {
+        expect(
+          validateFinancialGrounding('É a F-100.', LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED),
+        ).toEqual({ grounded: true });
+      });
+
+      it('nunca confunde uma data ISO mencionada perto de "fatura" com um número de fatura fabricado (ex. sem número real disponível)', () => {
+        const resultWithoutNumber: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+          ...LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED,
+          data: {
+            intent: 'LARGEST_INVOICES',
+            invoices: [
+              { id: 'inv-1', number: null, supplierName: 'ACME', categoryName: 'Hosting', issueDate: '2026-08-10', status: 'PAID', totalAmount: '50.00' },
+            ],
+          },
+        };
+        expect(
+          validateFinancialGrounding('A maior fatura é de 2026-08-10.', resultWithoutNumber),
+        ).toEqual({ grounded: true });
+      });
+
+      it('nunca confunde um NIF mencionado numa frase sem a forma "fatura ... <token>"/elíptica', () => {
+        expect(
+          validateFinancialGrounding(
+            'O fornecedor tem o NIF 511094949.',
+            LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED,
+          ),
+        ).toEqual({ grounded: true });
+      });
+
+      it('nunca confunde um NIF mencionado logo a seguir à palavra "fatura" — "A fatura tem NIF 509978142." continua aceite (falso positivo evitado)', () => {
+        // Sem a exclusão de "NIF"/"contribuinte"/"VAT" no intervalo entre
+        // "fatura" e o candidato, "509978142" seria capturado como se
+        // fosse `Invoice.number` e rejeitado por não pertencer aos dados —
+        // um falso positivo real, já que a frase nunca alegou um número de
+        // fatura, só um NIF.
+        expect(
+          validateFinancialGrounding('A fatura tem NIF 509978142.', LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED),
+        ).toEqual({ grounded: true });
+      });
+
+      it('nunca confunde "número de contribuinte" com o rótulo "número" (labelled path, sempre ativo)', () => {
+        expect(
+          validateFinancialGrounding('O número de contribuinte é 509978142.', LARGEST_INVOICES_RESULT_IDENTITY_REQUESTED),
+        ).toEqual({ grounded: true });
+      });
+    });
+
+    describe('Correção final pós-revisão Codex — Invoice.number com espaços (números reais compostos)', () => {
+      const LARGEST_INVOICES_RESULT_COMPOUND_NUMBERS: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
+        kind: 'DATA',
+        period: { from: '2026-07-01', to: '2026-07-31' },
+        data: {
+          intent: 'LARGEST_INVOICES',
+          invoices: [
+            { id: 'inv-1', number: 'ZFRC B036/9823519819', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-10', status: 'PAID', totalAmount: '300.00' },
+            { id: 'inv-2', number: 'FR U006/46931', supplierName: 'OVH', categoryName: 'Hosting', issueDate: '2026-07-12', status: 'PAID', totalAmount: '120.00' },
+          ],
+        },
+        filters: {},
+        invoiceIdentityRequested: true,
+      };
+
+      it('"A fatura paga é ZFRC B036/9823519819." → aceite (número real composto por dois segmentos separados por espaço)', () => {
+        expect(
+          validateFinancialGrounding('A fatura paga é ZFRC B036/9823519819.', LARGEST_INVOICES_RESULT_COMPOUND_NUMBERS),
+        ).toEqual({ grounded: true });
+      });
+
+      it('"É a ZFRC B036/9823519819." → aceite (resposta elíptica com o número composto real)', () => {
+        expect(
+          validateFinancialGrounding('É a ZFRC B036/9823519819.', LARGEST_INVOICES_RESULT_COMPOUND_NUMBERS),
+        ).toEqual({ grounded: true });
+      });
+
+      it('"A fatura paga é FR U006/46931." → aceite (segundo número composto real, primeiro segmento sem dígitos)', () => {
+        expect(
+          validateFinancialGrounding('A fatura paga é FR U006/46931.', LARGEST_INVOICES_RESULT_COMPOUND_NUMBERS),
+        ).toEqual({ grounded: true });
+      });
+
+      it('variante inventada semelhante ("A fatura paga é ZFRC B036/9823519818.") → rejeitada, nunca um número parcial aceite como válido', () => {
+        expect(
+          validateFinancialGrounding('A fatura paga é ZFRC B036/9823519818.', LARGEST_INVOICES_RESULT_COMPOUND_NUMBERS),
+        ).toEqual({ grounded: false, reason: 'INVOICE_NUMBER_NOT_ALLOWED' });
+      });
+
+      it('nunca aceita um candidato truncado a meio do segundo segmento ("A fatura paga é ZFRC B036.") como se fosse o número composto real', () => {
+        expect(
+          validateFinancialGrounding('A fatura paga é ZFRC B036.', LARGEST_INVOICES_RESULT_COMPOUND_NUMBERS),
+        ).toEqual({ grounded: false, reason: 'INVOICE_NUMBER_NOT_ALLOWED' });
+      });
+
+      it('nunca aceita só o segundo segmento truncado ("A fatura paga é B036/9823519819.") como se fosse o número composto real', () => {
+        expect(
+          validateFinancialGrounding('A fatura paga é B036/9823519819.', LARGEST_INVOICES_RESULT_COMPOUND_NUMBERS),
+        ).toEqual({ grounded: false, reason: 'INVOICE_NUMBER_NOT_ALLOWED' });
+      });
+
+      it('rótulo "número" também suporta o número composto real (labelled path)', () => {
+        expect(
+          validateFinancialGrounding('O número da fatura é ZFRC B036/9823519819.', LARGEST_INVOICES_RESULT_COMPOUND_NUMBERS),
+        ).toEqual({ grounded: true });
+      });
     });
   });
 

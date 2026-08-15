@@ -280,8 +280,23 @@ describe('DashboardService', () => {
       expect(call.where).toMatchObject({ supplierId: 'sup-1', status: 'CANCELLED' });
     });
 
-    it('byStatus nunca é pré-filtrado por status (mantém-se a distribuição completa, só com entidade aplicada)', async () => {
+    it('hardening pós-validação manual — com status explícito, byStatus reflete o mesmo universo filtrado de totals/largestInvoices (nunca duas "universos" combinados)', async () => {
+      // Achado real: `byStatus` ignorava sempre `query.status`, mesmo
+      // pedido explicitamente — devolvia a repartição por TODOS os
+      // estados do período inteiro, enquanto `totals`/`largestInvoices`
+      // já respeitavam o filtro. `resolveOutstanding(byStatus)`
+      // combinava então esse universo não filtrado com `totals`
+      // filtrado, produzindo valores matematicamente inconsistentes
+      // (ex. "por pagar" superior ao total já filtrado, "pago"
+      // negativo) sempre que o Chat IA aplicava um filtro de estado.
       await service.getFinancialSummary('org-1', { status: 'PAID', categoryId: 'cat-1' });
+
+      const call = prisma.invoice.groupBy.mock.calls.find((c) => c[0].by[0] === 'status')![0];
+      expect(call.where).toMatchObject({ categoryId: 'cat-1', status: 'PAID' });
+    });
+
+    it('sem status explícito, byStatus continua a mostrar a distribuição completa (incl. CANCELLED) — comportamento inalterado', async () => {
+      await service.getFinancialSummary('org-1', { categoryId: 'cat-1' });
 
       const call = prisma.invoice.groupBy.mock.calls.find((c) => c[0].by[0] === 'status')![0];
       expect(call.where).toMatchObject({ categoryId: 'cat-1' });

@@ -29,9 +29,19 @@ export interface FinancialDashboardSummary {
   topSuppliers: Array<{ supplierId: string; supplierName: string; count: number; totalAmount: string }>;
 }
 
-/** Uma fatura individual, para "maiores despesas" por fatura (Fase 8.4) — nunca confundível com os agregados de `topSuppliers`/`byCategory`. */
+/**
+ * Uma fatura individual, para "maiores despesas" por fatura (Fase 8.4)
+ * — nunca confundível com os agregados de `topSuppliers`/`byCategory`.
+ * `number` (hardening pós-validação manual) — o número/identificador da
+ * fatura (`Invoice.number`, sempre opcional ao nível do schema);
+ * ausente até esta correção de todo o Financial Retrieval, apesar de já
+ * existir na `Invoice` — o Chat IA nunca conseguia responder "qual é o
+ * número da fatura?" mesmo quando a consulta resolvia inequivocamente
+ * uma única fatura.
+ */
 export interface LargestInvoice {
   id: string;
+  number: string | null;
   supplierName: string;
   categoryName: string;
   issueDate: string;
@@ -118,6 +128,24 @@ export class DashboardService {
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
     };
     const activeWhere: Prisma.InvoiceWhereInput = { ...baseWhere, ...statusWhere, ...entityWhere };
+    // Hardening pós-validação manual — achado real: `byStatus` ignorava
+    // sempre `query.status`, mesmo quando explicitamente pedido (nunca
+    // aplicado a `activeAgg`/`activeInvoicesForTrend`), devolvendo a
+    // repartição por TODOS os estados do período inteiro em vez de só o
+    // estado pedido. `resolveOutstanding(byStatus)` (Fase 8.9,
+    // `financial-insights.util.ts`) então combinava esse universo
+    // completo (nunca filtrado) com `totals`/`largestInvoices`
+    // corretamente filtrados por `activeWhere` — produzindo valores
+    // matematicamente inconsistentes (ex. "por pagar" superior ao total
+    // já filtrado, "pago" negativo) sempre que o Chat IA aplicava um
+    // filtro de estado. Sem `query.status` explícito: comportamento
+    // inalterado (continua a incluir `CANCELLED` como linha própria,
+    // nunca escondida — Dashboard/Reports nunca passam `status`, só o
+    // Chat IA o faz). Com `query.status` explícito: `byStatus` passa a
+    // devolver só essa linha, o mesmo universo de `activeWhere`.
+    const byStatusWhere: Prisma.InvoiceWhereInput = query.status
+      ? activeWhere
+      : { ...baseWhere, ...entityWhere };
 
     const [activeAgg, cancelledInvoiceCount, byStatusRaw, activeInvoicesForTrend, byCategoryRaw, topSuppliersRaw] =
       await Promise.all([
@@ -132,7 +160,7 @@ export class DashboardService {
         }),
         this.prisma.invoice.groupBy({
           by: ['status'],
-          where: { ...baseWhere, ...entityWhere },
+          where: byStatusWhere,
           _count: true,
           _sum: { totalAmount: true },
         }),
@@ -237,6 +265,7 @@ export class DashboardService {
       period: { from: period.from, to: period.to },
       invoices: invoices.map((invoice) => ({
         id: invoice.id,
+        number: invoice.number,
         supplierName: invoice.supplier.name,
         categoryName: invoice.category?.name ?? SEM_CATEGORIA,
         issueDate: invoice.issueDate.toISOString().slice(0, 10),

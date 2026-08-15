@@ -412,7 +412,16 @@
   promoção, validações contabilísticas, IVA, NIF, Dashboard, Reports,
   tools novas, providers novos, embeddings, RAG, agentes, streaming,
   package novo, migration, alteração Prisma, ao frontend, ou ao tool
-  registry
+  registry. Hardening pós-validação manual 2026-08-15: `byStatus`
+  (`DashboardService`, Fase 7) passa a respeitar `status` explícito —
+  antes ignorava sempre o filtro, combinando o universo filtrado de
+  `totals` com o universo completo de `outstanding` (valores "por pagar"
+  matematicamente inconsistentes); continuação elíptica ("E as pagas?")
+  substitui corretamente o filtro de estado herdado; "quanto falta
+  pagar?" reconhecida (mesmo padrão de `OUTSTANDING_BALANCE`); número da
+  fatura passa a chegar ao Financial Retrieval e ao validador de
+  grounding (5ª categoria de facto, só menções rotuladas
+  explicitamente)
   (`docs/phases/phase-8.8-financial-ai-reliability-strict-grounding-foundation.md`).
 - **Fase 8.9 — Financial Insights Foundation**: camada determinística de
   Financial Insights (concentração, ranking, saldo por pagar, maior

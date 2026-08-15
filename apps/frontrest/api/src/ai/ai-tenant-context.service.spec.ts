@@ -11,7 +11,7 @@ const DATA_RESULT: Extract<FinancialRetrievalResult, { kind: 'DATA' }> = {
       { status: 'OVERDUE', count: 2, totalAmount: '54.00' },
     ],
   },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 /**

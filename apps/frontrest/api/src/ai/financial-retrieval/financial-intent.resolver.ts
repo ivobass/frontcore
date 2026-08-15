@@ -48,20 +48,52 @@ function normalize(text: string): string {
     .replace(/\p{Diacritic}/gu, '');
 }
 
+// Hardening pós-revisão Codex — pergunta explicitamente pela
+// identidade/número de uma fatura ("qual é o número da fatura?"/"qual é
+// o número dessa fatura?"). Preposição "d[ae]"/"dess[ae]"/"dest[ae]"
+// (nunca "de", que é sempre o sinal de contagem — "número DE faturas",
+// `FINANCIAL_SUMMARY_PATTERN` acima) — nunca confundido com uma pergunta
+// de contagem. Usada só por `FinancialRetrievalService.retrieve()`
+// (caminho direto — a única via com acesso ao texto livre da pergunta
+// atual) para decidir se `validateFinancialGrounding()`
+// (`financial-grounding.validator.ts`) alarga a validação do número de
+// fatura a menções sem o rótulo "número" — nunca aplicada
+// indiscriminadamente a qualquer resposta financeira, para nunca
+// confundir NIF, datas ou outras referências.
+const INVOICE_IDENTITY_QUERY_PATTERN = /\bn[uú]mero\s+d(?:a|ess[ae]|est[ae])\s+fac?tura\b/;
+
+export function requestsInvoiceIdentity(message: string): boolean {
+  return INVOICE_IDENTITY_QUERY_PATTERN.test(normalize(message));
+}
+
 // Verificados primeiro — nunca deixar um pedido de escrita, detalhe de
 // fatura ou comparação entre períodos cair num dos padrões de consulta
 // abaixo só por coincidência lexical (ex. "aprova o pagamento deste mês").
 const WRITE_ACTION_PATTERN =
   /\b(marca|marcar|aprova|aprovar|cria|criar|elimina|eliminar|apaga|apagar|atualiza|atualizar|regista|registar|altera|alterar|edita|editar)\b/;
+// Hardening pós-validação manual — achado real: `\bnumero da fatura\b`
+// excluía também "qual é o número da fatura paga?" (o utilizador a
+// PEDIR o número, nunca a fornecer um para detalhe de uma fatura
+// concreta) — as duas perguntas partilham as mesmas 3 palavras, só a
+// intenção é oposta. Removido: as outras 3 alternativas já cobrem os
+// casos genuínos de detalhe/lookup por número ("mostra a fatura",
+// "detalhe da fatura", "fatura" + dígito explícito); uma pergunta
+// "número da fatura" verdadeiramente ambígua (sem estado nem
+// continuidade) continua UNSUPPORTED por simples ausência de padrão de
+// inclusão correspondente — nunca precisou desta exclusão explícita.
 const INVOICE_DETAIL_PATTERN =
-  /\bmostra a fatura\b|\bdetalhe da fatura\b|\bnumero da fatura\b|\bfatura\s+(n[ºo°]?\s*)?\S*\d/;
+  /\bmostra a fatura\b|\bdetalhe da fatura\b|\bfatura\s+(n[ºo°]?\s*)?\S*\d/;
 const COMPARISON_PATTERN = /\bcompara(r)?\b|\bversus\b|\bvs\b/;
 
 // Vocabulário alargado na Fase 8.3 — expandido diretamente sobre o
 // regex existente (sem camada de normalização lexical nova, YAGNI face
 // ao tamanho real da lacuna), a partir de perguntas reais que falhavam
 // (ver docs/phases/phase-8.3-ai-tools-function-calling-foundation.md).
-const OUTSTANDING_PATTERN = /\bpor pagar\b|\bem divida\b|\ba pagar\b|\bpendentes?\b/;
+// "falta(m) pagar" — hardening pós-validação manual, achado real:
+// "quanto falta pagar?" não reconhecida ("por pagar"/"a pagar" não
+// aparecem como substring). Acrescentado ao mesmo padrão fechado, nunca
+// uma heurística/intent separada.
+const OUTSTANDING_PATTERN = /\bpor pagar\b|\bem divida\b|\ba pagar\b|\bfalta(?:m)? pagar\b|\bpendentes?\b/;
 const BY_STATUS_PATTERN = /\bpor estado\b|\bcada estado\b|\bestados?\b.*\bfatura/;
 // "onde gasto mais"/"maior despesa" — decisão de desenho explícita:
 // mapeados para BY_CATEGORY (não TOP_SUPPLIERS) por "categoria" ser a

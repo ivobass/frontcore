@@ -231,7 +231,7 @@ describe('ReportsService', () => {
       const getFinancialSummary = jest.fn().mockResolvedValueOnce(currentSummary).mockResolvedValueOnce(summary());
       const getLargestInvoices = jest.fn().mockResolvedValue({
         period: { from: '2026-07-01', to: '2026-07-31' },
-        invoices: [{ id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' }],
+        invoices: [{ id: 'inv-1', number: 'F-100', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' }],
       });
       const { service } = buildService(getFinancialSummary, undefined, getLargestInvoices);
 
@@ -239,7 +239,7 @@ describe('ReportsService', () => {
 
       expect(getLargestInvoices).toHaveBeenCalledWith('org-1', { from: '2026-07-01', to: '2026-07-31' });
       expect(report.insights).toEqual(buildFinancialInsights(currentSummary, [
-        { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' },
+        { id: 'inv-1', number: 'F-100', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' },
       ]));
       expect(report.insights.largestSupplier).toMatchObject({ supplierId: 's1', share: '100.00' });
     });

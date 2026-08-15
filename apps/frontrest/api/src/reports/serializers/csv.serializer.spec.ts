@@ -120,7 +120,7 @@ describe('serializeMonthlyReportToCsv', () => {
           categoryConcentration: { topN: 3, share: '100.00' },
           outstanding: { count: 2, totalAmount: '200.00' },
           largestExpense: {
-            invoice: { id: 'inv-1', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' },
+            invoice: { id: 'inv-1', number: 'F-100', supplierName: 'Hetzner', categoryName: 'Hosting', issueDate: '2026-07-20', status: 'PENDING', totalAmount: '300.00' },
           },
           trend: {
             latestMonth: '2026-07',

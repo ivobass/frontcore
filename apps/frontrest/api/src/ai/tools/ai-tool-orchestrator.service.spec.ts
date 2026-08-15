@@ -10,7 +10,7 @@ const FILLED_DATA_RESULT: FinancialRetrievalResult = {
   kind: 'DATA',
   period: { from: '2026-07-01', to: '2026-07-31' },
   data: { intent: 'TOP_SUPPLIERS', topSuppliers: [{ supplierId: 'sup-1', supplierName: 'Hetzner', count: 3, totalAmount: '354.00' }] },
-  filters: {},
+  filters: {}, invoiceIdentityRequested: false,
 };
 
 function toolCallResponse(name: string, args: unknown, id = 'call-1') {
@@ -255,7 +255,7 @@ describe('AiToolOrchestratorService', () => {
       kind: 'DATA',
       period: { from: '2026-07-01', to: '2026-07-31' },
       data: { intent: 'LARGEST_INVOICES', invoices: [] },
-      filters: {},
+      filters: {}, invoiceIdentityRequested: false,
     } satisfies FinancialRetrievalResult);
     const { service } = buildService(complete, retrieveForIntent);
 
@@ -341,7 +341,7 @@ describe('AiToolOrchestratorService', () => {
         insights: buildEmptyFinancialInsights(PERIOD),
         analysis: { results: [], metadata: { analysesRun: ['monthly_trend', 'relative_concentration'], conclusionsProduced: 0 } },
       },
-      filters: { supplierId: 'sup-1', supplierName: 'Hetzner' },
+      filters: { supplierId: 'sup-1', supplierName: 'Hetzner' }, invoiceIdentityRequested: false,
     };
 
     it('resposta final válida (grounded) continua ANSWERED com o texto real do provider', async () => {
