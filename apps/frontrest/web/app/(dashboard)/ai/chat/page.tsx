@@ -8,11 +8,22 @@ import { FeedbackBanner } from '../../../../components/feedback-banner';
 import { ConfirmDialog } from '../../../../components/confirm-dialog';
 import { listConversations, getConversation, sendChatMessage, deleteConversation } from '../../../../lib/ai-chat';
 import type { ConversationSummary, ChatMessage } from '../../../../lib/ai-chat';
+import { isSessionLifecycleError } from '../../../../lib/auth';
 import { ConversationList } from './conversation-list';
 import { ChatThread } from './chat-thread';
 
 export default function AiChatPage() {
-  const { session } = useSession();
+  // `authFetch()` (`useSession()`, `lib/session-context.tsx`) — chamada
+  // autenticada centralizada: lê sempre os tokens mais recentes (nunca
+  // `session.accessToken` capturado no início do handler), renova a
+  // sessão uma única vez num 401, e termina a sessão de forma uniforme
+  // (`sessionExpired()`, já chamado internamente) se a renovação falhar.
+  // Correção final pós-revisão Codex — achado real: `handleSend()`
+  // encadeia `sendChatMessage()` → `getConversation()` →
+  // `loadConversations()`; sem ler sempre a `ref` mais recente, uma
+  // renovação despoletada pela primeira chamada deixava as seguintes,
+  // na mesma invocação do handler, a usar tokens já desatualizados.
+  const { authFetch } = useSession();
   const { feedback, notifySuccess, notifyError } = useFeedback();
 
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -34,9 +45,12 @@ export default function AiChatPage() {
     setConversationsLoading(true);
     setConversationsError(null);
     try {
-      const result = await listConversations(session.accessToken);
+      const result = await authFetch((token) => listConversations(token));
       setConversations(result.items);
     } catch (err) {
+      // `authFetch()` já chamou `sessionExpired()` — nunca mostrar o erro
+      // local, a página vai já ser substituída pelo redirecionamento.
+      if (isSessionLifecycleError(err)) return;
       setConversationsError(err instanceof Error ? err.message : 'Erro ao carregar as conversas.');
     } finally {
       setConversationsLoading(false);
@@ -46,7 +60,7 @@ export default function AiChatPage() {
   useEffect(() => {
     loadConversations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.accessToken]);
+  }, []);
 
   useEffect(() => {
     if (!selectedId) {
@@ -55,7 +69,7 @@ export default function AiChatPage() {
     }
     let cancelled = false;
     setDetailLoading(true);
-    getConversation(session.accessToken, selectedId)
+    authFetch((token) => getConversation(token, selectedId))
       .then((detail) => {
         if (cancelled) return;
         setMessages(detail.messages);
@@ -63,13 +77,15 @@ export default function AiChatPage() {
       })
       .catch((err) => {
         if (cancelled) return;
+        if (isSessionLifecycleError(err)) return;
         setSendError(err instanceof Error ? err.message : 'Erro ao carregar a conversa.');
         setDetailLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [selectedId, session.accessToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   function handleNew() {
     setSelectedId(null);
@@ -85,16 +101,16 @@ export default function AiChatPage() {
     setSending(true);
     setSendError(null);
     try {
-      const result = await sendChatMessage(session.accessToken, {
-        conversationId: selectedId ?? undefined,
-        message: content,
-      });
+      const result = await authFetch((token) =>
+        sendChatMessage(token, { conversationId: selectedId ?? undefined, message: content }),
+      );
       setDraft('');
       setSelectedId(result.conversationId);
-      const detail = await getConversation(session.accessToken, result.conversationId);
+      const detail = await authFetch((token) => getConversation(token, result.conversationId));
       setMessages(detail.messages);
       await loadConversations();
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       setSendError(err instanceof Error ? err.message : 'Não foi possível enviar a mensagem.');
     } finally {
       setSending(false);
@@ -111,7 +127,7 @@ export default function AiChatPage() {
     if (!deleting) return;
     setDeleteLoading(true);
     try {
-      await deleteConversation(session.accessToken, deleting.id);
+      await authFetch((token) => deleteConversation(token, deleting.id));
       setConversations((prev) => prev.filter((c) => c.id !== deleting.id));
       if (selectedId === deleting.id) {
         handleNew();
@@ -119,6 +135,7 @@ export default function AiChatPage() {
       notifySuccess('Conversa eliminada.');
       setDeleting(null);
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       notifyError(err instanceof Error ? err.message : 'Erro ao eliminar a conversa.');
     } finally {
       setDeleteLoading(false);

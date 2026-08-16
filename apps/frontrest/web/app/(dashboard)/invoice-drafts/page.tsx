@@ -10,6 +10,7 @@ import { FeedbackBanner } from '../../../components/feedback-banner';
 import { PaginationControls } from '../../../components/pagination-controls';
 import { listInvoiceDrafts } from '../../../lib/invoice-drafts';
 import type { InvoiceDraft, Paginated } from '../../../lib/invoice-drafts';
+import { isSessionLifecycleError } from '../../../lib/auth';
 import { formatCurrency, formatDate } from '../../../lib/format';
 import { CreateInvoiceDraftDialog } from './create-invoice-draft-dialog';
 import { InvoiceDraftReviewSheet } from './invoice-draft-review-sheet';
@@ -18,7 +19,7 @@ import { OCR_STATUS_BADGE_VARIANT, OCR_STATUS_LABELS } from './constants';
 const PAGE_SIZE = 20;
 
 export default function InvoiceDraftsPage() {
-  const { session, me, updateTokens } = useSession();
+  const { me, authFetch } = useSession();
   const manage = canManage(me.role);
   const { feedback, notifySuccess, notifyError } = useFeedback();
 
@@ -30,15 +31,17 @@ export default function InvoiceDraftsPage() {
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    listInvoiceDrafts(session.accessToken, { page, pageSize: PAGE_SIZE })
+    authFetch((token) => listInvoiceDrafts(token, { page, pageSize: PAGE_SIZE }))
       .then((res) => {
         setResult(res);
         setError(null);
       })
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : 'Erro ao carregar rascunhos.'),
-      );
-  }, [session.accessToken, page]);
+      .catch((err) => {
+        if (isSessionLifecycleError(err)) return;
+        setError(err instanceof Error ? err.message : 'Erro ao carregar rascunhos.');
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   useEffect(() => {
     load();
@@ -150,7 +153,7 @@ export default function InvoiceDraftsPage() {
       <CreateInvoiceDraftDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        accessToken={session.accessToken}
+        authFetch={authFetch}
         onCreated={(draft) => {
           setReviewingId(draft.id);
           load();
@@ -165,9 +168,7 @@ export default function InvoiceDraftsPage() {
           if (!open) setReviewingId(null);
         }}
         draftId={reviewingId}
-        accessToken={session.accessToken}
-        refreshToken={session.refreshToken}
-        onTokensRefreshed={updateTokens}
+        authFetch={authFetch}
         canManage={manage}
         onSaved={() => {
           notifySuccess('Rascunho atualizado.');

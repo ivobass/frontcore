@@ -25,11 +25,14 @@ import {
   deleteInvoiceAttachment,
 } from '../../../lib/invoice-attachments';
 import type { InvoiceAttachment } from '../../../lib/invoice-attachments';
+import { isSessionLifecycleError } from '../../../lib/auth';
+import type { AuthFetch } from '../../../lib/auth';
 
 export interface InvoiceAttachmentsPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  accessToken: string;
+  /** Chamada autenticada centralizada (`useSession().authFetch`) — ver `invoice-draft-review-sheet.tsx` para o desenho completo. */
+  authFetch: AuthFetch;
   invoiceId: string | null;
   invoiceLabel?: string;
   canManage: boolean;
@@ -51,7 +54,7 @@ function formatFileSize(bytes: number): string {
 export function InvoiceAttachmentsPanel({
   open,
   onOpenChange,
-  accessToken,
+  authFetch,
   invoiceId,
   invoiceLabel,
   canManage,
@@ -69,14 +72,18 @@ export function InvoiceAttachmentsPanel({
   const load = useCallback(() => {
     if (!invoiceId) return;
     setLoading(true);
-    listInvoiceAttachments(accessToken, invoiceId)
+    authFetch((token) => listInvoiceAttachments(token, invoiceId))
       .then((items) => {
         setAttachments(items);
         setError(null);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Erro ao carregar anexos.'))
+      .catch((err) => {
+        if (isSessionLifecycleError(err)) return;
+        setError(err instanceof Error ? err.message : 'Erro ao carregar anexos.');
+      })
       .finally(() => setLoading(false));
-  }, [accessToken, invoiceId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoiceId]);
 
   useEffect(() => {
     if (open && invoiceId) load();
@@ -91,10 +98,11 @@ export function InvoiceAttachmentsPanel({
     setUploadError(null);
     setUploading(true);
     try {
-      await uploadInvoiceAttachment(accessToken, invoiceId, file);
+      await authFetch((token) => uploadInvoiceAttachment(token, invoiceId, file));
       notifySuccess('Anexo carregado.');
       load();
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       setUploadError(err instanceof Error ? err.message : 'Erro ao carregar anexo.');
     } finally {
       setUploading(false);
@@ -105,9 +113,10 @@ export function InvoiceAttachmentsPanel({
     if (!invoiceId) return;
     setDownloadingId(attachment.id);
     try {
-      const detail = await getInvoiceAttachment(accessToken, invoiceId, attachment.id);
+      const detail = await authFetch((token) => getInvoiceAttachment(token, invoiceId, attachment.id));
       window.open(detail.downloadUrl, '_blank', 'noopener,noreferrer');
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       notifyError(err instanceof Error ? err.message : 'Erro ao obter o anexo.');
     } finally {
       setDownloadingId(null);
@@ -118,11 +127,12 @@ export function InvoiceAttachmentsPanel({
     if (!deleting || !invoiceId) return;
     setDeleteLoading(true);
     try {
-      await deleteInvoiceAttachment(accessToken, invoiceId, deleting.id);
+      await authFetch((token) => deleteInvoiceAttachment(token, invoiceId, deleting.id));
       notifySuccess('Anexo eliminado.');
       setDeleting(null);
       load();
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       notifyError(err instanceof Error ? err.message : 'Erro ao eliminar anexo.');
     } finally {
       setDeleteLoading(false);

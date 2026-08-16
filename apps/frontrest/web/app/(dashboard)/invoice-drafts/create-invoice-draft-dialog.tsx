@@ -11,6 +11,8 @@ import {
   UploadError,
 } from '@frontcore/ui';
 import { ApiError } from '../../../lib/api';
+import { isSessionLifecycleError } from '../../../lib/auth';
+import type { AuthFetch } from '../../../lib/auth';
 import { createUpload, deleteUpload } from '../../../lib/uploads';
 import { createInvoiceDraft } from '../../../lib/invoice-drafts';
 import type { InvoiceDraft } from '../../../lib/invoice-drafts';
@@ -18,7 +20,8 @@ import type { InvoiceDraft } from '../../../lib/invoice-drafts';
 export interface CreateInvoiceDraftDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  accessToken: string;
+  /** Chamada autenticada centralizada (`useSession().authFetch`) — ver `invoice-draft-review-sheet.tsx` para o desenho completo. */
+  authFetch: AuthFetch;
   onCreated: (draft: InvoiceDraft) => void;
   /** Chamado sempre que o estado real dos rascunhos pode ter mudado — mesmo em falha, para o utilizador ver o estado verdadeiro. */
   onChanged: () => void;
@@ -46,7 +49,7 @@ const DRAFT_NOT_CREATED_STATUSES = new Set([400, 404, 409]);
 export function CreateInvoiceDraftDialog({
   open,
   onOpenChange,
-  accessToken,
+  authFetch,
   onCreated,
   onChanged,
   notifyError,
@@ -58,19 +61,20 @@ export function CreateInvoiceDraftDialog({
     setUploadError(null);
     setUploading(true);
     try {
-      const storageObject = await createUpload(accessToken, file);
+      const storageObject = await authFetch((token) => createUpload(token, file));
       try {
-        const draft = await createInvoiceDraft(accessToken, { storageObjectId: storageObject.id });
+        const draft = await authFetch((token) => createInvoiceDraft(token, { storageObjectId: storageObject.id }));
         onOpenChange(false);
         onCreated(draft);
       } catch (err) {
+        if (isSessionLifecycleError(err)) return;
         const message = err instanceof Error ? err.message : 'Erro ao criar rascunho.';
         const status = err instanceof ApiError ? err.status : undefined;
 
         if (status !== undefined && DRAFT_NOT_CREATED_STATUSES.has(status)) {
           // Inequivocamente seguro: o rascunho nunca chegou a existir.
           try {
-            await deleteUpload(accessToken, storageObject.id);
+            await authFetch((token) => deleteUpload(token, storageObject.id));
             notifyError(message);
           } catch (cleanupErr) {
             const cleanupMessage =
@@ -93,6 +97,10 @@ export function CreateInvoiceDraftDialog({
         setUploading(false);
       }
     } catch (err) {
+      if (isSessionLifecycleError(err)) {
+        setUploading(false);
+        return;
+      }
       setUploadError(err instanceof Error ? err.message : 'Erro ao carregar o ficheiro.');
       setUploading(false);
     }

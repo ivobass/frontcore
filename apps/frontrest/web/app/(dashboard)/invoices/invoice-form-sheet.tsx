@@ -19,6 +19,8 @@ import {
 } from '@frontcore/ui';
 import { createInvoice, updateInvoice } from '../../../lib/invoices';
 import type { Invoice, InvoiceInput, InvoiceStatus } from '../../../lib/invoices';
+import { isSessionLifecycleError } from '../../../lib/auth';
+import type { AuthFetch } from '../../../lib/auth';
 import type { Supplier } from '../../../lib/suppliers';
 import type { ExpenseCategory } from '../../../lib/expense-categories';
 import { STATUS_LABELS, fullWidthSelectClassName } from './constants';
@@ -26,7 +28,8 @@ import { STATUS_LABELS, fullWidthSelectClassName } from './constants';
 export interface InvoiceFormSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  accessToken: string;
+  /** Chamada autenticada centralizada (`useSession().authFetch`) — ver `invoice-draft-review-sheet.tsx` para o desenho completo. */
+  authFetch: AuthFetch;
   invoice: Invoice | null;
   suppliers: Supplier[];
   categories: ExpenseCategory[];
@@ -67,7 +70,7 @@ function emptyForm(suppliers: Supplier[]): FormState {
 export function InvoiceFormSheet({
   open,
   onOpenChange,
-  accessToken,
+  authFetch,
   invoice,
   suppliers,
   categories,
@@ -156,13 +159,14 @@ export function InvoiceFormSheet({
       };
 
       if (isEdit && invoice) {
-        await updateInvoice(accessToken, invoice.id, payload);
+        await authFetch((token) => updateInvoice(token, invoice.id, payload));
       } else {
-        await createInvoice(accessToken, payload);
+        await authFetch((token) => createInvoice(token, payload));
       }
       onSuccess();
       onOpenChange(false);
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       setError(err instanceof Error ? err.message : 'Erro ao guardar fatura.');
     } finally {
       setSaving(false);

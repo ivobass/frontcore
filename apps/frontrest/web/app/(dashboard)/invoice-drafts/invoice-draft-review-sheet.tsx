@@ -26,8 +26,8 @@ import {
   getInvoiceDraftFiscalSuggestions,
 } from '../../../lib/invoice-drafts';
 import type { InvoiceDraft, DraftFiscalSuggestions, UpdateInvoiceDraftInput } from '../../../lib/invoice-drafts';
-import { withAuthRetry } from '../../../lib/auth';
-import type { RefreshedTokens } from '../../../lib/auth';
+import { isSessionLifecycleError } from '../../../lib/auth';
+import type { AuthFetch } from '../../../lib/auth';
 import { listSuppliers } from '../../../lib/suppliers';
 import type { Supplier } from '../../../lib/suppliers';
 import { listExpenseCategories } from '../../../lib/expense-categories';
@@ -199,36 +199,33 @@ export interface InvoiceDraftReviewSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   draftId: string | null;
-  accessToken: string;
+  /**
+   * Chamada autenticada centralizada (`useSession().authFetch`,
+   * `lib/session-context.tsx`) — lê sempre os tokens mais recentes,
+   * renova a sessão uma única vez num 401, e termina a sessão de forma
+   * uniforme (`sessionExpired()`) se a renovação falhar. Correção final
+   * pós-revisão Codex — substitui os props anteriores `accessToken`/
+   * `refreshToken`/`onTokensRefreshed`/`onSessionExpired`: cobre agora
+   * TODOS os pedidos autenticados desta folha (abertura, polling,
+   * sugestões fiscais, listas auxiliares, guardar, eliminar, promover),
+   * não só guardar/eliminar/promover.
+   */
+  authFetch: AuthFetch;
   canManage: boolean;
   onSaved: () => void;
   onDeleted: () => void;
   onPromoted: () => void;
-  /**
-   * `refreshToken`/`onTokensRefreshed` (Hardening pós-validação manual —
-   * "Token de acesso inválido ou expirado."): opcionais, para preservar
-   * compatibilidade com quem já usa este componente sem sessão renovável
-   * (ex. testes existentes, que só passam `accessToken`). Quando ambos
-   * presentes, `Guardar`/`Eliminar`/`Promover` tentam renovar a sessão
-   * uma única vez (`withAuthRetry()`, `lib/auth.ts`) antes de mostrar um
-   * erro — nunca mais do que uma tentativa, nunca repetida em silêncio
-   * indefinidamente.
-   */
-  refreshToken?: string;
-  onTokensRefreshed?: (tokens: RefreshedTokens) => void;
 }
 
 export function InvoiceDraftReviewSheet({
   open,
   onOpenChange,
   draftId,
-  accessToken,
+  authFetch,
   canManage,
   onSaved,
   onDeleted,
   onPromoted,
-  refreshToken,
-  onTokensRefreshed,
 }: InvoiceDraftReviewSheetProps) {
   const [draft, setDraft] = useState<InvoiceDraft | null>(null);
   const [loading, setLoading] = useState(false);
@@ -274,27 +271,30 @@ export function InvoiceDraftReviewSheet({
     setSupplierWarning(null);
     setSaveError(null);
     setPromoteError(null);
-    getInvoiceDraft(accessToken, draftId)
+    authFetch((token) => getInvoiceDraft(token, draftId))
       .then((next) => {
         applyDraft(next);
         setLoading(false);
       })
       .catch((err) => {
+        if (isSessionLifecycleError(err)) return;
         setError(err instanceof Error ? err.message : 'Erro ao carregar rascunho.');
         setLoading(false);
       });
-  }, [open, draftId, accessToken, applyDraft]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, draftId, applyDraft]);
 
   // Listas para os selects — só quando MANAGER+ (MEMBER nunca edita).
   useEffect(() => {
     if (!open || !canManage) return;
-    listSuppliers(accessToken, { pageSize: PICKER_PAGE_SIZE })
+    authFetch((token) => listSuppliers(token, { pageSize: PICKER_PAGE_SIZE }))
       .then((res) => setSuppliers(res.items))
       .catch(() => setSuppliers([]));
-    listExpenseCategories(accessToken)
+    authFetch((token) => listExpenseCategories(token))
       .then(setCategories)
       .catch(() => setCategories([]));
-  }, [open, canManage, accessToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, canManage]);
 
   // Polling do estado OCR — só enquanto PENDING/PROCESSING, cancelado ao
   // fechar, desmontar, ou assim que chega a COMPLETED/FAILED.
@@ -304,7 +304,7 @@ export function InvoiceDraftReviewSheet({
 
     let cancelled = false;
     const timer = setInterval(() => {
-      getInvoiceDraft(accessToken, draftId)
+      authFetch((token) => getInvoiceDraft(token, draftId))
         .then((next) => {
           if (cancelled) return;
           setDraft(next);
@@ -314,7 +314,7 @@ export function InvoiceDraftReviewSheet({
           setSavedValues(draftToFormValues(next));
         })
         .catch(() => {
-          /* falha pontual de polling não interrompe o ciclo — tenta na próxima iteração */
+          /* falha pontual de polling não interrompe o ciclo — tenta na próxima iteração (`authFetch` já renovou a sessão silenciosamente ou terminou-a se o refresh também falhou) */
         });
     }, OCR_POLL_INTERVAL_MS);
 
@@ -322,7 +322,8 @@ export function InvoiceDraftReviewSheet({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [open, draftId, draft, accessToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, draftId, draft]);
 
   // Parsing fiscal automático quando o OCR chega a COMPLETED — o
   // endpoint é puro/sem persistência (Fase 6.7), por isso é seguro
@@ -336,16 +337,18 @@ export function InvoiceDraftReviewSheet({
 
     setParsingLoading(true);
     setParsingError(null);
-    getInvoiceDraftFiscalSuggestions(accessToken, draftId)
+    authFetch((token) => getInvoiceDraftFiscalSuggestions(token, draftId))
       .then((result) => {
         setSuggestions(result);
         setParsingLoading(false);
       })
       .catch((err) => {
+        if (isSessionLifecycleError(err)) return;
         setParsingError(err instanceof Error ? err.message : 'Erro ao obter sugestões fiscais.');
         setParsingLoading(false);
       });
-  }, [draftId, draft, accessToken, suggestions, parsingLoading]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, draft, suggestions, parsingLoading]);
 
   async function applySuggestions() {
     if (!suggestions) return;
@@ -362,7 +365,7 @@ export function InvoiceDraftReviewSheet({
     // que já estava carregado, em vez de bloquear a ação.
     let currentSuppliers = suppliers;
     try {
-      const fresh = await listSuppliers(accessToken, { pageSize: PICKER_PAGE_SIZE });
+      const fresh = await authFetch((token) => listSuppliers(token, { pageSize: PICKER_PAGE_SIZE }));
       currentSuppliers = fresh.items;
       setSuppliers(fresh.items);
     } catch {
@@ -407,22 +410,6 @@ export function InvoiceDraftReviewSheet({
     }));
   }
 
-  /**
-   * Tenta `request(accessToken)`; se `refreshToken`/`onTokensRefreshed`
-   * estiverem disponíveis, renova a sessão uma única vez num 401 antes
-   * de desistir (`withAuthRetry()`, `lib/auth.ts`) — hardening
-   * pós-validação manual, "Token de acesso inválido ou expirado.".
-   * Sem os dois props (ex. testes existentes que só passam
-   * `accessToken`), comportamento inalterado: chama `request()` uma
-   * única vez, sem tentativa de renovação.
-   */
-  function callWithRetry<T>(request: (token: string) => Promise<T>): Promise<T> {
-    if (!refreshToken || !onTokensRefreshed) {
-      return request(accessToken);
-    }
-    return withAuthRetry(accessToken, refreshToken, request, onTokensRefreshed);
-  }
-
   async function handleSave() {
     if (!draftId) return;
     const patch = buildPatch(formValues, savedValues);
@@ -431,10 +418,11 @@ export function InvoiceDraftReviewSheet({
     setSaving(true);
     setSaveError(null);
     try {
-      const updated = await callWithRetry((token) => updateInvoiceDraft(token, draftId, patch));
+      const updated = await authFetch((token) => updateInvoiceDraft(token, draftId, patch));
       applyDraft(updated);
       onSaved();
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       setSaveError(err instanceof Error ? err.message : 'Erro ao guardar alterações.');
     } finally {
       setSaving(false);
@@ -445,10 +433,11 @@ export function InvoiceDraftReviewSheet({
     if (!draftId) return;
     setDeleting(true);
     try {
-      await callWithRetry((token) => deleteInvoiceDraft(token, draftId));
+      await authFetch((token) => deleteInvoiceDraft(token, draftId));
       setDeleteConfirmOpen(false);
       onDeleted();
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       setSaveError(err instanceof Error ? err.message : 'Erro ao eliminar rascunho.');
     } finally {
       setDeleting(false);
@@ -460,10 +449,11 @@ export function InvoiceDraftReviewSheet({
     setPromoting(true);
     setPromoteError(null);
     try {
-      await callWithRetry((token) => promoteInvoiceDraft(token, draftId));
+      await authFetch((token) => promoteInvoiceDraft(token, draftId));
       setPromoteConfirmOpen(false);
       onPromoted();
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       setPromoteError(err instanceof Error ? err.message : 'Erro ao promover rascunho.');
     } finally {
       setPromoting(false);

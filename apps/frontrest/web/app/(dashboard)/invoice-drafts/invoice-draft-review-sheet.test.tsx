@@ -2,6 +2,13 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { InvoiceDraftReviewSheet } from './invoice-draft-review-sheet';
 import { ApiError } from '../../../lib/api';
+import { withAuthRetry, SessionExpiredError } from '../../../lib/auth';
+import type { AuthFetch } from '../../../lib/auth';
+
+/** `authFetch` de teste sem qualquer renovação — equivalente ao antigo `accessToken` cru, para os testes que não exercitam o hardening de sessão. */
+function simpleAuthFetch(accessToken: string): AuthFetch {
+  return (request) => request(accessToken);
+}
 
 const getInvoiceDraft = vi.fn();
 const updateInvoiceDraft = vi.fn();
@@ -96,7 +103,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
         open
         onOpenChange={() => {}}
         draftId="draft-1"
-        accessToken="token"
+        authFetch={simpleAuthFetch('token')}
         canManage={false}
         {...noopProps}
       />,
@@ -118,7 +125,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
         open
         onOpenChange={() => {}}
         draftId="draft-1"
-        accessToken="token"
+        authFetch={simpleAuthFetch('token')}
         canManage
         {...noopProps}
       />,
@@ -143,7 +150,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
         open
         onOpenChange={() => {}}
         draftId="draft-1"
-        accessToken="token"
+        authFetch={simpleAuthFetch('token')}
         canManage
         {...noopProps}
       />,
@@ -188,7 +195,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       });
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -211,7 +218,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       getInvoiceDraftFiscalSuggestions.mockResolvedValue(mercedesSuggestions);
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -228,7 +235,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       getInvoiceDraftFiscalSuggestions.mockResolvedValue(mercedesSuggestions);
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -249,7 +256,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       getInvoiceDraftFiscalSuggestions.mockResolvedValue(mercedesSuggestions);
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -281,7 +288,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       });
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -313,7 +320,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       });
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -346,7 +353,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       });
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -373,7 +380,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       });
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -407,7 +414,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       });
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -440,7 +447,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       });
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -464,7 +471,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       getInvoiceDraftFiscalSuggestions.mockResolvedValue(mercedesSuggestions);
 
       render(
-        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" accessToken="token" canManage {...noopProps} />,
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
       );
 
       const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
@@ -493,7 +500,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
         open
         onOpenChange={() => {}}
         draftId="draft-1"
-        accessToken="token"
+        authFetch={simpleAuthFetch('token')}
         canManage
         {...noopProps}
       />,
@@ -511,7 +518,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
     await waitFor(() => expect(promoteInvoiceDraft).toHaveBeenCalledWith('token', 'draft-1'));
   });
 
-  describe('Hardening pós-validação manual — "Token de acesso inválido ou expirado."', () => {
+  describe('Hardening de sessão — correção final pós-revisão Codex ("Token de acesso inválido ou expirado.")', () => {
     const draftReadyToPromote = {
       ...baseDraft,
       ocrStatus: 'FAILED' as const,
@@ -521,6 +528,29 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       supplier: { id: 'sup-1', name: 'ACME' },
     };
 
+    /**
+     * `authFetch` real (`withAuthRetry()` de `lib/auth.ts`, nunca
+     * reimplementado aqui) — só o `fetch` global (`/auth/refresh`) é
+     * mockado, para a lógica de renovação genuína ser exercitada, nunca
+     * mascarada por um mock estático que finge sempre sucesso.
+     */
+    function realAuthFetch(
+      initialAccessToken: string,
+      initialRefreshToken: string,
+      onTokensRefreshed: (tokens: { accessToken: string; refreshToken: string }) => void,
+      sessionExpired: () => void,
+    ): AuthFetch {
+      let current = { accessToken: initialAccessToken, refreshToken: initialRefreshToken };
+      return (request) =>
+        withAuthRetry(current.accessToken, current.refreshToken, request, (tokens) => {
+          current = tokens;
+          onTokensRefreshed(tokens);
+        }).catch((err) => {
+          if (err instanceof SessionExpiredError) sessionExpired();
+          throw err;
+        });
+    }
+
     async function clickPromoteAndConfirm() {
       const promoteTrigger = await screen.findByRole('button', { name: 'Promover a fatura' });
       await waitFor(() => expect(promoteTrigger).toBeEnabled());
@@ -528,6 +558,110 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       const confirmButton = await screen.findByRole('button', { name: 'Promover' });
       fireEvent.click(confirmButton);
     }
+
+    it('401 na ABERTURA do rascunho (getInvoiceDraft) renova a sessão uma única vez e repete o pedido — o rascunho aparece sem erro intermédio', async () => {
+      getInvoiceDraft
+        .mockRejectedValueOnce(new ApiError('Token de acesso inválido ou expirado.', 401))
+        .mockResolvedValueOnce(baseDraft);
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ accessToken: 'token-novo-abertura', refreshToken: 'refresh-novo-abertura' }), {
+          status: 200,
+        }),
+      );
+      const onTokensRefreshed = vi.fn();
+
+      render(
+        <InvoiceDraftReviewSheet
+          open
+          onOpenChange={() => {}}
+          draftId="draft-1"
+          authFetch={realAuthFetch('token-abertura', 'refresh-abertura', onTokensRefreshed, vi.fn())}
+          canManage
+          {...noopProps}
+        />,
+      );
+
+      await screen.findByRole('button', { name: 'Eliminar rascunho' });
+      expect(getInvoiceDraft).toHaveBeenCalledTimes(2);
+      expect(getInvoiceDraft).toHaveBeenNthCalledWith(1, 'token-abertura', 'draft-1');
+      expect(getInvoiceDraft).toHaveBeenNthCalledWith(2, 'token-novo-abertura', 'draft-1');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(onTokensRefreshed).toHaveBeenCalledWith({
+        accessToken: 'token-novo-abertura',
+        refreshToken: 'refresh-novo-abertura',
+      });
+      expect(screen.queryByText('Token de acesso inválido ou expirado.')).not.toBeInTheDocument();
+    });
+
+    it('401 ao GUARDAR alterações renova a sessão uma única vez e repete o PATCH exatamente uma vez — nunca duplicado', async () => {
+      getInvoiceDraft.mockResolvedValue(baseDraft);
+      updateInvoiceDraft
+        .mockRejectedValueOnce(new ApiError('Token de acesso inválido ou expirado.', 401))
+        .mockResolvedValueOnce({ ...baseDraft, number: 'F-100', issueDate: '2026-07-01T00:00:00.000Z', totalAmount: '250.50' });
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ accessToken: 'token-novo-save', refreshToken: 'refresh-novo-save' }), {
+          status: 200,
+        }),
+      );
+
+      render(
+        <InvoiceDraftReviewSheet
+          open
+          onOpenChange={() => {}}
+          draftId="draft-1"
+          authFetch={realAuthFetch('token-save-antigo', 'refresh-save-antigo', vi.fn(), vi.fn())}
+          canManage
+          {...noopProps}
+        />,
+      );
+
+      const applyButton = await screen.findByRole('button', { name: 'Aplicar sugestões' });
+      fireEvent.click(applyButton);
+      await screen.findByDisplayValue('F-100');
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar alterações' }));
+
+      await waitFor(() => expect(updateInvoiceDraft).toHaveBeenCalledTimes(2));
+      expect(updateInvoiceDraft).toHaveBeenNthCalledWith(1, 'token-save-antigo', 'draft-1', expect.anything());
+      expect(updateInvoiceDraft).toHaveBeenNthCalledWith(2, 'token-novo-save', 'draft-1', expect.anything());
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText('Token de acesso inválido ou expirado.')).not.toBeInTheDocument();
+    });
+
+    it('401 ao ELIMINAR o rascunho renova a sessão uma única vez e repete o DELETE exatamente uma vez — nunca duplicado', async () => {
+      getInvoiceDraft.mockResolvedValue(baseDraft);
+      deleteInvoiceDraft
+        .mockRejectedValueOnce(new ApiError('Token de acesso inválido ou expirado.', 401))
+        .mockResolvedValueOnce(undefined);
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ accessToken: 'token-novo-delete', refreshToken: 'refresh-novo-delete' }), {
+          status: 200,
+        }),
+      );
+      const onDeleted = vi.fn();
+
+      render(
+        <InvoiceDraftReviewSheet
+          open
+          onOpenChange={() => {}}
+          draftId="draft-1"
+          authFetch={realAuthFetch('token-delete-antigo', 'refresh-delete-antigo', vi.fn(), vi.fn())}
+          canManage
+          {...noopProps}
+          onDeleted={onDeleted}
+        />,
+      );
+
+      await screen.findByRole('button', { name: 'Eliminar rascunho' });
+      fireEvent.click(screen.getByRole('button', { name: 'Eliminar rascunho' }));
+      const confirmButton = await screen.findByRole('button', { name: 'Eliminar' });
+      fireEvent.click(confirmButton);
+
+      await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1));
+      expect(deleteInvoiceDraft).toHaveBeenCalledTimes(2);
+      expect(deleteInvoiceDraft).toHaveBeenNthCalledWith(1, 'token-delete-antigo', 'draft-1');
+      expect(deleteInvoiceDraft).toHaveBeenNthCalledWith(2, 'token-novo-delete', 'draft-1');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
 
     it('401 num pedido de promoção renova a sessão uma única vez e repete a promoção com o token novo', async () => {
       getInvoiceDraft.mockResolvedValue(draftReadyToPromote);
@@ -544,9 +678,7 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
           open
           onOpenChange={() => {}}
           draftId="draft-1"
-          accessToken="token-antigo"
-          refreshToken="refresh-antigo"
-          onTokensRefreshed={onTokensRefreshed}
+          authFetch={realAuthFetch('token-antigo', 'refresh-antigo', onTokensRefreshed, vi.fn())}
           canManage
           {...noopProps}
         />,
@@ -565,21 +697,25 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       expect(screen.queryByText('Token de acesso inválido ou expirado.')).not.toBeInTheDocument();
     });
 
-    it('refreshToken também expirado — mostra uma mensagem clara e distinta, nunca o 401 cru, e nunca repete a promoção uma segunda vez', async () => {
+    it('refreshToken também expirado — termina a sessão (sessionExpired) em vez de mostrar o 401 cru, e nunca repete a promoção uma segunda vez', async () => {
+      // Achado real (validação manual): antes desta correção, este
+      // cenário só mostrava uma mensagem de erro na folha, deixando o
+      // utilizador "autenticado visualmente" com uma sessão já morta em
+      // `localStorage`, em vez de terminar a sessão e reencaminhar para
+      // `/login`.
       getInvoiceDraft.mockResolvedValue(draftReadyToPromote);
       promoteInvoiceDraft.mockRejectedValue(new ApiError('Token de acesso inválido ou expirado.', 401));
       global.fetch = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ message: 'Refresh token inválido.' }), { status: 401 }),
       );
+      const sessionExpired = vi.fn();
 
       render(
         <InvoiceDraftReviewSheet
           open
           onOpenChange={() => {}}
           draftId="draft-1"
-          accessToken="token-antigo"
-          refreshToken="refresh-antigo"
-          onTokensRefreshed={() => {}}
+          authFetch={realAuthFetch('token-antigo-2', 'refresh-antigo-2', vi.fn(), sessionExpired)}
           canManage
           {...noopProps}
         />,
@@ -587,31 +723,9 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
 
       await clickPromoteAndConfirm();
 
-      await screen.findByText('A sua sessão expirou. Inicie sessão novamente.');
+      await waitFor(() => expect(sessionExpired).toHaveBeenCalledTimes(1));
       expect(promoteInvoiceDraft).toHaveBeenCalledTimes(1);
-    });
-
-    it('sem refreshToken/onTokensRefreshed (retrocompatibilidade) — 401 mostra o erro tal como antes, nunca tenta renovar', async () => {
-      getInvoiceDraft.mockResolvedValue(draftReadyToPromote);
-      promoteInvoiceDraft.mockRejectedValue(new ApiError('Token de acesso inválido ou expirado.', 401));
-      global.fetch = vi.fn();
-
-      render(
-        <InvoiceDraftReviewSheet
-          open
-          onOpenChange={() => {}}
-          draftId="draft-1"
-          accessToken="token-antigo"
-          canManage
-          {...noopProps}
-        />,
-      );
-
-      await clickPromoteAndConfirm();
-
-      await screen.findByText('Token de acesso inválido ou expirado.');
-      expect(global.fetch).not.toHaveBeenCalled();
-      expect(promoteInvoiceDraft).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText('Token de acesso inválido ou expirado.')).not.toBeInTheDocument();
     });
   });
 });

@@ -14,6 +14,7 @@ import { listExpenseCategories } from '../../../lib/expense-categories';
 import type { ExpenseCategory } from '../../../lib/expense-categories';
 import { listInvoices, deleteInvoice } from '../../../lib/invoices';
 import type { Invoice, InvoiceStatus, Paginated } from '../../../lib/invoices';
+import { isSessionLifecycleError } from '../../../lib/auth';
 import { formatCurrency, formatDate } from '../../../lib/format';
 import { InvoiceFormSheet } from './invoice-form-sheet';
 import { InvoiceAttachmentsPanel } from './invoice-attachments-panel';
@@ -31,7 +32,7 @@ const STATUS_BADGE_VARIANT: Record<InvoiceStatus, 'secondary' | 'success' | 'des
 };
 
 export default function InvoicesPage() {
-  const { session, me } = useSession();
+  const { me, authFetch } = useSession();
   const manage = canManage(me.role);
   const { feedback, notifySuccess, notifyError } = useFeedback();
 
@@ -51,29 +52,34 @@ export default function InvoicesPage() {
   const [attachmentsFor, setAttachmentsFor] = useState<Invoice | null>(null);
 
   useEffect(() => {
-    listSuppliers(session.accessToken, { pageSize: PICKER_PAGE_SIZE })
+    authFetch((token) => listSuppliers(token, { pageSize: PICKER_PAGE_SIZE }))
       .then((res) => setSuppliers(res.items))
       .catch(() => setSuppliers([]));
-    listExpenseCategories(session.accessToken)
+    authFetch((token) => listExpenseCategories(token))
       .then(setCategories)
       .catch(() => setCategories([]));
-  }, [session.accessToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const load = useCallback(() => {
-    listInvoices(session.accessToken, {
-      page,
-      pageSize: PAGE_SIZE,
-      status: statusFilter || undefined,
-      supplierId: supplierFilter || undefined,
-    })
+    authFetch((token) =>
+      listInvoices(token, {
+        page,
+        pageSize: PAGE_SIZE,
+        status: statusFilter || undefined,
+        supplierId: supplierFilter || undefined,
+      }),
+    )
       .then((res) => {
         setResult(res);
         setError(null);
       })
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : 'Erro ao carregar faturas.'),
-      );
-  }, [session.accessToken, page, statusFilter, supplierFilter]);
+      .catch((err) => {
+        if (isSessionLifecycleError(err)) return;
+        setError(err instanceof Error ? err.message : 'Erro ao carregar faturas.');
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, statusFilter, supplierFilter]);
 
   useEffect(() => {
     load();
@@ -93,11 +99,12 @@ export default function InvoicesPage() {
     if (!deleting) return;
     setDeleteLoading(true);
     try {
-      await deleteInvoice(session.accessToken, deleting.id);
+      await authFetch((token) => deleteInvoice(token, deleting.id));
       notifySuccess('Fatura eliminada.');
       setDeleting(null);
       load();
     } catch (err) {
+      if (isSessionLifecycleError(err)) return;
       notifyError(err instanceof Error ? err.message : 'Erro ao eliminar fatura.');
     } finally {
       setDeleteLoading(false);
@@ -259,7 +266,7 @@ export default function InvoicesPage() {
       <InvoiceFormSheet
         open={formOpen}
         onOpenChange={setFormOpen}
-        accessToken={session.accessToken}
+        authFetch={authFetch}
         invoice={editing}
         suppliers={suppliers}
         categories={categories}
@@ -285,7 +292,7 @@ export default function InvoicesPage() {
         onOpenChange={(open) => {
           if (!open) setAttachmentsFor(null);
         }}
-        accessToken={session.accessToken}
+        authFetch={authFetch}
         invoiceId={attachmentsFor?.id ?? null}
         invoiceLabel={attachmentsFor?.number ?? attachmentsFor?.id}
         canManage={manage}
