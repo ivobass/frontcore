@@ -20,12 +20,21 @@ import {
 } from '@frontcore/ui';
 import {
   getInvoiceDraft,
-  updateInvoiceDraft,
   deleteInvoiceDraft,
   promoteInvoiceDraft,
   getInvoiceDraftFiscalSuggestions,
+  runAiInvoiceExtraction,
+  saveInvoiceDraftReview,
 } from '../../../lib/invoice-drafts';
-import type { InvoiceDraft, DraftFiscalSuggestions, UpdateInvoiceDraftInput } from '../../../lib/invoice-drafts';
+import type {
+  InvoiceDraft,
+  InvoiceDraftItem,
+  DraftFiscalSuggestions,
+  UpdateInvoiceDraftInput,
+  InvoiceDraftItemInput,
+  InvoiceExtractionReconciliation,
+  ReconciledField,
+} from '../../../lib/invoice-drafts';
 import { isSessionLifecycleError } from '../../../lib/auth';
 import type { AuthFetch } from '../../../lib/auth';
 import { listSuppliers } from '../../../lib/suppliers';
@@ -71,6 +80,73 @@ function draftToFormValues(draft: InvoiceDraft): DraftFormValues {
     notes: draft.notes ?? '',
   };
 }
+
+/** Forma editável de uma linha (Fase 6.14) — tudo string, `''` = "sem valor" (mapeado para `null` no PUT). */
+interface DraftItemFormRow {
+  description: string;
+  quantity: string;
+  unit: string;
+  unitPrice: string;
+  vatRate: string;
+  totalPrice: string;
+}
+
+const EMPTY_ITEM_ROW: DraftItemFormRow = {
+  description: '',
+  quantity: '',
+  unit: '',
+  unitPrice: '',
+  vatRate: '',
+  totalPrice: '',
+};
+
+function draftItemToFormRow(item: InvoiceDraftItem): DraftItemFormRow {
+  return {
+    description: item.description,
+    quantity: item.quantity ?? '',
+    unit: item.unit ?? '',
+    unitPrice: item.unitPrice ?? '',
+    vatRate: item.vatRate ?? '',
+    totalPrice: item.totalPrice ?? '',
+  };
+}
+
+/** `position` é sempre o índice no array (1-based) — a ordem das linhas na UI é sempre a ordem final, nunca um campo independente que possa dessincronizar. */
+function buildItemsPayload(rows: DraftItemFormRow[]): InvoiceDraftItemInput[] {
+  return rows.map((row, index) => ({
+    position: index + 1,
+    description: row.description,
+    quantity: row.quantity === '' ? null : Number(row.quantity),
+    unit: row.unit === '' ? null : row.unit,
+    unitPrice: row.unitPrice === '' ? null : Number(row.unitPrice),
+    vatRate: row.vatRate === '' ? null : Number(row.vatRate),
+    totalPrice: row.totalPrice === '' ? null : Number(row.totalPrice),
+  }));
+}
+
+const RECONCILED_HEADER_FIELDS: Array<{
+  key: keyof Omit<InvoiceExtractionReconciliation, 'items'>;
+  label: string;
+}> = [
+  { key: 'supplierName', label: 'Fornecedor (IA)' },
+  { key: 'supplierTaxId', label: 'NIF' },
+  { key: 'invoiceNumber', label: 'Número' },
+  { key: 'issueDate', label: 'Emissão' },
+  { key: 'dueDate', label: 'Vencimento' },
+  { key: 'currency', label: 'Moeda' },
+  { key: 'subtotal', label: 'Subtotal' },
+  { key: 'vatAmount', label: 'IVA' },
+  { key: 'total', label: 'Total' },
+];
+
+const RECONCILIATION_STATUS_LABELS: Record<ReconciledField<string>['status'], string> = {
+  agreement: 'concordância',
+  conflict: 'conflito',
+  deterministic_only: 'só determinístico',
+  ai_only: 'só IA',
+  empty: 'sem dados',
+  manual: 'manual',
+};
 
 /**
  * Normaliza um nome de fornecedor para comparação — ignora maiúsculas/
@@ -234,6 +310,10 @@ export function InvoiceDraftReviewSheet({
   const [savedValues, setSavedValues] = useState<DraftFormValues>(EMPTY_FORM);
   const [formValues, setFormValues] = useState<DraftFormValues>(EMPTY_FORM);
 
+  const [savedItemRows, setSavedItemRows] = useState<DraftItemFormRow[]>([]);
+  const [itemRows, setItemRows] = useState<DraftItemFormRow[]>([]);
+  const [itemsError, setItemsError] = useState<string | null>(null);
+
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
 
@@ -241,6 +321,10 @@ export function InvoiceDraftReviewSheet({
   const [parsingLoading, setParsingLoading] = useState(false);
   const [parsingError, setParsingError] = useState<string | null>(null);
   const [supplierWarning, setSupplierWarning] = useState<string | null>(null);
+
+  const [aiReconciliation, setAiReconciliation] = useState<InvoiceExtractionReconciliation | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -257,6 +341,9 @@ export function InvoiceDraftReviewSheet({
     const values = draftToFormValues(next);
     setSavedValues(values);
     setFormValues(values);
+    const rows = next.items.map(draftItemToFormRow);
+    setSavedItemRows(rows);
+    setItemRows(rows);
   }, []);
 
   // Carrega o rascunho ao abrir/trocar de id — reinicia todo o estado
@@ -271,6 +358,9 @@ export function InvoiceDraftReviewSheet({
     setSupplierWarning(null);
     setSaveError(null);
     setPromoteError(null);
+    setItemsError(null);
+    setAiReconciliation(null);
+    setAiError(null);
     authFetch((token) => getInvoiceDraft(token, draftId))
       .then((next) => {
         applyDraft(next);
@@ -309,9 +399,10 @@ export function InvoiceDraftReviewSheet({
           if (cancelled) return;
           setDraft(next);
           // Só o snapshot de estado OCR muda por polling — o formulário
-          // do utilizador (formValues) nunca é tocado aqui, mesmo que
-          // outros campos do draft tenham mudado entretanto.
+          // do utilizador (formValues/itemRows) nunca é tocado aqui,
+          // mesmo que outros campos do draft tenham mudado entretanto.
           setSavedValues(draftToFormValues(next));
+          setSavedItemRows(next.items.map(draftItemToFormRow));
         })
         .catch(() => {
           /* falha pontual de polling não interrompe o ciclo — tenta na próxima iteração (`authFetch` já renovou a sessão silenciosamente ou terminou-a se o refresh também falhou) */
@@ -410,16 +501,91 @@ export function InvoiceDraftReviewSheet({
     }));
   }
 
+  function updateItemRow(index: number, patch: Partial<DraftItemFormRow>) {
+    setItemRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  function addItemRow() {
+    setItemRows((prev) => [...prev, { ...EMPTY_ITEM_ROW }]);
+  }
+
+  function removeItemRow(index: number) {
+    setItemRows((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function moveItemRow(index: number, direction: -1 | 1) {
+    setItemRows((prev) => {
+      const target = index + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  /**
+   * Fase 6.14 — corre o parsing determinístico + a extração por IA
+   * (uma única chamada estruturada) e reconcilia os dois. Ação
+   * explícita (nunca automática, ao contrário do parsing fiscal
+   * determinístico/gratuito) — envolve sempre uma chamada real a um
+   * provider de IA. Recarrega sempre `items`/`itemsReviewedByHuman` a
+   * partir da resposta (fonte de verdade do backend, que só escreve as
+   * linhas quando ainda não tinham sido revistas manualmente) — nunca
+   * aplica `reconciliation.items` diretamente ao formulário.
+   */
+  async function handleRunAiExtraction() {
+    if (!draftId) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const result = await authFetch((token) => runAiInvoiceExtraction(token, draftId));
+      setAiReconciliation(result.reconciliation);
+      setDraft((prev) =>
+        prev
+          ? { ...prev, items: result.items, itemsReviewedByHuman: prev.itemsReviewedByHuman || result.itemsPersisted }
+          : prev,
+      );
+      const rows = result.items.map(draftItemToFormRow);
+      setSavedItemRows(rows);
+      setItemRows(rows);
+    } catch (err) {
+      if (isSessionLifecycleError(err)) return;
+      setAiError(err instanceof Error ? err.message : 'Erro ao analisar com IA.');
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
   async function handleSave() {
     if (!draftId) return;
     const patch = buildPatch(formValues, savedValues);
-    if (Object.keys(patch).length === 0) return;
+    const itemsChanged = JSON.stringify(itemRows) !== JSON.stringify(savedItemRows);
+    if (Object.keys(patch).length === 0 && !itemsChanged) return;
+
+    if (itemsChanged && itemRows.some((row) => row.description.trim() === '')) {
+      setItemsError('Todas as linhas precisam de uma descrição.');
+      return;
+    }
+    setItemsError(null);
 
     setSaving(true);
     setSaveError(null);
     try {
-      const updated = await authFetch((token) => updateInvoiceDraft(token, draftId, patch));
-      applyDraft(updated);
+      // Correção pós-revisão Codex (achado 9) — cabeçalho e linhas são
+      // gravados num único pedido atómico (`PATCH :id/review`, mesma
+      // transação Prisma no backend). Antes, dois pedidos independentes
+      // (`PATCH :id` + `PUT :id/items`) podiam deixar um sucesso parcial
+      // silencioso: se o cabeçalho gravasse e as linhas falhassem, o
+      // servidor ficava com o cabeçalho atualizado, mas a UI nunca
+      // aplicava esse resultado nem distinguia esse caso de "nada foi
+      // guardado". Com um único pedido, ou os dois persistem, ou nenhum.
+      const latestDraft = await authFetch((token) =>
+        saveInvoiceDraftReview(token, draftId, {
+          ...(Object.keys(patch).length > 0 ? { patch } : {}),
+          ...(itemsChanged ? { items: buildItemsPayload(itemRows) } : {}),
+        }),
+      );
+      applyDraft(latestDraft);
       onSaved();
     } catch (err) {
       if (isSessionLifecycleError(err)) return;
@@ -460,7 +626,9 @@ export function InvoiceDraftReviewSheet({
     }
   }
 
-  const isDirty = Object.keys(buildPatch(formValues, savedValues)).length > 0;
+  const isDirty =
+    Object.keys(buildPatch(formValues, savedValues)).length > 0 ||
+    JSON.stringify(itemRows) !== JSON.stringify(savedItemRows);
   const canPromote = Boolean(draft?.supplierId && draft?.issueDate && draft?.totalAmount);
 
   return (
@@ -703,6 +871,190 @@ export function InvoiceDraftReviewSheet({
                   </p>
                 </div>
               )}
+
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <FieldLabel>Linhas</FieldLabel>
+                  {canManage ? (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleRunAiExtraction}
+                        disabled={!draft.ocrText || aiLoading}
+                      >
+                        {aiLoading ? 'A analisar…' : 'Analisar com IA'}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={addItemRow}>
+                        Adicionar linha
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+
+                {aiError ? <p className="text-sm text-destructive">Extração IA: {aiError}</p> : null}
+
+                {aiReconciliation ? (
+                  <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/30 p-4">
+                    <p className="text-sm font-medium">Reconciliação determinístico + IA (cabeçalho)</p>
+                    {RECONCILED_HEADER_FIELDS.map(({ key, label }) => {
+                      const field = aiReconciliation[key];
+                      if (field.status === 'empty') return null;
+                      if (field.status === 'conflict') {
+                        return (
+                          <p key={key} className="text-sm">
+                            {label}: <span className="text-destructive">conflito</span> — determinístico "
+                            {field.deterministicValue}" vs IA "{field.aiValue}"
+                          </p>
+                        );
+                      }
+                      return (
+                        <p key={key} className="text-sm">
+                          {label}: {field.suggestedValue}{' '}
+                          <span className="text-muted-foreground">
+                            ({RECONCILIATION_STATUS_LABELS[field.status]})
+                          </span>
+                        </p>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {itemsError ? <p className="text-sm text-destructive">{itemsError}</p> : null}
+
+                {canManage ? (
+                  itemRows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Nenhuma linha — adicione manualmente ou analise com IA.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-muted-foreground">
+                            <th className="p-1 font-normal">Descrição</th>
+                            <th className="p-1 font-normal">Qtd</th>
+                            <th className="p-1 font-normal">Unidade</th>
+                            <th className="p-1 font-normal">Preço Unitário</th>
+                            <th className="p-1 font-normal">IVA %</th>
+                            <th className="p-1 font-normal">Total</th>
+                            <th className="p-1" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {itemRows.map((row, index) => (
+                            <tr key={index}>
+                              <td className="p-1">
+                                <Input
+                                  aria-label={`Descrição da linha ${index + 1}`}
+                                  value={row.description}
+                                  onChange={(event) => updateItemRow(index, { description: event.target.value })}
+                                />
+                              </td>
+                              <td className="p-1">
+                                <Input
+                                  aria-label={`Quantidade da linha ${index + 1}`}
+                                  type="number"
+                                  value={row.quantity}
+                                  onChange={(event) => updateItemRow(index, { quantity: event.target.value })}
+                                />
+                              </td>
+                              <td className="p-1">
+                                <Input
+                                  aria-label={`Unidade da linha ${index + 1}`}
+                                  value={row.unit}
+                                  onChange={(event) => updateItemRow(index, { unit: event.target.value })}
+                                />
+                              </td>
+                              <td className="p-1">
+                                <Input
+                                  aria-label={`Preço unitário da linha ${index + 1}`}
+                                  type="number"
+                                  value={row.unitPrice}
+                                  onChange={(event) => updateItemRow(index, { unitPrice: event.target.value })}
+                                />
+                              </td>
+                              <td className="p-1">
+                                <Input
+                                  aria-label={`IVA da linha ${index + 1}`}
+                                  type="number"
+                                  value={row.vatRate}
+                                  onChange={(event) => updateItemRow(index, { vatRate: event.target.value })}
+                                />
+                              </td>
+                              <td className="p-1">
+                                <Input
+                                  aria-label={`Total da linha ${index + 1}`}
+                                  type="number"
+                                  value={row.totalPrice}
+                                  onChange={(event) => updateItemRow(index, { totalPrice: event.target.value })}
+                                />
+                              </td>
+                              <td className="whitespace-nowrap p-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`Mover linha ${index + 1} para cima`}
+                                  onClick={() => moveItemRow(index, -1)}
+                                  disabled={index === 0}
+                                >
+                                  ↑
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`Mover linha ${index + 1} para baixo`}
+                                  onClick={() => moveItemRow(index, 1)}
+                                  disabled={index === itemRows.length - 1}
+                                >
+                                  ↓
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive"
+                                  onClick={() => removeItemRow(index)}
+                                >
+                                  Remover
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                ) : draft.items.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Sem linhas.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-muted-foreground">
+                          <th className="p-1 font-normal">Descrição</th>
+                          <th className="p-1 font-normal">Qtd</th>
+                          <th className="p-1 font-normal">Unidade</th>
+                          <th className="p-1 font-normal">Preço Unitário</th>
+                          <th className="p-1 font-normal">IVA %</th>
+                          <th className="p-1 font-normal">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {draft.items.map((item) => (
+                          <tr key={item.id}>
+                            <td className="p-1">{item.description}</td>
+                            <td className="p-1">{item.quantity ?? '—'}</td>
+                            <td className="p-1">{item.unit ?? '—'}</td>
+                            <td className="p-1">{item.unitPrice ? formatCurrency(item.unitPrice) : '—'}</td>
+                            <td className="p-1">{item.vatRate ? `${item.vatRate}%` : '—'}</td>
+                            <td className="p-1">{item.totalPrice ? formatCurrency(item.totalPrice) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           ) : null}
 

@@ -628,6 +628,7 @@ describe('AI Chat (e2e)', () => {
       });
       prisma.supplier.findFirst.mockResolvedValue({ id: 'sup-1', organizationId: 'org-1' });
       prisma.expenseCategory.findFirst.mockResolvedValue({ id: 'cat-1', organizationId: 'org-1' });
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
       prisma.invoice.create.mockImplementation(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: 'inv-1', ...data }));
       prisma.invoiceAttachment.create.mockResolvedValue({ id: 'att-1' });
       prisma.invoiceDraft.delete.mockResolvedValue({ id: 'draft-1' });

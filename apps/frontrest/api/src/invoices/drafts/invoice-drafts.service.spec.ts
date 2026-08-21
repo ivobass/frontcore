@@ -46,18 +46,27 @@ function createMockQueueProducer() {
 }
 type MockQueueProducer = ReturnType<typeof createMockQueueProducer>;
 
+/** IA sempre "indisponível" por omissão — os testes que precisam de um resultado de IA real sobrescrevem `extract`. */
+function createMockAiInvoiceExtractor() {
+  return { extract: jest.fn().mockResolvedValue({ extraction: null, metadata: null }) };
+}
+type MockAiInvoiceExtractor = ReturnType<typeof createMockAiInvoiceExtractor>;
+
 describe('InvoiceDraftsService', () => {
   let service: InvoiceDraftsService;
   let prisma: MockPrismaService;
   let queueProducer: MockQueueProducer;
+  let aiInvoiceExtractor: MockAiInvoiceExtractor;
 
   beforeEach(() => {
     prisma = createMockPrismaService();
     queueProducer = createMockQueueProducer();
+    aiInvoiceExtractor = createMockAiInvoiceExtractor();
     service = new InvoiceDraftsService(
       prisma as never,
       queueProducer as never,
       createRealFiscalParsingService(),
+      aiInvoiceExtractor as never,
     );
     // Por omissão, o StorageObject existe, pertence à organização e está
     // livre — os testes que querem o caso contrário sobrescrevem.
@@ -66,6 +75,9 @@ describe('InvoiceDraftsService', () => {
     prisma.invoiceAttachment.findFirst.mockResolvedValue(null);
     prisma.supplier.findFirst.mockResolvedValue({ id: 'sup-1', organizationId: 'org-1' });
     prisma.expenseCategory.findFirst.mockResolvedValue({ id: 'cat-1', organizationId: 'org-1' });
+    // Por omissão, sem linhas de staging — os testes de items/promoção
+    // com linhas sobrescrevem explicitamente (Fase 6.14).
+    prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
   });
 
   describe('create', () => {
@@ -651,6 +663,641 @@ describe('InvoiceDraftsService', () => {
 
       await expect(service.promote('org-1', 'draft-1')).rejects.toThrow('falha ao criar anexo');
       expect(prisma.invoiceDraft.delete).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Correção pós-revisão Codex (achado 6, ALTO — lost update). A versão
+     * anterior lia `draft`/`draftItems` ANTES de abrir a transação — uma
+     * alteração concorrente entre essa leitura e o `DELETE` final ficava
+     * perdida silenciosamente. A correção usa `SELECT ... FOR UPDATE`
+     * (`tx.$queryRaw`) para bloquear a linha do `InvoiceDraft` logo no
+     * início da transação, ANTES de qualquer leitura que determine os
+     * valores promovidos — só depois desse lock é que `draft`/
+     * `draftItems` são lidos. Num Postgres real, qualquer escrita
+     * concorrente à mesma linha (ex. `replaceItems()`, um `PATCH` ao
+     * cabeçalho) fica bloqueada até este COMMIT/ROLLBACK, nunca perdida.
+     * Como o mock não tem estado real de concorrência, este teste prova
+     * o mecanismo que garante essa proteção: a ordem de chamadas (lock
+     * sempre primeiro) e os parâmetros exatos do lock (id +
+     * organizationId corretos, nunca um lock genérico).
+     */
+    describe('achado 6 (alto) — lost update na promoção', () => {
+      it('bloqueia a linha do InvoiceDraft (SELECT ... FOR UPDATE) ANTES de ler draft/items — nunca lê valores a promover sem o lock já ativo', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(completeDraft());
+        prisma.invoice.create.mockResolvedValue({ id: 'inv-1' });
+        prisma.invoiceAttachment.create.mockResolvedValue({ id: 'att-1' });
+        prisma.invoiceDraft.delete.mockResolvedValue({ id: 'draft-1' });
+
+        await service.promote('org-1', 'draft-1');
+
+        expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+        const lockOrder = prisma.$queryRaw.mock.invocationCallOrder[0];
+        const draftReadOrder = prisma.invoiceDraft.findFirst.mock.invocationCallOrder[0];
+        const itemsReadOrder = prisma.invoiceDraftItem.findMany.mock.invocationCallOrder[0];
+        expect(lockOrder).toBeLessThan(draftReadOrder);
+        expect(lockOrder).toBeLessThan(itemsReadOrder);
+
+        const [strings, ...values] = prisma.$queryRaw.mock.calls[0];
+        expect(strings.join(' ')).toContain('FOR UPDATE');
+        expect(values).toContain('draft-1');
+        expect(values).toContain('org-1');
+      });
+
+      it('se o lock não encontrar a linha (ex. já apagada/promovida por outra transação concorrente), falha 404 de imediato, sem ler draft/items nem escrever nada', async () => {
+        prisma.$queryRaw.mockResolvedValueOnce([]);
+
+        await expect(service.promote('org-1', 'draft-1')).rejects.toThrow(NotFoundException);
+        expect(prisma.invoiceDraft.findFirst).not.toHaveBeenCalled();
+        expect(prisma.invoiceDraftItem.findMany).not.toHaveBeenCalled();
+        expect(prisma.invoice.create).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('items (Fase 6.14)', () => {
+      function draftItem(overrides: Record<string, unknown> = {}) {
+        return {
+          id: 'item-1',
+          organizationId: 'org-1',
+          invoiceDraftId: 'draft-1',
+          position: 1,
+          description: 'Farinha 25kg',
+          quantity: 2,
+          unit: 'saco',
+          unitPrice: 18.5,
+          vatRate: 23,
+          totalPrice: 37,
+          ...overrides,
+        };
+      }
+
+      it('promoção sem nenhuma linha continua coerente (comportamento anterior preservado)', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(completeDraft());
+        prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
+        prisma.invoice.create.mockResolvedValue({ id: 'inv-1' });
+        prisma.invoiceAttachment.create.mockResolvedValue({ id: 'att-1' });
+        prisma.invoiceDraft.delete.mockResolvedValue({ id: 'draft-1' });
+
+        await service.promote('org-1', 'draft-1');
+
+        const call = prisma.invoice.create.mock.calls[0][0];
+        expect(call.data.items).toBeUndefined();
+      });
+
+      it('copia as linhas completas para Invoice.items — position/unit/vatRate/precisão preservados', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(completeDraft());
+        prisma.invoiceDraftItem.findMany.mockResolvedValue([draftItem()]);
+        prisma.invoice.create.mockResolvedValue({ id: 'inv-1' });
+        prisma.invoiceAttachment.create.mockResolvedValue({ id: 'att-1' });
+        prisma.invoiceDraft.delete.mockResolvedValue({ id: 'draft-1' });
+
+        await service.promote('org-1', 'draft-1');
+
+        expect(prisma.invoice.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              items: {
+                create: [
+                  {
+                    position: 1,
+                    description: 'Farinha 25kg',
+                    quantity: 2,
+                    unit: 'saco',
+                    unitPrice: 18.5,
+                    vatRate: 23,
+                    totalPrice: 37,
+                  },
+                ],
+              },
+            }),
+          }),
+        );
+      });
+
+      it('rejeita a promoção quando uma linha não tem quantidade/preço unitário/total preenchidos — nunca inventa o valor em falta', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(completeDraft());
+        prisma.invoiceDraftItem.findMany.mockResolvedValue([draftItem({ unitPrice: null })]);
+
+        await expect(service.promote('org-1', 'draft-1')).rejects.toThrow(BadRequestException);
+        expect(prisma.invoice.create).not.toHaveBeenCalled();
+      });
+
+      it('carrega as linhas sempre filtrando por invoiceDraftId E organizationId em simultâneo (isolamento multi-tenant)', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(completeDraft());
+        prisma.invoiceDraftItem.findMany.mockResolvedValue([draftItem()]);
+        prisma.invoice.create.mockResolvedValue({ id: 'inv-1' });
+        prisma.invoiceAttachment.create.mockResolvedValue({ id: 'att-1' });
+        prisma.invoiceDraft.delete.mockResolvedValue({ id: 'draft-1' });
+
+        await service.promote('org-1', 'draft-1');
+
+        expect(prisma.invoiceDraftItem.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { invoiceDraftId: 'draft-1', organizationId: 'org-1' } }),
+        );
+      });
+
+      it('rollback completo: se a criação do InvoiceItem falhar (via invoice.create), nem Invoice nem InvoiceAttachment persistem, e o InvoiceDraftItem de staging permanece', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(completeDraft());
+        prisma.invoiceDraftItem.findMany.mockResolvedValue([draftItem()]);
+        prisma.invoice.create.mockRejectedValue(new Error('falha ao criar items'));
+
+        await expect(service.promote('org-1', 'draft-1')).rejects.toThrow('falha ao criar items');
+        expect(prisma.invoiceAttachment.create).not.toHaveBeenCalled();
+        expect(prisma.invoiceDraft.delete).not.toHaveBeenCalled();
+        // O staging (InvoiceDraftItem) nunca é apagado por este método diretamente — só via cascade
+        // ao eliminar o InvoiceDraft, que aqui nunca chega a acontecer.
+        expect(prisma.invoiceDraftItem.deleteMany).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('runAiExtraction (Fase 6.14)', () => {
+    function draftWithOcr(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'draft-1',
+        organizationId: 'org-1',
+        itemsReviewedByHuman: false,
+        ocrText: 'Fornecedor: Acme Distribuição Lda\nNIF: 123456789\nTotal: 123,00 EUR',
+        ...overrides,
+      };
+    }
+
+    const AI_EXTRACTION_WITH_ITEMS = {
+      schemaVersion: '1' as const,
+      supplier: { name: 'Acme Distribuição Lda', taxId: '123456789' },
+      invoice: { number: null, issueDate: null, dueDate: null, currency: 'EUR' },
+      totals: { subtotal: null, vatAmount: null, total: '123.00' },
+      items: [
+        {
+          position: 1,
+          description: 'Farinha 25kg',
+          quantity: '2',
+          unit: 'saco',
+          unitPrice: '18.50',
+          vatRate: '23',
+          totalPrice: '37.00',
+        },
+      ],
+    };
+    const AI_METADATA = { provider: 'openrouter', model: 'openai/gpt-4o-mini', inputTokens: 500, outputTokens: 80, durationMs: 900 };
+
+    it('rejeita quando o draft ainda não tem ocrText', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr({ ocrText: null }));
+
+      await expect(service.runAiExtraction('org-1', 'draft-1')).rejects.toThrow(BadRequestException);
+      expect(aiInvoiceExtractor.extract).not.toHaveBeenCalled();
+    });
+
+    it('itemsReviewedByHuman ainda false + IA devolve linhas: persiste InvoiceDraftItem e devolve itemsPersisted true', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr());
+      aiInvoiceExtractor.extract.mockResolvedValue({ extraction: AI_EXTRACTION_WITH_ITEMS, metadata: AI_METADATA });
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([{ id: 'item-1', position: 1, description: 'Farinha 25kg' }]);
+
+      const result = await service.runAiExtraction('org-1', 'draft-1');
+
+      expect(result.itemsPersisted).toBe(true);
+      // Correção pós-revisão Codex (achado 11, multi-tenant): `organizationId`
+      // explícito também em `deleteMany`, nunca só `invoiceDraftId`.
+      expect(prisma.invoiceDraftItem.deleteMany).toHaveBeenCalledWith({
+        where: { invoiceDraftId: 'draft-1', organizationId: 'org-1' },
+      });
+      expect(prisma.invoiceDraftItem.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: [
+            expect.objectContaining({
+              organizationId: 'org-1',
+              invoiceDraftId: 'draft-1',
+              position: 1,
+              description: 'Farinha 25kg',
+              quantity: '2',
+              unit: 'saco',
+              unitPrice: '18.50',
+              vatRate: '23',
+              totalPrice: '37.00',
+            }),
+          ],
+        }),
+      );
+    });
+
+    it('itemsReviewedByHuman já true: NUNCA volta a escrever as linhas, mesmo com uma sugestão de IA diferente — não sobrescreve correção humana', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr({ itemsReviewedByHuman: true }));
+      aiInvoiceExtractor.extract.mockResolvedValue({ extraction: AI_EXTRACTION_WITH_ITEMS, metadata: AI_METADATA });
+
+      const result = await service.runAiExtraction('org-1', 'draft-1');
+
+      expect(result.itemsPersisted).toBe(false);
+      expect(prisma.invoiceDraftItem.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.invoiceDraftItem.createMany).not.toHaveBeenCalled();
+    });
+
+    it('IA indisponível (extraction null): nunca lança, reconciliação usa só o determinístico, items fica vazio', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr());
+      aiInvoiceExtractor.extract.mockResolvedValue({ extraction: null, metadata: null });
+
+      const result = await service.runAiExtraction('org-1', 'draft-1');
+
+      expect(result.reconciliation.items).toEqual([]);
+      expect(result.itemsPersisted).toBe(false);
+      expect(prisma.invoiceDraftAiExtraction.upsert).not.toHaveBeenCalled();
+    });
+
+    it('persiste metadata da IA (provider/model/tokens/duração) via upsert — uma linha por draft', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr());
+      aiInvoiceExtractor.extract.mockResolvedValue({ extraction: AI_EXTRACTION_WITH_ITEMS, metadata: AI_METADATA });
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
+
+      await service.runAiExtraction('org-1', 'draft-1');
+
+      expect(prisma.invoiceDraftAiExtraction.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { invoiceDraftId: 'draft-1' },
+          create: expect.objectContaining({
+            organizationId: 'org-1',
+            invoiceDraftId: 'draft-1',
+            schemaVersion: '1',
+            provider: 'openrouter',
+            model: 'openai/gpt-4o-mini',
+            inputTokens: 500,
+            outputTokens: 80,
+            durationMs: 900,
+          }),
+        }),
+      );
+    });
+
+    /**
+     * Correção pós-revisão Codex (achado 1, CRÍTICO — race condition,
+     * 2ª ronda). A versão anterior deste teste usava
+     * `mockResolvedValueOnce(false).mockResolvedValueOnce(true)` — uma
+     * sequência de valores de retorno pré-programada, nunca uma corrida
+     * real (a revisão apontou isto explicitamente: "isso não prova a
+     * race"). Este teste usa uma Promise pendente REAL e controlada pelo
+     * teste para o "provider": `runAiExtraction()` arranca, fica
+     * genuinamente bloqueado (nunca chega a abrir a transação — o
+     * `await Promise.all(...)` ainda não resolveu), confirma-se que a
+     * chamada ainda não terminou, só DEPOIS disso um `replaceItems()`
+     * concorrente corre e termina por completo (grava as linhas
+     * humanas, marca `itemsReviewedByHuman = true` no estado partilhado
+     * que ambos os métodos leem/escrevem através do mock), e só então a
+     * Promise do provider é resolvida. Prova que a decisão de
+     * `runAiExtraction()` nunca pode ver um estado mais antigo do que o
+     * que existia no momento em que a transação abre — nunca o
+     * `mockResolvedValueOnce` a fingir essa propriedade.
+     */
+    it('achado 1 (crítico, 2ª ronda) — Promise real e controlada para o provider: runAiExtraction só decide depois de replaceItems() concorrente ter terminado por completo, nunca com base num valor anterior à resposta do provider', async () => {
+      const state: { itemsReviewedByHuman: boolean; items: Array<Record<string, unknown>> } = {
+        itemsReviewedByHuman: false,
+        items: [],
+      };
+      prisma.invoiceDraft.findFirst.mockImplementation((async (args: { where: { id: string; organizationId: string }; select?: unknown }) => {
+        if (args.where.id !== 'draft-1' || args.where.organizationId !== 'org-1') return null;
+        if (args.select) return { itemsReviewedByHuman: state.itemsReviewedByHuman };
+        return draftWithOcr({ itemsReviewedByHuman: state.itemsReviewedByHuman });
+      }) as never);
+      prisma.invoiceDraft.update.mockImplementation((async (args: { data: { itemsReviewedByHuman?: boolean } }) => {
+        if (args.data.itemsReviewedByHuman !== undefined) state.itemsReviewedByHuman = args.data.itemsReviewedByHuman;
+        return { id: 'draft-1' };
+      }) as never);
+      prisma.invoiceDraftItem.deleteMany.mockImplementation((async () => {
+        state.items = [];
+        return { count: 0 };
+      }) as never);
+      prisma.invoiceDraftItem.createMany.mockImplementation((async (args: { data: Array<Record<string, unknown>> }) => {
+        state.items = args.data;
+        return { count: args.data.length };
+      }) as never);
+      prisma.invoiceDraftItem.findMany.mockImplementation((async () => state.items) as never);
+
+      let resolveProvider!: (value: { extraction: typeof AI_EXTRACTION_WITH_ITEMS; metadata: typeof AI_METADATA }) => void;
+      const providerPromise = new Promise<{ extraction: typeof AI_EXTRACTION_WITH_ITEMS; metadata: typeof AI_METADATA }>(
+        (resolve) => {
+          resolveProvider = resolve;
+        },
+      );
+      aiInvoiceExtractor.extract.mockReturnValue(providerPromise as never);
+
+      const runAiPromise = service.runAiExtraction('org-1', 'draft-1');
+      let aiSettled = false;
+      runAiPromise.then(
+        () => {
+          aiSettled = true;
+        },
+        () => {
+          aiSettled = true;
+        },
+      );
+
+      // Vários "ticks" do event loop — confirma que runAiExtraction()
+      // continua genuinamente bloqueado no provider, nunca terminou.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(aiSettled).toBe(false);
+
+      // A revisão humana concorrente TERMINA por completo enquanto a IA
+      // ainda espera pelo provider.
+      await service.replaceItems('org-1', 'draft-1', [
+        { description: 'Linha corrigida pelo humano', unitPrice: 1 } as never,
+      ]);
+      expect(state.itemsReviewedByHuman).toBe(true);
+      const humanItemsSnapshot = [...state.items];
+
+      // Só agora o provider "responde" — runAiExtraction() pode
+      // finalmente abrir a sua transação e decidir.
+      resolveProvider({ extraction: AI_EXTRACTION_WITH_ITEMS, metadata: AI_METADATA });
+      const result = await runAiPromise;
+
+      expect(result.itemsPersisted).toBe(false);
+      expect(state.items).toEqual(humanItemsSnapshot);
+      expect(state.itemsReviewedByHuman).toBe(true);
+    });
+
+    describe('achado 1 (crítico, 2ª ronda) — todos os writers serializam pela mesma linha InvoiceDraft', () => {
+      it('adquire SELECT ... FOR UPDATE (lockInvoiceDraftRow) como a PRIMEIRA operação dentro da transação, antes de ler itemsReviewedByHuman', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr());
+        aiInvoiceExtractor.extract.mockResolvedValue({ extraction: null, metadata: null });
+
+        await service.runAiExtraction('org-1', 'draft-1');
+
+        expect(prisma.$queryRaw).toHaveBeenCalled();
+        const lockOrder = prisma.$queryRaw.mock.invocationCallOrder[0];
+        // A 2ª chamada a `invoiceDraft.findFirst` é a releitura de
+        // `itemsReviewedByHuman` dentro da transação (a 1ª é o
+        // `findOne()` de pré-verificação, ainda antes da transação).
+        const rereadOrder = prisma.invoiceDraft.findFirst.mock.invocationCallOrder[1];
+        expect(lockOrder).toBeLessThan(rereadOrder);
+      });
+
+      it('se o lock não encontrar a linha (apagada/promovida concorrentemente), falha 404 dentro da transação, sem tocar em InvoiceDraftItem', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr());
+        aiInvoiceExtractor.extract.mockResolvedValue({ extraction: AI_EXTRACTION_WITH_ITEMS, metadata: AI_METADATA });
+        prisma.$queryRaw.mockResolvedValueOnce([]);
+
+        await expect(service.runAiExtraction('org-1', 'draft-1')).rejects.toThrow(NotFoundException);
+        expect(prisma.invoiceDraftItem.deleteMany).not.toHaveBeenCalled();
+        expect(prisma.invoiceDraftItem.createMany).not.toHaveBeenCalled();
+        expect(prisma.invoiceDraftAiExtraction.upsert).not.toHaveBeenCalled();
+      });
+    });
+
+    /**
+     * Achado 7 (médio) — uma extração de IA VÁLIDA com `items: []`
+     * enquanto `itemsReviewedByHuman` ainda é `false` tem de limpar o
+     * staging automático anterior para vazio também — nunca deixar as
+     * linhas antigas por tocar só porque a nova sugestão não tem linhas.
+     */
+    it('achado 7 (médio) — items: [] com itemsReviewedByHuman ainda false: uma extração IA válida sem linhas limpa o staging automático anterior', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr({ itemsReviewedByHuman: false }));
+      aiInvoiceExtractor.extract.mockResolvedValue({
+        extraction: { ...AI_EXTRACTION_WITH_ITEMS, items: [] },
+        metadata: AI_METADATA,
+      });
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
+
+      const result = await service.runAiExtraction('org-1', 'draft-1');
+
+      expect(result.itemsPersisted).toBe(true);
+      expect(prisma.invoiceDraftItem.deleteMany).toHaveBeenCalledWith({
+        where: { invoiceDraftId: 'draft-1', organizationId: 'org-1' },
+      });
+      expect(prisma.invoiceDraftItem.createMany).not.toHaveBeenCalled();
+      expect(result.items).toEqual([]);
+    });
+
+    describe('achado 8 (médio) — atomicidade items/metadata', () => {
+      it('se o upsert da metadata falhar, a promessa inteira rejeita — mesma transação cobre items+metadata, nunca uma escrita parcial exposta ao chamador', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr({ itemsReviewedByHuman: false }));
+        aiInvoiceExtractor.extract.mockResolvedValue({ extraction: AI_EXTRACTION_WITH_ITEMS, metadata: AI_METADATA });
+        prisma.invoiceDraftAiExtraction.upsert.mockRejectedValue(new Error('falha ao gravar metadata'));
+
+        await expect(service.runAiExtraction('org-1', 'draft-1')).rejects.toThrow('falha ao gravar metadata');
+      });
+
+      it('se a escrita das linhas falhar, o upsert da metadata nunca chega a ser chamado — nunca metadata escrita sem as linhas correspondentes da mesma extração', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr({ itemsReviewedByHuman: false }));
+        aiInvoiceExtractor.extract.mockResolvedValue({ extraction: AI_EXTRACTION_WITH_ITEMS, metadata: AI_METADATA });
+        prisma.invoiceDraftItem.deleteMany.mockRejectedValue(new Error('falha ao limpar linhas'));
+
+        await expect(service.runAiExtraction('org-1', 'draft-1')).rejects.toThrow('falha ao limpar linhas');
+        expect(prisma.invoiceDraftAiExtraction.upsert).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('replaceItems (Fase 6.14)', () => {
+    it('substitui integralmente as linhas (deleteMany + createMany) e marca itemsReviewedByHuman true', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([{ id: 'item-1', position: 1, description: 'Novo item' }]);
+
+      await service.replaceItems('org-1', 'draft-1', [
+        { description: 'Novo item', quantity: 1, unitPrice: 10, totalPrice: 10 } as never,
+      ]);
+
+      // Correção pós-revisão Codex (achado 11, multi-tenant): `organizationId`
+      // explícito também em `deleteMany`, nunca só `invoiceDraftId`.
+      expect(prisma.invoiceDraftItem.deleteMany).toHaveBeenCalledWith({
+        where: { invoiceDraftId: 'draft-1', organizationId: 'org-1' },
+      });
+      expect(prisma.invoiceDraftItem.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: [
+            expect.objectContaining({
+              organizationId: 'org-1',
+              invoiceDraftId: 'draft-1',
+              position: 1,
+              description: 'Novo item',
+              quantity: 1,
+              unitPrice: 10,
+              totalPrice: 10,
+            }),
+          ],
+        }),
+      );
+      expect(prisma.invoiceDraft.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'draft-1' }, data: { itemsReviewedByHuman: true } }),
+      );
+    });
+
+    it('position ausente numa linha usa o índice no array (índice + 1)', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
+
+      await service.replaceItems('org-1', 'draft-1', [
+        { description: 'A', unitPrice: 1 } as never,
+        { description: 'B', unitPrice: 2 } as never,
+      ]);
+
+      const created = prisma.invoiceDraftItem.createMany.mock.calls[0][0].data;
+      expect(created.map((item: { position: number }) => item.position)).toEqual([1, 2]);
+    });
+
+    it('array vazio limpa todas as linhas (elimina tudo, sem criar nada) e ainda marca itemsReviewedByHuman true', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
+
+      await service.replaceItems('org-1', 'draft-1', []);
+
+      // Correção pós-revisão Codex (achado 11, multi-tenant): `organizationId`
+      // explícito também em `deleteMany`, nunca só `invoiceDraftId`.
+      expect(prisma.invoiceDraftItem.deleteMany).toHaveBeenCalledWith({
+        where: { invoiceDraftId: 'draft-1', organizationId: 'org-1' },
+      });
+      expect(prisma.invoiceDraftItem.createMany).not.toHaveBeenCalled();
+      expect(prisma.invoiceDraft.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { itemsReviewedByHuman: true } }),
+      );
+    });
+
+    it('respeita organizationId — 404 quando o draft não pertence à organização', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(null);
+
+      await expect(service.replaceItems('org-1', 'draft-1', [])).rejects.toThrow(NotFoundException);
+      expect(prisma.invoiceDraftItem.deleteMany).not.toHaveBeenCalled();
+    });
+
+    describe('achado 1 (crítico, 2ª ronda) — serializa pela mesma linha InvoiceDraft', () => {
+      it('adquire SELECT ... FOR UPDATE (lockInvoiceDraftRow) ANTES de tocar em InvoiceDraftItem — mesma convenção de runAiExtraction()/saveReview()/promote()', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
+        prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
+
+        await service.replaceItems('org-1', 'draft-1', []);
+
+        const lockOrder = prisma.$queryRaw.mock.invocationCallOrder[0];
+        const deleteOrder = prisma.invoiceDraftItem.deleteMany.mock.invocationCallOrder[0];
+        expect(lockOrder).toBeLessThan(deleteOrder);
+      });
+
+      it('se o lock não encontrar a linha (apagada/promovida concorrentemente), falha 404 dentro da transação, sem tocar em InvoiceDraftItem', async () => {
+        prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
+        prisma.$queryRaw.mockResolvedValueOnce([]);
+
+        await expect(service.replaceItems('org-1', 'draft-1', [{ description: 'X' } as never])).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(prisma.invoiceDraftItem.deleteMany).not.toHaveBeenCalled();
+        expect(prisma.invoiceDraftItem.createMany).not.toHaveBeenCalled();
+        expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('saveReview (achado 9, correção pós-revisão Codex) — cabeçalho + linhas atómicos', () => {
+    beforeEach(() => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue({ id: 'draft-1', organizationId: 'org-1' });
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
+    });
+
+    it('grava só o cabeçalho quando só `patch` é enviado — nunca toca nas linhas', async () => {
+      await service.saveReview('org-1', 'draft-1', { patch: { number: 'F-2' } });
+
+      expect(prisma.invoiceDraft.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'draft-1' }, data: expect.objectContaining({ number: 'F-2' }) }),
+      );
+      expect(prisma.invoiceDraftItem.deleteMany).not.toHaveBeenCalled();
+      expect(prisma.invoiceDraftItem.createMany).not.toHaveBeenCalled();
+    });
+
+    it('grava só as linhas quando só `items` é enviado — nunca gera um update de cabeçalho', async () => {
+      await service.saveReview('org-1', 'draft-1', {
+        items: [{ description: 'Linha única', unitPrice: 10 } as never],
+      });
+
+      expect(prisma.invoiceDraftItem.deleteMany).toHaveBeenCalledWith({
+        where: { invoiceDraftId: 'draft-1', organizationId: 'org-1' },
+      });
+      expect(prisma.invoiceDraftItem.createMany).toHaveBeenCalled();
+      // Uma única chamada a `invoiceDraft.update` — só para marcar
+      // `itemsReviewedByHuman: true`, nunca com campos de cabeçalho.
+      expect(prisma.invoiceDraft.update).toHaveBeenCalledTimes(1);
+      expect(prisma.invoiceDraft.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { itemsReviewedByHuman: true } }),
+      );
+    });
+
+    it('grava cabeçalho e linhas juntos, dentro da mesma transação Prisma', async () => {
+      await service.saveReview('org-1', 'draft-1', {
+        patch: { number: 'F-3' },
+        items: [{ description: 'Linha', unitPrice: 5 } as never],
+      });
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.invoiceDraft.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ number: 'F-3' }) }),
+      );
+      expect(prisma.invoiceDraftItem.createMany).toHaveBeenCalled();
+    });
+
+    /**
+     * Achado 9 — a falha ao gravar as linhas nunca deixa o cabeçalho
+     * persistido sozinho: ambos vivem na mesma transação Prisma, por
+     * isso um erro em qualquer parte rejeita a promessa inteira, nunca
+     * um sucesso parcial silencioso.
+     */
+    it('se a escrita das linhas falhar, a promessa inteira rejeita — nunca um cabeçalho persistido sozinho sem as linhas correspondentes', async () => {
+      prisma.invoiceDraftItem.deleteMany.mockRejectedValue(new Error('falha ao limpar linhas'));
+
+      await expect(
+        service.saveReview('org-1', 'draft-1', {
+          patch: { number: 'F-4' },
+          items: [{ description: 'Linha', unitPrice: 5 } as never],
+        }),
+      ).rejects.toThrow('falha ao limpar linhas');
+    });
+
+    it('items: [] limpa todas as linhas (mesma semântica de replaceItems)', async () => {
+      await service.saveReview('org-1', 'draft-1', { items: [] });
+
+      expect(prisma.invoiceDraftItem.deleteMany).toHaveBeenCalledWith({
+        where: { invoiceDraftId: 'draft-1', organizationId: 'org-1' },
+      });
+      expect(prisma.invoiceDraftItem.createMany).not.toHaveBeenCalled();
+    });
+
+    it('respeita organizationId — 404 quando o draft não pertence à organização, sem escrever nada', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(null);
+
+      await expect(service.saveReview('org-1', 'draft-1', { patch: { number: 'F-5' } })).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
+    });
+
+    it('revalida supplier/categoria antes de escrever, tal como update()', async () => {
+      prisma.supplier.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.saveReview('org-1', 'draft-1', { patch: { supplierId: 'sup-x' } }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
+    });
+
+    describe('achado 1 (crítico, 2ª ronda) — serializa pela mesma linha InvoiceDraft', () => {
+      it('adquire SELECT ... FOR UPDATE (lockInvoiceDraftRow) ANTES de atualizar patch/items — mesma convenção de runAiExtraction()/replaceItems()/promote()', async () => {
+        await service.saveReview('org-1', 'draft-1', {
+          patch: { number: 'F-6' },
+          items: [{ description: 'Linha', unitPrice: 1 } as never],
+        });
+
+        const lockOrder = prisma.$queryRaw.mock.invocationCallOrder[0];
+        const patchOrder = prisma.invoiceDraft.update.mock.invocationCallOrder[0];
+        const itemsOrder = prisma.invoiceDraftItem.deleteMany.mock.invocationCallOrder[0];
+        expect(lockOrder).toBeLessThan(patchOrder);
+        expect(lockOrder).toBeLessThan(itemsOrder);
+      });
+
+      it('se o lock não encontrar a linha (apagada/promovida concorrentemente), falha 404 dentro da transação, sem escrever patch nem items', async () => {
+        prisma.$queryRaw.mockResolvedValueOnce([]);
+
+        await expect(
+          service.saveReview('org-1', 'draft-1', {
+            patch: { number: 'F-7' },
+            items: [{ description: 'Linha', unitPrice: 1 } as never],
+          }),
+        ).rejects.toThrow(NotFoundException);
+        expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
+        expect(prisma.invoiceDraftItem.deleteMany).not.toHaveBeenCalled();
+        expect(prisma.invoiceDraftItem.createMany).not.toHaveBeenCalled();
+      });
     });
   });
 

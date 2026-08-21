@@ -13,7 +13,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "jest",
-    "test:e2e": "jest --config test/jest-e2e.json"
+    "test:e2e": "jest --config test/jest-e2e.json",
+    "test:integration": "jest --config test/jest-integration.json --runInBand"
   },
   "dependencies": {
     "@frontcore/ai": "workspace:*",

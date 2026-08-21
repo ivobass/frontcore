@@ -80,6 +80,18 @@ interface OllamaChatResponse {
  * modelo `tools`-capable** (ao contrário do resto deste provider) — só
  * nem todos os modelos locais anunciam a capacidade `tools`; ver
  * validação manual da Fase 8.3.
+ *
+ * **`responseFormat` (structured output, Fase 6.14) — erro controlado,
+ * nunca implementado.** Este provider lança sempre `AiProviderError`
+ * (`unsupported_capability`) quando `request.responseFormat` está
+ * presente, ANTES de qualquer pedido de rede. Versões recentes do
+ * Ollama nativo aceitam um campo `format` com um JSON Schema, mas isso
+ * nunca foi confirmado empiricamente contra a versão/modelo usados
+ * neste projeto (mesma disciplina do resto deste ficheiro — nada aqui é
+ * assumido a partir de documentação memorizada) — decisão explícita da
+ * Fase 6.14 ("não fingir capacidades inexistentes"; YAGNI — sem sistema
+ * de negociação de capacidades). Reavaliar apenas quando existir
+ * validação manual real contra um servidor Ollama concreto.
  */
 export class OllamaAiProvider implements AiCompletionProvider {
   readonly name = 'ollama';
@@ -87,6 +99,13 @@ export class OllamaAiProvider implements AiCompletionProvider {
   constructor(private readonly config: OllamaAiConfig) {}
 
   async complete(request: AiCompletionRequest): Promise<AiCompletionResponse> {
+    if (request.responseFormat) {
+      throw new AiProviderError(
+        'Este provider de IA não suporta structured output (responseFormat) nesta fase.',
+        'unsupported_capability',
+      );
+    }
+
     const model = request.model ?? this.config.model;
     const maxOutputTokens = request.maxOutputTokens ?? this.config.maxOutputTokens;
     const controller = new AbortController();

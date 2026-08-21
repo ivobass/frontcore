@@ -16,11 +16,28 @@ const MOCK_TOOL_CALL_ID = 'mock-tool-call-1';
  * nunca escolhe por "inteligência", só pela posição, para o resultado
  * continuar previsível em testes. Depois de uma mensagem `tool` já
  * existir (segunda volta), volta ao comportamento normal de eco.
+ *
+ * Fase 6.14 — quando `request.responseFormat` está presente, devolve
+ * sempre um JSON válido e mínimo (nunca texto livre) para provar que o
+ * pedido/resposta de structured output atravessa o contrato genérico
+ * sem alterações — nunca simula dados de nenhum domínio concreto
+ * (`packages/ai` não sabe o que é uma fatura). Consumidores que
+ * precisem de testar o SEU próprio schema (ex. `AiInvoiceExtractionV1`)
+ * constroem o seu próprio `AiCompletionProvider` de teste com respostas
+ * feitas à medida — este mock só garante a canalização genérica.
  */
 export class MockAiProvider implements AiCompletionProvider {
   readonly name = 'mock';
 
   async complete(request: AiCompletionRequest): Promise<AiCompletionResponse> {
+    if (request.responseFormat) {
+      return {
+        content: JSON.stringify({ mock: true, schema: request.responseFormat.name }),
+        provider: this.name,
+        model: MOCK_MODEL_ID,
+      };
+    }
+
     const hasToolResult = request.messages.some((message) => message.role === 'tool');
     if (request.tools && request.tools.length > 0 && !hasToolResult) {
       const tool = request.tools[0];

@@ -1,5 +1,6 @@
 import type { AiMessage } from './ai-message';
 import type { AiToolCall, AiToolDefinition } from './ai-tool';
+import type { AiStructuredOutputDefinition } from './ai-structured-output';
 
 /**
  * Pedido normalizado de completion — mesma forma independentemente do
@@ -9,13 +10,20 @@ import type { AiToolCall, AiToolDefinition } from './ai-tool';
  * consumidor real a pede ainda; campo aditivo, fácil de acrescentar sem
  * mudança breaking quando existir necessidade confirmada. `tools`
  * (Fase 8.3) é aditivo e opcional — ausente, o comportamento de qualquer
- * provider é idêntico ao anterior à Fase 8.3.
+ * provider é idêntico ao anterior à Fase 8.3. `responseFormat` (Fase
+ * 6.14), mesma disciplina — aditivo e opcional; ausente, nenhum provider
+ * muda de comportamento. Pede ao provider que force a resposta a
+ * respeitar um JSON Schema; o conteúdo continua a chegar como texto em
+ * `AiCompletionResponse.content` (uma string JSON quando o pedido é
+ * satisfeito) — o chamador faz sempre o parse e a validação estrutural,
+ * nunca confia cegamente no provider.
  */
 export interface AiCompletionRequest {
   messages: AiMessage[];
   model?: string;
   maxOutputTokens?: number;
   tools?: AiToolDefinition[];
+  responseFormat?: AiStructuredOutputDefinition;
 }
 
 /** Consumo de tokens — só presente quando o provider o disponibiliza. */

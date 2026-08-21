@@ -22,6 +22,18 @@ export interface InvoiceDraftStorageObjectRef {
  * `supplier`/`category` reutilizam os tipos-referência já definidos em
  * `lib/invoices.ts` (`{ id, name }`) em vez de duplicar essa forma.
  */
+/** Linha de staging (Fase 6.14) — antes de `InvoiceItem`. Todos os campos exceto `description` são opcionais, refletindo o que a extração conseguiu determinar. */
+export interface InvoiceDraftItem {
+  id: string;
+  position: number;
+  description: string;
+  quantity: string | null;
+  unit: string | null;
+  unitPrice: string | null;
+  vatRate: string | null;
+  totalPrice: string | null;
+}
+
 export interface InvoiceDraft {
   id: string;
   supplierId: string | null;
@@ -35,11 +47,14 @@ export interface InvoiceDraft {
   ocrConfidence: number | null;
   ocrStatus: OcrStatus;
   ocrError: string | null;
+  /** Fase 6.14 — `true` a partir da primeira vez que o utilizador guarda as linhas explicitamente; a partir daí, uma extração de IA nunca as volta a substituir automaticamente. */
+  itemsReviewedByHuman: boolean;
   createdAt: string;
   updatedAt: string;
   supplier: InvoiceSupplierRef | null;
   category: InvoiceCategoryRef | null;
   storageObject: InvoiceDraftStorageObjectRef;
+  items: InvoiceDraftItem[];
 }
 
 export interface ListInvoiceDraftsParams {
@@ -217,6 +232,133 @@ export async function promoteInvoiceDraft(
   const response = await fetch(`${API_URL}/invoices/drafts/${id}/promote`, {
     method: 'POST',
     headers: authHeaders(accessToken),
+  });
+  return parseJsonOrThrow(response);
+}
+
+/**
+ * Estado da reconciliação de um campo entre o parsing determinístico e a
+ * extração por IA (Fase 6.14, `InvoiceExtractionMerger` no backend) —
+ * espelha `ReconciliationStatus`/`ReconciledField<T>`
+ * (`apps/frontrest/api/src/ai-invoice-extraction/invoice-extraction-merger.ts`).
+ * `suggestedValue` nunca está definido (`null`) num `'conflict'` — as
+ * duas fontes discordam e nenhuma é escolhida automaticamente; a UI deve
+ * sempre mostrar `deterministicValue`/`aiValue` lado a lado nesse caso.
+ */
+export type ReconciliationStatus = 'agreement' | 'conflict' | 'deterministic_only' | 'ai_only' | 'empty' | 'manual';
+
+export interface ReconciledField<T> {
+  status: ReconciliationStatus;
+  deterministicValue: T | null;
+  aiValue: T | null;
+  suggestedValue: T | null;
+}
+
+/** Linha sugerida pela extração de IA — antes de ser persistida como `InvoiceDraftItem`. */
+export interface AiInvoiceLine {
+  position: number;
+  description: string;
+  quantity: string | null;
+  unit: string | null;
+  unitPrice: string | null;
+  vatRate: string | null;
+  totalPrice: string | null;
+}
+
+export interface InvoiceExtractionReconciliation {
+  supplierName: ReconciledField<string>;
+  supplierTaxId: ReconciledField<string>;
+  invoiceNumber: ReconciledField<string>;
+  issueDate: ReconciledField<string>;
+  dueDate: ReconciledField<string>;
+  currency: ReconciledField<string>;
+  subtotal: ReconciledField<string>;
+  vatAmount: ReconciledField<string>;
+  total: ReconciledField<string>;
+  items: AiInvoiceLine[];
+}
+
+export interface RunAiExtractionResult {
+  reconciliation: InvoiceExtractionReconciliation;
+  /** `true` quando as linhas sugeridas pela IA foram efetivamente persistidas (`itemsReviewedByHuman` ainda era `false`) — `false` nunca significa erro, só que a IA não tinha nada de novo para escrever ou que as linhas já tinham sido revistas manualmente. */
+  itemsPersisted: boolean;
+  items: InvoiceDraftItem[];
+}
+
+/**
+ * Fase 6.14 — corre o parsing fiscal determinístico + a extração por IA
+ * (`AiInvoiceExtractor`, uma única chamada estruturada ao provider
+ * configurado) e reconcilia os dois. Mutação (pode persistir
+ * `InvoiceDraftItem`, ver `itemsPersisted`) — nunca chamado
+ * automaticamente pela UI, só por uma ação explícita ("Analisar com IA").
+ */
+export async function runAiInvoiceExtraction(
+  accessToken: string,
+  id: string,
+): Promise<RunAiExtractionResult> {
+  const response = await fetch(`${API_URL}/invoices/drafts/${id}/ai-extraction`, {
+    method: 'POST',
+    headers: authHeaders(accessToken),
+  });
+  return parseJsonOrThrow(response);
+}
+
+export interface InvoiceDraftItemInput {
+  position?: number;
+  description: string;
+  quantity?: number | null;
+  unit?: string | null;
+  unitPrice?: number | null;
+  vatRate?: number | null;
+  totalPrice?: number | null;
+}
+
+/**
+ * Substituição integral das linhas do rascunho (editar/adicionar/
+ * eliminar/reordenar — tudo através do array completo, nunca um PATCH
+ * incremental por linha). Marca sempre `itemsReviewedByHuman = true` no
+ * backend — a partir desta chamada, uma extração de IA seguinte nunca
+ * mais substitui as linhas automaticamente.
+ */
+export async function replaceInvoiceDraftItems(
+  accessToken: string,
+  id: string,
+  items: InvoiceDraftItemInput[],
+): Promise<InvoiceDraftItem[]> {
+  const response = await fetch(`${API_URL}/invoices/drafts/${id}/items`, {
+    method: 'PUT',
+    headers: authJsonHeaders(accessToken),
+    body: JSON.stringify({ items }),
+  });
+  return parseJsonOrThrow(response);
+}
+
+export interface SaveInvoiceDraftReviewInput {
+  patch?: UpdateInvoiceDraftInput;
+  items?: InvoiceDraftItemInput[];
+}
+
+/**
+ * Correção pós-revisão Codex (achado 9) — grava cabeçalho + linhas num
+ * único pedido (`PATCH :id/review`), atómico no backend
+ * (`InvoiceDraftsService.saveReview()`, mesma transação Prisma). Antes,
+ * `invoice-draft-review-sheet.tsx` chamava `updateInvoiceDraft()` e
+ * `replaceInvoiceDraftItems()` como dois pedidos independentes — se o
+ * primeiro tivesse sucesso e o segundo falhasse, o cabeçalho ficava
+ * persistido no servidor sem a UI nunca o refletir localmente nem
+ * distinguir esse caso de "nada foi guardado". `updateInvoiceDraft()`/
+ * `replaceInvoiceDraftItems()` continuam disponíveis para outros
+ * consumidores — sem alterações.
+ */
+export async function saveInvoiceDraftReview(
+  accessToken: string,
+  id: string,
+  input: SaveInvoiceDraftReviewInput,
+): Promise<InvoiceDraft> {
+  const response = await fetch(`${API_URL}/invoices/drafts/${id}/review`, {
+    method: 'PATCH',
+    headers: authJsonHeaders(accessToken),
+    body: JSON.stringify(input),
   });
   return parseJsonOrThrow(response);
 }

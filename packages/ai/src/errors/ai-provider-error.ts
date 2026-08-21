@@ -4,7 +4,14 @@
  * SDK/API. `authentication`/`rate_limit` (Fase 8.2) só existem desde que
  * `OpenRouterAiProvider` — o primeiro provider cloud, com API key e
  * limites de taxa reais — foi implementado; o Ollama local nunca produz
- * nenhum dos dois.
+ * nenhum dos dois. `unsupported_capability` (Fase 6.14) é lançado ANTES
+ * de qualquer pedido de rede, nunca devolvido pelo provider remoto —
+ * cobre um pedido que declara uma capacidade genérica do contrato
+ * (`responseFormat`) que este provider concreto não implementa com
+ * segurança nesta fase (`OllamaAiProvider`, ver esse ficheiro) — nunca
+ * fingir suporte silenciosamente. Sem sistema de negociação de
+ * capacidades (YAGNI, Fase 6.14): só este `code`, verificado no início
+ * de `complete()` do provider em causa.
  */
 export type AiErrorCode =
   | 'timeout'
@@ -13,6 +20,7 @@ export type AiErrorCode =
   | 'model_not_found'
   | 'authentication'
   | 'rate_limit'
+  | 'unsupported_capability'
   | 'unknown';
 
 /**

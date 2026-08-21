@@ -2,6 +2,7 @@ import type {
   AiCompletionProvider,
   AiCompletionRequest,
   AiCompletionResponse,
+  AiStructuredOutputDefinition,
   AiToolCall,
   AiToolDefinition,
   OpenRouterAiConfig,
@@ -13,6 +14,11 @@ interface OpenRouterChatMessage {
   content: string;
   tool_call_id?: string;
   tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+}
+
+interface OpenRouterResponseFormat {
+  type: 'json_schema';
+  json_schema: { name: string; strict: boolean; schema: Record<string, unknown> };
 }
 
 interface OpenRouterToolCall {
@@ -54,6 +60,18 @@ interface OpenRouterChatResponse {
  * testes unitários com `fetch` mockado — ver validação manual da Fase
  * 8.3 para confirmação (ou não) contra o serviço real com um modelo
  * tools-capable.
+ *
+ * Structured output (Fase 6.14) — `responseFormat` traduzido para
+ * `response_format: { type: 'json_schema', json_schema: {name, strict,
+ * schema} }`, o formato OpenAI-compatible documentado (suportado pela
+ * maioria dos modelos atrás do OpenRouter que anunciam a capacidade;
+ * modelos sem suporte devolvem o próprio erro do upstream, classificado
+ * pela taxonomia HTTP já existente — sem lógica nova de deteção de
+ * capacidade, YAGNI). `strict` por omissão `true` quando
+ * `AiStructuredOutputDefinition.strict` não é indicado. A resposta
+ * continua normalizada da mesma forma (`choices[0].message.content`) —
+ * chega como uma string JSON quando o pedido é satisfeito, nunca
+ * pré-parseada aqui.
  */
 export class OpenRouterAiProvider implements AiCompletionProvider {
   readonly name = 'openrouter';
@@ -93,6 +111,9 @@ export class OpenRouterAiProvider implements AiCompletionProvider {
           stream: false,
           max_tokens: maxOutputTokens,
           ...(request.tools && request.tools.length > 0 ? { tools: buildOpenRouterTools(request.tools) } : {}),
+          ...(request.responseFormat
+            ? { response_format: buildOpenRouterResponseFormat(request.responseFormat) }
+            : {}),
         }),
         signal: controller.signal,
       });
@@ -133,6 +154,17 @@ export class OpenRouterAiProvider implements AiCompletionProvider {
 
 function buildOpenRouterTools(tools: AiToolDefinition[]): Array<{ type: 'function'; function: AiToolDefinition }> {
   return tools.map((tool) => ({ type: 'function' as const, function: tool }));
+}
+
+function buildOpenRouterResponseFormat(definition: AiStructuredOutputDefinition): OpenRouterResponseFormat {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: definition.name,
+      strict: definition.strict ?? true,
+      schema: definition.schema,
+    },
+  };
 }
 
 function buildOpenRouterToolCalls(

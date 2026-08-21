@@ -131,8 +131,8 @@ model Supplier {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  invoices     Invoice[]
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoices      Invoice[]
   invoiceDrafts InvoiceDraft[]
 
   @@index([organizationId])
@@ -146,8 +146,8 @@ model ExpenseCategory {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  invoices     Invoice[]
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invoices      Invoice[]
   invoiceDrafts InvoiceDraft[]
 
   @@unique([organizationId, name])
@@ -188,12 +188,36 @@ model Invoice {
 }
 
 /// Linha de item de uma fatura. Domínio FrontRest.
+///
+/// Fase 6.14: `quantity`/`unitPrice` ganham mais casas decimais.
+/// Correção pós-revisão Codex — a precisão original proposta
+/// (Decimal(10,3)/Decimal(12,4)) REDUZIA a capacidade da parte inteira
+/// face ao tipo anterior (Decimal(10,2) tinha 8 dígitos inteiros;
+/// Decimal(10,3) só 7 — o mesmo problema em unitPrice: 10 dígitos
+/// inteiros antes, só 8 depois), podendo tornar valores existentes
+/// inválidos. Precisão final preserva a magnitude máxima anterior E
+/// acrescenta as casas decimais novas: `quantity`
+/// Decimal(10,2)->Decimal(11,3) (8 dígitos inteiros preservados + 3
+/// decimais, antes 2); `unitPrice` Decimal(12,2)->Decimal(14,4) (10
+/// dígitos inteiros preservados + 4 decimais, antes 2) — quantidades e
+/// preços unitários com mais de duas casas decimais são plausíveis em
+/// faturas reais (ex. preço por kg com 3 casas, ou preço unitário muito
+/// baixo com 4 casas). `totalPrice` mantém-se Decimal(12,2), a unidade
+/// monetária final é sempre 2 casas. `position`/`unit`/`vatRate` novos
+/// — preservam o que a extração (determinística + IA, Fase 6.14) e a
+/// UI de revisão conseguem determinar; todos com omissão segura
+/// (`position` default 1, `unit`/`vatRate` opcionais) para nunca
+/// quebrar a criação direta de fatura já existente (`InvoicesService.create()`,
+/// sem alteração de comportamento quando omitidos).
 model InvoiceItem {
   id          String   @id @default(cuid())
   invoiceId   String
+  position    Int      @default(1)
   description String
-  quantity    Decimal  @default(1) @db.Decimal(10, 2)
-  unitPrice   Decimal  @db.Decimal(12, 2)
+  quantity    Decimal  @default(1) @db.Decimal(11, 3)
+  unit        String?
+  unitPrice   Decimal  @db.Decimal(14, 4)
+  vatRate     Decimal? @db.Decimal(5, 2)
   totalPrice  Decimal  @db.Decimal(12, 2)
   createdAt   DateTime @default(now())
 
@@ -272,38 +296,118 @@ enum OcrStatus {
 /// mantém `ocrStatus`/`ocrError` ao longo de tentativas automáticas com
 /// backoff exponencial (ver `docs/phases/phase-6.5-ocr-retry-recovery-foundation.md`).
 model InvoiceDraft {
-  id              String    @id @default(cuid())
-  organizationId  String
-  storageObjectId String    @unique
-  supplierId      String?
-  categoryId      String?
-  number          String?
-  issueDate       DateTime?
-  dueDate         DateTime?
-  totalAmount     Decimal?  @db.Decimal(12, 2)
-  notes           String?
+  id                   String    @id @default(cuid())
+  organizationId       String
+  storageObjectId      String    @unique
+  supplierId           String?
+  categoryId           String?
+  number               String?
+  issueDate            DateTime?
+  dueDate              DateTime?
+  totalAmount          Decimal?  @db.Decimal(12, 2)
+  notes                String?
   /// Texto bruto extraído por OCR (Fase 6.2) — área de staging; nunca
   /// persistido no Invoice final (ver "Regras de domínio", ponto 12).
-  ocrText         String?
-  ocrConfidence   Float?
+  ocrText              String?
+  ocrConfidence        Float?
   /// Ciclo de vida do processamento OCR (Fase 6.5) — ver enum OcrStatus.
-  ocrStatus       OcrStatus @default(PENDING)
+  ocrStatus            OcrStatus @default(PENDING)
   /// Mensagem sanitizada da última falha permanente (ocrStatus FAILED) —
   /// nunca a mensagem bruta da exceção (evita expor detalhes internos de
   /// storage/Redis/provider através de GET /invoices/drafts). Detalhe
   /// técnico completo só nos logs do Worker.
-  ocrError        String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  ocrError             String?
+  /// Fase 6.14 — `false` até a primeira edição humana explícita das
+  /// linhas (criar/editar/eliminar/reordenar via a API de items,
+  /// abaixo). Enquanto `false`, uma extração (determinística + IA)
+  /// pode escrever/substituir `InvoiceDraftItem[]`; a partir do momento
+  /// em que fica `true`, uma extração seguinte NUNCA volta a escrever
+  /// as linhas automaticamente — só pode continuar a devolver
+  /// sugestões para comparação na UI. Único mecanismo de "não
+  /// sobrescrever correções humanas" desta fase (YAGNI — ao nível do
+  /// draft, não por campo/linha; suficiente porque as linhas são
+  /// sempre substituídas em bloco, nunca campo a campo).
+  itemsReviewedByHuman Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
-  organization  Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  storageObject StorageObject    @relation(fields: [storageObjectId], references: [id], onDelete: Restrict)
-  supplier      Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  category      ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  organization  Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  storageObject StorageObject             @relation(fields: [storageObjectId], references: [id], onDelete: Restrict)
+  supplier      Supplier?                 @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  category      ExpenseCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  items         InvoiceDraftItem[]
+  aiExtraction  InvoiceDraftAiExtraction?
 
   @@index([organizationId])
   @@index([supplierId])
   @@index([categoryId])
+}
+
+/// Staging relacional das linhas de uma fatura antes de `InvoiceItem`
+/// (Fase 6.14) — populado pela extração (determinística + IA
+/// reconciliadas, `ai-invoice-extraction/`) e revisto/corrigido pelo
+/// utilizador antes da promoção. `organizationId` explícito (nunca só
+/// via `invoiceDraftId`, ao contrário de `InvoiceItem`→`Invoice`) —
+/// decisão explícita da fase, para toda a query de items poder filtrar
+/// diretamente por tenant sem depender de um `include`/join até
+/// `InvoiceDraft`. Todos os campos extraídos são opcionais — um
+/// documento real raramente tem todos os detalhes de uma linha
+/// legíveis. `@@unique([invoiceDraftId, position])` garante uma ordem
+/// sempre bem definida, sem duas linhas a disputar a mesma posição.
+/// `quantity`/`unitPrice` usam a mesma precisão final de `InvoiceItem`
+/// (Decimal(11,3)/Decimal(14,4), correção pós-revisão Codex) — aqui por
+/// consistência entre staging e final, nunca por necessidade de
+/// migração (tabela nova nesta fase).
+model InvoiceDraftItem {
+  id             String @id @default(cuid())
+  organizationId String
+  invoiceDraftId String
+  position       Int
+
+  description String
+  quantity    Decimal? @db.Decimal(11, 3)
+  unit        String?
+  unitPrice   Decimal? @db.Decimal(14, 4)
+  vatRate     Decimal? @db.Decimal(5, 2)
+  totalPrice  Decimal? @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoiceDraft InvoiceDraft @relation(fields: [invoiceDraftId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceDraftId, position])
+  @@index([organizationId])
+  @@index([invoiceDraftId])
+}
+
+/// Metadata da ÚLTIMA extração por IA de um `InvoiceDraft` (Fase 6.14) —
+/// nunca duplica os dados finais extraídos (esses vivem em
+/// `InvoiceDraftItem`/nas sugestões devolvidas pela API de extração,
+/// nunca persistidos aqui); só o suficiente para responder "quantos
+/// documentos foram processados, que modelo foi usado, quantos tokens
+/// gastámos, qual o custo médio, se a informação existir" — sem
+/// billing, sem quotas, sem tabela local de preços por modelo (YAGNI).
+/// `@@unique([invoiceDraftId])` — uma linha por draft, a extração mais
+/// recente substitui a anterior (upsert); suficiente para as perguntas
+/// de medição acima sem precisar de um histórico completo por
+/// tentativa.
+model InvoiceDraftAiExtraction {
+  id             String @id @default(cuid())
+  organizationId String
+  invoiceDraftId String @unique
+
+  provider      String
+  model         String
+  schemaVersion String
+  inputTokens   Int?
+  outputTokens  Int?
+  durationMs    Int
+  processedAt   DateTime @default(now())
+
+  invoiceDraft InvoiceDraft @relation(fields: [invoiceDraftId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 /// Papel de uma mensagem de chat de IA (Fase 8). Só histórico de domínio —

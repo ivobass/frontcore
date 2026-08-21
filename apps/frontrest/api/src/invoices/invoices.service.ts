@@ -17,14 +17,18 @@ type InvoiceWithRelations = Prisma.InvoiceGetPayload<{
   include: typeof INVOICE_INCLUDE;
 }>;
 
+/** `position` ausente usa a posição no array (índice + 1) — preserva sempre a ordem em que o pedido as enviou. */
 function computeItemTotals(items: InvoiceItemDto[]) {
-  return items.map((item) => {
+  return items.map((item, index) => {
     const quantity = item.quantity ?? 1;
     const totalPrice = Number((quantity * item.unitPrice).toFixed(2));
     return {
       description: item.description,
+      position: item.position ?? index + 1,
       quantity,
+      unit: item.unit,
       unitPrice: item.unitPrice,
+      vatRate: item.vatRate,
       totalPrice,
     };
   });

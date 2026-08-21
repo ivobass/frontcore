@@ -72,4 +72,41 @@ describe('MockAiProvider', () => {
       expect(response.content).toBe('[mock] Olá');
     });
   });
+
+  describe('Fase 6.14 — structured output', () => {
+    const responseFormat = {
+      name: 'test_schema',
+      schema: { type: 'object' as const, properties: { foo: { type: 'string' } }, required: ['foo'] },
+    };
+
+    it('com responseFormat, devolve sempre JSON válido e determinístico, nunca texto livre', async () => {
+      const response = await provider.complete({
+        messages: [{ role: 'user', content: 'extrai isto' }],
+        responseFormat,
+      });
+
+      expect(() => JSON.parse(response.content)).not.toThrow();
+      expect(JSON.parse(response.content)).toEqual({ mock: true, schema: 'test_schema' });
+      expect(response.provider).toBe('mock');
+      expect(response.toolCalls).toBeUndefined();
+    });
+
+    it('determinístico — mesmo responseFormat produz sempre a mesma saída, independentemente da mensagem', async () => {
+      const first = await provider.complete({ messages: [{ role: 'user', content: 'A' }], responseFormat });
+      const second = await provider.complete({ messages: [{ role: 'user', content: 'B' }], responseFormat });
+      expect(first).toEqual(second);
+    });
+
+    it('responseFormat tem prioridade sobre tools quando ambos presentes', async () => {
+      const tools = [{ name: 'x', description: 'x', parameters: { type: 'object' as const, properties: {} } }];
+      const response = await provider.complete({
+        messages: [{ role: 'user', content: 'oi' }],
+        tools,
+        responseFormat,
+      });
+
+      expect(response.toolCalls).toBeUndefined();
+      expect(JSON.parse(response.content)).toEqual({ mock: true, schema: 'test_schema' });
+    });
+  });
 });

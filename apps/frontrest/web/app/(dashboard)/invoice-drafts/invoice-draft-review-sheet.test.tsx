@@ -11,17 +11,30 @@ function simpleAuthFetch(accessToken: string): AuthFetch {
 }
 
 const getInvoiceDraft = vi.fn();
-const updateInvoiceDraft = vi.fn();
 const deleteInvoiceDraft = vi.fn();
 const promoteInvoiceDraft = vi.fn();
 const getInvoiceDraftFiscalSuggestions = vi.fn();
+const runAiInvoiceExtraction = vi.fn();
+/**
+ * Correção pós-revisão Codex (achado 9) — `handleSave()` passou a
+ * chamar `saveInvoiceDraftReview()` (um único `PATCH :id/review`,
+ * atómico no backend) em vez de `updateInvoiceDraft()` +
+ * `replaceInvoiceDraftItems()` como dois pedidos independentes. Os
+ * testes que antes verificavam esses dois pedidos separados foram
+ * atualizados para verificar o pedido combinado — comportamento
+ * genuinamente novo, não um enfraquecimento de cobertura (a garantia
+ * "só os campos alterados são enviados" e "nunca envia um pedido vazio"
+ * continua coberta, agora sobre o payload combinado).
+ */
+const saveInvoiceDraftReview = vi.fn();
 
 vi.mock('../../../lib/invoice-drafts', () => ({
   getInvoiceDraft: (...args: unknown[]) => getInvoiceDraft(...args),
-  updateInvoiceDraft: (...args: unknown[]) => updateInvoiceDraft(...args),
   deleteInvoiceDraft: (...args: unknown[]) => deleteInvoiceDraft(...args),
   promoteInvoiceDraft: (...args: unknown[]) => promoteInvoiceDraft(...args),
   getInvoiceDraftFiscalSuggestions: (...args: unknown[]) => getInvoiceDraftFiscalSuggestions(...args),
+  runAiInvoiceExtraction: (...args: unknown[]) => runAiInvoiceExtraction(...args),
+  saveInvoiceDraftReview: (...args: unknown[]) => saveInvoiceDraftReview(...args),
 }));
 
 // `withAuthRetry`/`refreshSession` reais (a lógica de retry é o que está
@@ -53,6 +66,7 @@ const baseDraft = {
   ocrConfidence: 90,
   ocrStatus: 'COMPLETED' as const,
   ocrError: null,
+  itemsReviewedByHuman: false,
   createdAt: '2026-07-01T00:00:00.000Z',
   updatedAt: '2026-07-01T00:00:00.000Z',
   supplier: null,
@@ -64,6 +78,7 @@ const baseDraft = {
     size: 123,
     createdAt: '2026-07-01T00:00:00.000Z',
   },
+  items: [],
 };
 
 const suggestions = {
@@ -138,12 +153,12 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
     // resolver — ver correção "Farmacia Esperanca") — esperar o efeito
     // observável em vez de assumir que o clique já terminou.
     expect(await screen.findByDisplayValue('F-100')).toBeInTheDocument();
-    expect(updateInvoiceDraft).not.toHaveBeenCalled();
+    expect(saveInvoiceDraftReview).not.toHaveBeenCalled();
   });
 
-  it('"Guardar alterações" envia só os campos alterados face ao valor guardado', async () => {
+  it('"Guardar alterações" envia só os campos alterados face ao valor guardado, num único pedido atómico (achado 9)', async () => {
     getInvoiceDraft.mockResolvedValue(baseDraft);
-    updateInvoiceDraft.mockResolvedValue({ ...baseDraft, number: 'F-100', issueDate: '2026-07-01T00:00:00.000Z', totalAmount: '250.50' });
+    saveInvoiceDraftReview.mockResolvedValue({ ...baseDraft, number: 'F-100', issueDate: '2026-07-01T00:00:00.000Z', totalAmount: '250.50' });
 
     render(
       <InvoiceDraftReviewSheet
@@ -164,10 +179,12 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
     fireEvent.click(saveButton);
 
     await waitFor(() =>
-      expect(updateInvoiceDraft).toHaveBeenCalledWith('token', 'draft-1', {
-        number: 'F-100',
-        issueDate: '2026-07-01',
-        totalAmount: 250.5,
+      expect(saveInvoiceDraftReview).toHaveBeenCalledWith('token', 'draft-1', {
+        patch: {
+          number: 'F-100',
+          issueDate: '2026-07-01',
+          totalAmount: 250.5,
+        },
       }),
     );
   });
@@ -518,6 +535,231 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
     await waitFor(() => expect(promoteInvoiceDraft).toHaveBeenCalledWith('token', 'draft-1'));
   });
 
+  describe('Linhas de fatura (Fase 6.14)', () => {
+    const draftWithItem = {
+      ...baseDraft,
+      items: [
+        {
+          id: 'item-1',
+          position: 1,
+          description: 'Farinha 25kg',
+          quantity: '2',
+          unit: 'saco',
+          unitPrice: '18.50',
+          vatRate: '23',
+          totalPrice: '37.00',
+        },
+      ],
+    };
+
+    const reconciliation = {
+      supplierName: { status: 'agreement', deterministicValue: 'Acme', aiValue: 'Acme', suggestedValue: 'Acme' },
+      supplierTaxId: { status: 'empty', deterministicValue: null, aiValue: null, suggestedValue: null },
+      invoiceNumber: { status: 'empty', deterministicValue: null, aiValue: null, suggestedValue: null },
+      issueDate: { status: 'empty', deterministicValue: null, aiValue: null, suggestedValue: null },
+      dueDate: { status: 'empty', deterministicValue: null, aiValue: null, suggestedValue: null },
+      currency: { status: 'empty', deterministicValue: null, aiValue: null, suggestedValue: null },
+      subtotal: { status: 'empty', deterministicValue: null, aiValue: null, suggestedValue: null },
+      vatAmount: { status: 'empty', deterministicValue: null, aiValue: null, suggestedValue: null },
+      total: {
+        status: 'conflict',
+        deterministicValue: '100.00',
+        aiValue: '999.99',
+        suggestedValue: null,
+      },
+      items: [
+        {
+          position: 1,
+          description: 'Farinha 25kg (sugestão IA)',
+          quantity: '2',
+          unit: 'saco',
+          unitPrice: '18.50',
+          vatRate: '23',
+          totalPrice: '37.00',
+        },
+      ],
+    };
+
+    it('MEMBER vê as linhas em modo de leitura, sem inputs', async () => {
+      getInvoiceDraft.mockResolvedValue(draftWithItem);
+
+      render(
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage={false} {...noopProps} />,
+      );
+
+      await screen.findByText('Farinha 25kg');
+      expect(screen.queryByRole('button', { name: 'Adicionar linha' })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Descrição da linha/)).not.toBeInTheDocument();
+    });
+
+    it('MANAGER+: "Adicionar linha" cria uma linha vazia editável', async () => {
+      getInvoiceDraft.mockResolvedValue(baseDraft);
+
+      render(
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
+      );
+
+      const addButton = await screen.findByRole('button', { name: 'Adicionar linha' });
+      fireEvent.click(addButton);
+
+      expect(await screen.findByLabelText('Descrição da linha 1')).toBeInTheDocument();
+    });
+
+    it('editar uma linha e guardar chama saveInvoiceDraftReview só com `items` (sem `patch`) quando o cabeçalho não mudou — achado 9', async () => {
+      getInvoiceDraft.mockResolvedValue(draftWithItem);
+      saveInvoiceDraftReview.mockResolvedValue({ ...draftWithItem, items: draftWithItem.items });
+
+      render(
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
+      );
+
+      const descriptionInput = await screen.findByLabelText('Descrição da linha 1');
+      fireEvent.change(descriptionInput, { target: { value: 'Farinha 25kg (corrigido)' } });
+
+      const saveButton = screen.getByRole('button', { name: 'Guardar alterações' });
+      fireEvent.click(saveButton);
+
+      await waitFor(() =>
+        expect(saveInvoiceDraftReview).toHaveBeenCalledWith('token', 'draft-1', {
+          items: [
+            {
+              position: 1,
+              description: 'Farinha 25kg (corrigido)',
+              quantity: 2,
+              unit: 'saco',
+              unitPrice: 18.5,
+              vatRate: 23,
+              totalPrice: 37,
+            },
+          ],
+        }),
+      );
+    });
+
+    it('eliminar uma linha e guardar envia o array sem essa linha (nunca inclui deleteMany explícito — a substituição é sempre integral)', async () => {
+      getInvoiceDraft.mockResolvedValue(draftWithItem);
+      saveInvoiceDraftReview.mockResolvedValue({ ...draftWithItem, items: [] });
+
+      render(
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
+      );
+
+      await screen.findByLabelText('Descrição da linha 1');
+      fireEvent.click(screen.getByRole('button', { name: 'Remover' }));
+
+      const saveButton = screen.getByRole('button', { name: 'Guardar alterações' });
+      fireEvent.click(saveButton);
+
+      await waitFor(() => expect(saveInvoiceDraftReview).toHaveBeenCalledWith('token', 'draft-1', { items: [] }));
+    });
+
+    it('reordenar linhas (mover para baixo) atualiza a posição enviada ao guardar', async () => {
+      const twoItems = {
+        ...baseDraft,
+        items: [
+          { id: 'item-1', position: 1, description: 'A', quantity: null, unit: null, unitPrice: null, vatRate: null, totalPrice: null },
+          { id: 'item-2', position: 2, description: 'B', quantity: null, unit: null, unitPrice: null, vatRate: null, totalPrice: null },
+        ],
+      };
+      getInvoiceDraft.mockResolvedValue(twoItems);
+      saveInvoiceDraftReview.mockResolvedValue(twoItems);
+
+      render(
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
+      );
+
+      await screen.findByLabelText('Descrição da linha 1');
+      fireEvent.click(screen.getByLabelText('Mover linha 1 para baixo'));
+
+      const saveButton = screen.getByRole('button', { name: 'Guardar alterações' });
+      fireEvent.click(saveButton);
+
+      await waitFor(() =>
+        expect(saveInvoiceDraftReview).toHaveBeenCalledWith('token', 'draft-1', {
+          items: [
+            expect.objectContaining({ position: 1, description: 'B' }),
+            expect.objectContaining({ position: 2, description: 'A' }),
+          ],
+        }),
+      );
+    });
+
+    it('linha com descrição vazia bloqueia "Guardar alterações" com um erro, nunca chama saveInvoiceDraftReview', async () => {
+      getInvoiceDraft.mockResolvedValue(baseDraft);
+
+      render(
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
+      );
+
+      const addButton = await screen.findByRole('button', { name: 'Adicionar linha' });
+      fireEvent.click(addButton);
+      await screen.findByLabelText('Descrição da linha 1');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar alterações' }));
+
+      expect(await screen.findByText('Todas as linhas precisam de uma descrição.')).toBeInTheDocument();
+      expect(saveInvoiceDraftReview).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Achado 9 — o cenário concreto identificado na revisão (cabeçalho
+     * gravado com sucesso, linhas falham, UI nunca reflete o sucesso
+     * parcial) deixa de ser possível: com um único pedido atómico, ou os
+     * dois persistem, ou nenhum. Este teste prova que uma falha no
+     * pedido combinado nunca aplica um estado parcial à UI — o rascunho
+     * local permanece exatamente como estava antes da tentativa.
+     */
+    it('achado 9 — se o pedido combinado falhar, nada é aplicado localmente (nunca um sucesso parcial silencioso de cabeçalho+linhas)', async () => {
+      getInvoiceDraft.mockResolvedValue(draftWithItem);
+      saveInvoiceDraftReview.mockRejectedValue(new Error('Falha ao gravar.'));
+
+      render(
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
+      );
+
+      const descriptionInput = await screen.findByLabelText('Descrição da linha 1');
+      fireEvent.change(descriptionInput, { target: { value: 'Farinha 25kg (tentativa falhada)' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Guardar alterações' }));
+
+      expect(await screen.findByText('Falha ao gravar.')).toBeInTheDocument();
+      // O valor editado continua visível (o formulário local não foi
+      // limpo nem substituído por um resultado do servidor) — a UI nunca
+      // finge que a operação foi bem-sucedida nem parcialmente aplicada.
+      expect(screen.getByDisplayValue('Farinha 25kg (tentativa falhada)')).toBeInTheDocument();
+    });
+
+    it('"Analisar com IA" chama runAiInvoiceExtraction, mostra a reconciliação (incl. conflito) e atualiza as linhas com o resultado', async () => {
+      getInvoiceDraft.mockResolvedValue(baseDraft);
+      runAiInvoiceExtraction.mockResolvedValue({
+        reconciliation,
+        itemsPersisted: true,
+        items: [
+          {
+            id: 'item-ai-1',
+            position: 1,
+            description: 'Farinha 25kg (sugestão IA)',
+            quantity: '2',
+            unit: 'saco',
+            unitPrice: '18.50',
+            vatRate: '23',
+            totalPrice: '37.00',
+          },
+        ],
+      });
+
+      render(
+        <InvoiceDraftReviewSheet open onOpenChange={() => {}} draftId="draft-1" authFetch={simpleAuthFetch('token')} canManage {...noopProps} />,
+      );
+
+      const aiButton = await screen.findByRole('button', { name: 'Analisar com IA' });
+      fireEvent.click(aiButton);
+
+      await waitFor(() => expect(runAiInvoiceExtraction).toHaveBeenCalledWith('token', 'draft-1'));
+      expect(await screen.findByText(/conflito/)).toBeInTheDocument();
+      expect(await screen.findByDisplayValue('Farinha 25kg (sugestão IA)')).toBeInTheDocument();
+    });
+  });
+
   describe('Hardening de sessão — correção final pós-revisão Codex ("Token de acesso inválido ou expirado.")', () => {
     const draftReadyToPromote = {
       ...baseDraft,
@@ -593,9 +835,9 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       expect(screen.queryByText('Token de acesso inválido ou expirado.')).not.toBeInTheDocument();
     });
 
-    it('401 ao GUARDAR alterações renova a sessão uma única vez e repete o PATCH exatamente uma vez — nunca duplicado', async () => {
+    it('401 ao GUARDAR alterações renova a sessão uma única vez e repete o PATCH combinado exatamente uma vez — nunca duplicado', async () => {
       getInvoiceDraft.mockResolvedValue(baseDraft);
-      updateInvoiceDraft
+      saveInvoiceDraftReview
         .mockRejectedValueOnce(new ApiError('Token de acesso inválido ou expirado.', 401))
         .mockResolvedValueOnce({ ...baseDraft, number: 'F-100', issueDate: '2026-07-01T00:00:00.000Z', totalAmount: '250.50' });
       global.fetch = vi.fn().mockResolvedValue(
@@ -620,9 +862,9 @@ describe('InvoiceDraftReviewSheet (Fase 6.8)', () => {
       await screen.findByDisplayValue('F-100');
       fireEvent.click(screen.getByRole('button', { name: 'Guardar alterações' }));
 
-      await waitFor(() => expect(updateInvoiceDraft).toHaveBeenCalledTimes(2));
-      expect(updateInvoiceDraft).toHaveBeenNthCalledWith(1, 'token-save-antigo', 'draft-1', expect.anything());
-      expect(updateInvoiceDraft).toHaveBeenNthCalledWith(2, 'token-novo-save', 'draft-1', expect.anything());
+      await waitFor(() => expect(saveInvoiceDraftReview).toHaveBeenCalledTimes(2));
+      expect(saveInvoiceDraftReview).toHaveBeenNthCalledWith(1, 'token-save-antigo', 'draft-1', expect.anything());
+      expect(saveInvoiceDraftReview).toHaveBeenNthCalledWith(2, 'token-novo-save', 'draft-1', expect.anything());
       expect(global.fetch).toHaveBeenCalledTimes(1);
       expect(screen.queryByText('Token de acesso inválido ou expirado.')).not.toBeInTheDocument();
     });

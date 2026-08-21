@@ -481,6 +481,7 @@ describe('Invoice Drafts (e2e)', () => {
       });
       prisma.supplier.findFirst.mockResolvedValue({ id: 'sup-1', organizationId: 'org-1' });
       prisma.expenseCategory.findFirst.mockResolvedValue({ id: 'cat-1', organizationId: 'org-1' });
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
       prisma.invoice.create.mockImplementation(
         ({ data }: { data: Record<string, unknown> }) =>
           Promise.resolve({ id: 'inv-1', ...data }),
@@ -519,6 +520,7 @@ describe('Invoice Drafts (e2e)', () => {
         });
         prisma.supplier.findFirst.mockResolvedValue({ id: 'sup-1', organizationId: 'org-1' });
         prisma.expenseCategory.findFirst.mockResolvedValue({ id: 'cat-1', organizationId: 'org-1' });
+        prisma.invoiceDraftItem.findMany.mockResolvedValue([]);
         prisma.invoice.create.mockImplementation(
           ({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: 'inv-1', ...data }),
         );
@@ -535,6 +537,257 @@ describe('Invoice Drafts (e2e)', () => {
           expect.objectContaining({ data: expect.objectContaining({ dueDate: null }) }),
         );
       });
+    });
+  });
+});
+
+/**
+ * Fase 6.14 — fluxo completo: upload (draft já criado) → OCR (`ocrText`
+ * já persistido, simulado) → extração IA + parsing fiscal reconciliados
+ * → `InvoiceDraftItem` → revisão humana → correção → guardar → promover
+ * → `Invoice` + `InvoiceItem` + `InvoiceAttachment`. App dedicada com
+ * `AI_COMPLETION_PROVIDER` substituído por um duplo que devolve sempre
+ * uma extração estruturada fabricada e determinística (nunca o
+ * `MockAiProvider` por omissão, que nunca simula um schema de domínio
+ * concreto) — mesmo padrão de `ai-chat.e2e-spec.ts`
+ * (`createTestApp({ aiProvider })`).
+ */
+describe('Invoice Drafts (e2e) — Fase 6.14: extração IA + linhas + revisão + promoção', () => {
+  let app: INestApplication;
+  let prisma: MockPrismaService;
+
+  const FAKE_AI_EXTRACTION_RESPONSE = {
+    content: JSON.stringify({
+      schemaVersion: '1',
+      supplier: { name: 'Acme Distribuição Lda', taxId: '123456789' },
+      invoice: { number: 'FA2026/1042', issueDate: '2026-03-05', dueDate: null, currency: 'EUR' },
+      // Deliberadamente diferente do total do cabeçalho do draft
+      // (123.00) — prova que a reconciliação representa o conflito,
+      // nunca escolhe um dos dois silenciosamente.
+      totals: { subtotal: '100.00', vatAmount: '23.00', total: '999.99' },
+      items: [
+        {
+          position: 1,
+          description: 'Farinha 25kg (sugestão IA)',
+          quantity: '2',
+          unit: 'saco',
+          unitPrice: '18.50',
+          vatRate: '23',
+          totalPrice: '37.00',
+        },
+      ],
+    }),
+    provider: 'fabricated-test-double',
+    model: 'fake-model-1',
+    usage: { inputTokens: 500, outputTokens: 120 },
+  };
+
+  const FAKE_AI_PROVIDER = {
+    name: 'fabricated-test-double',
+    complete: async () => FAKE_AI_EXTRACTION_RESPONSE,
+  };
+
+  beforeAll(async () => {
+    ({ app, prisma } = await createTestApp({ aiProvider: FAKE_AI_PROVIDER }));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function draftWithOcr(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'draft-1',
+      organizationId: 'org-1',
+      storageObjectId: 'obj-1',
+      supplierId: null,
+      categoryId: null,
+      number: null,
+      issueDate: null,
+      dueDate: null,
+      totalAmount: 123,
+      notes: null,
+      ocrText: 'Fornecedor: Acme Distribuição Lda\nNIF: 123456789\nFatura N.º FA2026/1042\nTotal: 123,00 EUR',
+      ocrStatus: 'COMPLETED',
+      itemsReviewedByHuman: false,
+      ...overrides,
+    };
+  }
+
+  it('extração IA + parsing fiscal reconciliados: persiste as linhas sugeridas pela IA (itemsReviewedByHuman ainda false) e nunca esconde o conflito de totais', async () => {
+    prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr());
+    prisma.invoiceDraftItem.findMany.mockResolvedValue([
+      {
+        id: 'item-1',
+        position: 1,
+        description: 'Farinha 25kg (sugestão IA)',
+        quantity: '2',
+        unit: 'saco',
+        unitPrice: '18.50',
+        vatRate: '23',
+        totalPrice: '37.00',
+      },
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .post('/api/invoices/drafts/draft-1/ai-extraction')
+      .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+      .expect(201);
+
+    expect(response.body.itemsPersisted).toBe(true);
+    expect(response.body.items).toHaveLength(1);
+    expect(response.body.items[0].description).toBe('Farinha 25kg (sugestão IA)');
+    // Determinístico (via ocrText simplificado acima) pode não encontrar
+    // "123.00" exatamente como o valor do cabeçalho do draft — o que
+    // importa aqui é que a IA nunca substitui silenciosamente: o total
+    // sugerido pela IA (999.99) nunca aparece disfarçado de concordância.
+    expect(response.body.reconciliation.total.aiValue).toBe('999.99');
+    expect(response.body.reconciliation.total.status).not.toBe('agreement');
+    expect(prisma.invoiceDraftItem.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ description: 'Farinha 25kg (sugestão IA)', organizationId: 'org-1', invoiceDraftId: 'draft-1' })],
+      }),
+    );
+  });
+
+  it('utilizador corrige a linha (PUT :id/items) — a correção é devolvida e itemsReviewedByHuman passa a true', async () => {
+    prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr());
+    prisma.invoiceDraftItem.findMany.mockResolvedValue([
+      { id: 'item-1', position: 1, description: 'Farinha 25kg (corrigido pelo utilizador)', quantity: '2', unit: 'saco', unitPrice: '20.00', vatRate: '23', totalPrice: '40.00' },
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .put('/api/invoices/drafts/draft-1/items')
+      .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+      .send({
+        items: [
+          { position: 1, description: 'Farinha 25kg (corrigido pelo utilizador)', quantity: 2, unit: 'saco', unitPrice: 20, vatRate: 23, totalPrice: 40 },
+        ],
+      })
+      .expect(200);
+
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0].description).toBe('Farinha 25kg (corrigido pelo utilizador)');
+    expect(prisma.invoiceDraft.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'draft-1' }, data: { itemsReviewedByHuman: true } }),
+    );
+  });
+
+  it('uma extração seguinte NUNCA sobrescreve a correção humana — itemsReviewedByHuman já true bloqueia a escrita automática', async () => {
+    prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr({ itemsReviewedByHuman: true }));
+
+    const response = await request(app.getHttpServer())
+      .post('/api/invoices/drafts/draft-1/ai-extraction')
+      .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+      .expect(201);
+
+    expect(response.body.itemsPersisted).toBe(false);
+    expect(prisma.invoiceDraftItem.createMany).not.toHaveBeenCalled();
+    expect(prisma.invoiceDraftItem.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('promoção final: Invoice + InvoiceItem refletem a correção humana, nunca a sugestão original da IA', async () => {
+    prisma.invoiceDraft.findFirst.mockResolvedValue(
+      draftWithOcr({
+        supplierId: 'sup-1',
+        categoryId: null,
+        number: 'FA2026/1042',
+        issueDate: new Date('2026-03-05'),
+        itemsReviewedByHuman: true,
+      }),
+    );
+    prisma.supplier.findFirst.mockResolvedValue({ id: 'sup-1', organizationId: 'org-1' });
+    prisma.invoiceDraftItem.findMany.mockResolvedValue([
+      {
+        id: 'item-1',
+        position: 1,
+        description: 'Farinha 25kg (corrigido pelo utilizador)',
+        quantity: 2,
+        unit: 'saco',
+        unitPrice: 20,
+        vatRate: 23,
+        totalPrice: 40,
+      },
+    ]);
+    prisma.invoice.create.mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+      Promise.resolve({ id: 'inv-1', ...data }),
+    );
+    prisma.invoiceAttachment.create.mockResolvedValue({ id: 'att-1' });
+    prisma.invoiceDraft.delete.mockResolvedValue({ id: 'draft-1' });
+
+    const response = await request(app.getHttpServer())
+      .post('/api/invoices/drafts/draft-1/promote')
+      .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+      .expect(201);
+
+    expect(response.body.id).toBe('inv-1');
+    expect(prisma.invoice.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          items: {
+            create: [
+              expect.objectContaining({
+                description: 'Farinha 25kg (corrigido pelo utilizador)',
+                unitPrice: 20,
+                totalPrice: 40,
+              }),
+            ],
+          },
+        }),
+      }),
+    );
+    expect(prisma.invoiceDraft.delete).toHaveBeenCalledWith({ where: { id: 'draft-1' } });
+  });
+
+  describe('PATCH :id/review — cabeçalho + linhas atómicos (correção pós-revisão Codex, achado 9)', () => {
+    it('grava cabeçalho e linhas num único pedido, dentro da mesma transação Prisma', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(draftWithOcr());
+      prisma.invoiceDraftItem.findMany.mockResolvedValue([
+        { id: 'item-1', position: 1, description: 'Linha revista', quantity: '1', unit: null, unitPrice: '10.00', vatRate: null, totalPrice: '10.00' },
+      ]);
+
+      await request(app.getHttpServer())
+        .patch('/api/invoices/drafts/draft-1/review')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-1' }))
+        .send({
+          patch: { number: 'FA2026/9999' },
+          items: [{ position: 1, description: 'Linha revista', quantity: 1, unitPrice: 10, totalPrice: 10 }],
+        })
+        .expect(200);
+
+      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(prisma.invoiceDraft.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'draft-1' }, data: expect.objectContaining({ number: 'FA2026/9999' }) }),
+      );
+      expect(prisma.invoiceDraftItem.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: [expect.objectContaining({ description: 'Linha revista', organizationId: 'org-1', invoiceDraftId: 'draft-1' })],
+        }),
+      );
+    });
+
+    it('MEMBER → 403 (mesma restrição de role de PATCH :id e PUT :id/items)', async () => {
+      await request(app.getHttpServer())
+        .patch('/api/invoices/drafts/draft-1/review')
+        .set('Authorization', authHeader({ role: 'MEMBER', organizationId: 'org-1' }))
+        .send({ patch: { number: 'FA2026/9999' } })
+        .expect(403);
+    });
+
+    it('draft de outra organização → 404, sem escrever nada', async () => {
+      prisma.invoiceDraft.findFirst.mockResolvedValue(null);
+
+      await request(app.getHttpServer())
+        .patch('/api/invoices/drafts/draft-1/review')
+        .set('Authorization', authHeader({ role: 'MANAGER', organizationId: 'org-2' }))
+        .send({ patch: { number: 'FA2026/9999' } })
+        .expect(404);
+
+      expect(prisma.invoiceDraft.update).not.toHaveBeenCalled();
     });
   });
 });

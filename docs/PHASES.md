@@ -162,6 +162,52 @@
   é sempre a baseline atual confirmada, nunca o ideal; nenhum extractor,
   contrato ou teste existente alterado — Fase 6.13
   (`docs/phases/phase-6.13-document-regression-test-suite.md`).
+- **Fase 6.14 — AI Invoice Extraction & Draft Items Foundation**:
+  `@frontcore/ai` ganha structured output genérico e aditivo
+  (`AiCompletionRequest.responseFormat`) — `OpenRouterAiProvider`
+  traduz para `response_format` OpenAI-compatible (confirmado real
+  contra o serviço), `MockAiProvider` devolve um JSON mínimo
+  determinístico, `OllamaAiProvider` lança um erro controlado
+  (`unsupported_capability`, nunca fingido); contrato explicitamente
+  versionado `AiInvoiceExtractionV1` + `AiInvoiceExtractor`
+  (`apps/frontrest/api/src/ai-invoice-extraction/`, segundo consumidor
+  real de `AI_COMPLETION_PROVIDER`, uma única chamada estruturada por
+  documento) complementam o parsing fiscal determinístico (Fase 6.6,
+  inalterado) sem o substituir; `InvoiceExtractionMerger` reconcilia os
+  dois por campo (`agreement`/`conflict`/`ai_only`/
+  `deterministic_only`/`empty`/`manual`, nunca escolhe automaticamente
+  num conflito); novo `InvoiceDraftItem` (staging relacional de linhas,
+  `organizationId` explícito) e `InvoiceDraftAiExtraction` (metadata de
+  medição, upsert); `InvoiceDraft.itemsReviewedByHuman` protege
+  correções humanas de serem sobrescritas por uma extração seguinte;
+  `InvoiceItem` evoluído (`position`/`unit`/`vatRate`, precisão decimal
+  maior — `Decimal(11,3)`/`Decimal(14,4)`, preservando a magnitude
+  inteira do schema anterior); `POST :id/ai-extraction`, `PUT :id/items`
+  e `PATCH :id/review` (cabeçalho+linhas atómicos) novos;
+  `InvoiceDraftsService.promote()` passa a copiar `InvoiceDraftItem` →
+  `InvoiceItem` sob lock `SELECT ... FOR UPDATE` (linha incompleta
+  bloqueia a promoção, nunca inventa um valor; nenhuma alteração
+  concorrente perdida); `InvoiceDraftReviewSheet` ganha secção de
+  linhas editável (`MANAGER+`) / só leitura (`MEMBER`) e ação explícita
+  "Analisar com IA"; validado com 5 documentos reais contra o
+  OpenRouter real (`google/gemini-2.5-flash`, autorizado
+  explicitamente); regressão da Fase 6.13 intacta; sem multimodal,
+  promoção automática, inventário ou billing/quotas. Correções
+  pós-revisão Codex (mesma fase, antes do fecho definitivo, 2 rondas):
+  parser de extração passou a fronteira estrutural estrita (incl.
+  `position` a exigir a ordem exata do array e política de negativos
+  de linha alinhada com `InvoiceDraftItemDto`), migração corrigida
+  (contém `ALTER COLUMN`, nunca "puramente aditiva"); corrida
+  `runAiExtraction()`/correção humana eliminada de vez com uma política
+  única de locking `SELECT ... FOR UPDATE`
+  (`lockInvoiceDraftRow()`) partilhada por `runAiExtraction()`/
+  `replaceItems()`/`saveReview()`/`promote()` (a 1ª correção, só uma
+  releitura sem lock dentro da transação, era insuficiente), provada
+  contra Postgres real em
+  `test/invoice-drafts-concurrency.integration-spec.ts`
+  (`pnpm test:integration`, fora da suite normal); atomicidade
+  items+metadata da mesma extração — Fase 6.14
+  (`docs/phases/phase-6.14-ai-invoice-extraction-draft-items-foundation.md`).
 - **Fase 7 — Financial Dashboard Foundation**: `GET /dashboard/financial-summary`
   (`apps/frontrest/api/src/dashboard/`), agregações Prisma
   (`aggregate`/`groupBy`) só sobre `Invoice` confirmadas (nunca

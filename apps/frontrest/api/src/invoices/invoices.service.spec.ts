@@ -37,8 +37,24 @@ describe('InvoicesService', () => {
             totalAmount: 25,
             items: {
               create: [
-                { description: 'Item A', quantity: 2, unitPrice: 10, totalPrice: 20 },
-                { description: 'Item B', quantity: 1, unitPrice: 5, totalPrice: 5 },
+                {
+                  description: 'Item A',
+                  position: 1,
+                  quantity: 2,
+                  unit: undefined,
+                  unitPrice: 10,
+                  vatRate: undefined,
+                  totalPrice: 20,
+                },
+                {
+                  description: 'Item B',
+                  position: 2,
+                  quantity: 1,
+                  unit: undefined,
+                  unitPrice: 5,
+                  vatRate: undefined,
+                  totalPrice: 5,
+                },
               ],
             },
           }),
@@ -123,7 +139,17 @@ describe('InvoicesService', () => {
             totalAmount: 3,
             items: {
               deleteMany: {},
-              create: [{ description: 'Novo', quantity: 1, unitPrice: 3, totalPrice: 3 }],
+              create: [
+                {
+                  description: 'Novo',
+                  position: 1,
+                  quantity: 1,
+                  unit: undefined,
+                  unitPrice: 3,
+                  vatRate: undefined,
+                  totalPrice: 3,
+                },
+              ],
             },
           }),
         }),

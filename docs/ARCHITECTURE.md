@@ -342,6 +342,142 @@ depois de um 401 — âmbito só desta sheet, nunca o cliente HTTP global.
 Ver `docs/phases/phase-6.8-invoice-draft-review-ui-foundation.md`,
 secção "Hardening pós-validação manual".
 
+## AI Invoice Extraction & Draft Items (Fase 6.14)
+
+Desde a Fase 6.14, `@frontcore/ai` ganha structured output genérico e
+aditivo — `AiCompletionRequest.responseFormat` (`{name, schema,
+strict?}`), mesma disciplina de `tools` (Fase 8.3): ausente, nenhum
+provider muda de comportamento; o package continua sem qualquer
+conhecimento de faturas ou de qualquer schema concreto, só transporta a
+definição e devolve texto (`AiCompletionResponse.content`), nunca faz
+parse por si. `OpenRouterAiProvider` traduz para
+`response_format: {type: 'json_schema', json_schema: {name, strict,
+schema}}` (OpenAI-compatible, `strict` por omissão `true`) — confirmado
+real contra o serviço (`google/gemini-2.5-flash`). `MockAiProvider`
+devolve sempre um JSON mínimo determinístico quando `responseFormat`
+está presente — prova só a canalização genérica, nunca simula um
+domínio concreto. `OllamaAiProvider` lança sempre
+`AiProviderError('unsupported_capability')` (novo `AiErrorCode`, nunca
+retryable) quando `responseFormat` está presente, antes de qualquer
+pedido de rede — nunca fingir uma capacidade nunca confirmada
+empiricamente contra um servidor real, mesma disciplina do resto deste
+provider.
+
+`apps/frontrest/api/src/ai-invoice-extraction/` — segundo consumidor
+real de `AI_COMPLETION_PROVIDER` (o primeiro é o Chat IA, Fase 8;
+`AiModule` passou a exportar o token). `AiInvoiceExtractionV1`
+(contrato explicitamente versionado, decimais financeiros sempre
+`string`, campo ausente = `null`, linhas com `position` preservando a
+ordem do documento) e `AiInvoiceExtractor` — **uma única chamada**
+`AiCompletionProvider.complete()` por documento (nunca um extractor por
+campo — reduz tokens/custo/latência, preserva consistência entre
+campos, permite extrair linhas completas da mesma tabela).
+`parseAiInvoiceExtraction()` valida ESTRUTURALMENTE a resposta antes de
+confiar nela — nunca depende só do `responseFormat`/`strict` do
+provider; qualquer falha (JSON inválido, fora do schema, provider
+indisponível, `unsupported_capability`) resulta em `extraction: null`,
+nunca numa exceção — o parsing fiscal determinístico (`fiscal-parsing/`,
+inalterado) continua disponível independentemente da IA.
+
+`InvoiceExtractionMerger` (`invoice-extraction-merger.ts`) reconcilia
+`FiscalExtractionResult` (determinístico) com `AiInvoiceExtractionV1`
+(IA) — camada de domínio própria, separada de `@frontcore/ai` e nunca
+dentro de `runDocumentExtractors()` (esse motor resolve conflitos por
+confiança entre extractors do MESMO tipo; aqui as duas fontes são
+estruturalmente diferentes, um "empate" nunca pode ser resolvido
+silenciosamente). Por campo: iguais → `agreement`; diferentes, ambos
+presentes → `conflict` (nunca escolhido automaticamente,
+`suggestedValue: null`); um vazio e o outro presente →
+`ai_only`/`deterministic_only` (o presente como sugestão); ambos vazios
+→ `empty`; um valor já corrigido manualmente → `manual` (prioridade
+absoluta, nunca reavaliado). `subtotal` nunca tem contraparte
+determinística (`FiscalExtractionResult` não o extrai) — sempre
+`ai_only`/`empty` para esse campo, documentado, não um bug. `items` é
+passagem direta das linhas da IA — sem contraparte determinística para
+reconciliar (os 9 extractors regex nunca extraíram linhas).
+
+Novo `InvoiceDraftItem` (staging relacional de linhas,
+`organizationId` explícito, todos os campos extraídos opcionais,
+`@@unique([invoiceDraftId, position])`, cascade) e
+`InvoiceDraftAiExtraction` (metadata da última extração — provider,
+modelo, tokens, duração; `@@unique([invoiceDraftId])`, upsert, nunca
+histórico completo — sem billing/quotas/tabela de preços). Novo
+`InvoiceDraft.itemsReviewedByHuman` (`Boolean`, `false` por omissão) —
+único mecanismo de "não sobrescrever correções humanas" desta fase
+(YAGNI: ao nível do draft, não por campo/linha, porque as linhas são
+sempre substituídas em bloco): enquanto `false`, `POST
+:id/ai-extraction` pode escrever `InvoiceDraftItem`; a partir da
+primeira `PUT :id/items` explícita, uma extração seguinte nunca mais
+escreve as linhas automaticamente, mesmo com uma sugestão diferente.
+Campos de cabeçalho do draft continuam a nunca ser escritos
+automaticamente pela extração — mesma disciplina desde a Fase 6.7/6.8
+(sugestões, só aplicadas por ação explícita do utilizador).
+`InvoiceItem` evoluído (`quantity`/`unitPrice` com mais casas decimais,
+`position`/`unit`/`vatRate` novos e opcionais) — sem alteração de
+comportamento onde omitidos.
+
+`InvoiceDraftsService.promote()` passa a copiar `InvoiceDraftItem` →
+`Invoice.items`, dentro da mesma transação — carregadas sempre por
+`invoiceDraftId` **e** `organizationId` em simultâneo; uma linha sem
+`quantity`/`unitPrice`/`totalPrice` (obrigatórios em `InvoiceItem`, ao
+contrário do staging) bloqueia a promoção inteira, nunca inventa um
+valor; promoção sem nenhuma linha continua permitida. `totalAmount` da
+`Invoice` continua sempre a vir do cabeçalho do draft, nunca
+recalculado a partir da soma das linhas — divergências entre linhas e
+totais são só um sinal para revisão humana ("Coerência matemática"),
+nunca corrigidas silenciosamente. `InvoiceDraftReviewSheet` ganha uma
+secção de linhas (editável `MANAGER+`, só leitura `MEMBER`) e uma ação
+explícita "Analisar com IA" (nunca automática, ao contrário do parsing
+fiscal determinístico/gratuito — envolve sempre uma chamada real a um
+provider de IA).
+
+Multimodal explicitamente fora do âmbito — a entrada da IA é sempre
+`ocrText`, nunca o PDF/imagem original. Ver
+`docs/phases/phase-6.14-ai-invoice-extraction-draft-items-foundation.md`
+para o contrato completo e a validação com documentos reais contra o
+OpenRouter real.
+
+**Correções pós-revisão Codex (mesma fase, antes do fecho definitivo,
+2 rondas).** `quantity`/`unitPrice` acabaram em
+`Decimal(11,3)`/`Decimal(14,4)`, não `Decimal(10,3)`/`Decimal(12,4)`
+como uma primeira versão da migração tinha — a mudança original
+reduzia a capacidade da parte inteira face ao schema anterior a esta
+fase; a migração
+`20260816181603_add_invoice_draft_item_and_ai_extraction` contém
+`ALTER COLUMN`, nunca "puramente aditiva" (só a `CREATE TABLE
+"InvoiceDraftItem"` é aditiva). `parseAiInvoiceExtraction()` é uma
+fronteira estrutural estrita — qualquer desvio do schema (chave
+ausente, tipo errado, propriedade extra, decimal fora do formato
+canónico/dos limites Prisma/negativo num campo de linha, `position`
+que não reflita exatamente a ordem do array) rejeita a resposta
+inteira, nunca "corrige" em silêncio; campos de LINHA
+(`quantity`/`unitPrice`/`vatRate`/`totalPrice`) nunca podem ser
+negativos (mesma regra `@Min(0)` de `InvoiceDraftItemDto`), os totais
+de cabeçalho continuam a aceitar negativo (descontos/notas de
+crédito).
+
+Política ÚNICA de locking (2ª ronda — a 1ª só relia uma releitura
+DENTRO da transação, sem lock, o que reduzia mas não eliminava a
+corrida): `runAiExtraction()`, `replaceItems()`, `saveReview()` e
+`promote()` adquirem TODOS, como primeira operação da sua transação, o
+mesmo `SELECT ... FOR UPDATE` sobre a linha `InvoiceDraft`
+(`lockInvoiceDraftRow()`, `id`+`organizationId` sempre em simultâneo)
+— nunca um lock diferente por operação, nunca um lock na linha filha
+antes da linha pai. `runAiExtraction()` trata `items: []` de uma
+extração válida como uma limpeza legítima do staging anterior; a
+escrita de `InvoiceDraftItem` e o upsert de `InvoiceDraftAiExtraction`
+da mesma extração vivem na mesma transação. `PATCH :id/review` grava
+cabeçalho+linhas atomicamente (a UI de revisão usa sempre esta rota);
+`PATCH :id`/`PUT :id/items` continuam disponíveis para outros
+consumidores. A propriedade "correção humana nunca perdida" e "writer
+vs. promoção nunca perde um lost update" são provadas contra Postgres
+real em `test/invoice-drafts-concurrency.integration-spec.ts`
+(`pnpm --filter @frontrest/api test:integration`, deliberadamente fora
+de `pnpm test`/`pnpm test:e2e` — mocks de Prisma nunca conseguem provar
+serialização real de locks). Detalhe completo dos achados das duas
+rondas em "Correções pós-revisão Codex"/"— 2ª ronda" no documento da
+fase.
+
 ## Dashboard financeiro
 
 Desde a Fase 7, `apps/frontrest/api/src/dashboard/` (`DashboardService`)

@@ -399,4 +399,30 @@ describe('OllamaAiProvider', () => {
       expect(response.toolCalls).toBeUndefined();
     });
   });
+
+  describe('Fase 6.14 — structured output: erro controlado, nunca fingido', () => {
+    const responseFormat = {
+      name: 'test_schema',
+      schema: { type: 'object' as const, properties: { foo: { type: 'string' } }, required: ['foo'] },
+    };
+
+    it('responseFormat presente lança AiProviderError(unsupported_capability) ANTES de qualquer pedido de rede', async () => {
+      const provider = new OllamaAiProvider(config);
+
+      await expect(
+        provider.complete({ messages: [{ role: 'user', content: 'oi' }], responseFormat }),
+      ).rejects.toMatchObject({ code: 'unsupported_capability' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('sem responseFormat, o comportamento normal continua inalterado', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ model: 'qwen3:4b', message: { content: 'ok' }, done: true }));
+      const provider = new OllamaAiProvider(config);
+
+      const response = await provider.complete({ messages: [{ role: 'user', content: 'oi' }] });
+
+      expect(response.content).toBe('ok');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
 });

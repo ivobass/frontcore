@@ -410,4 +410,57 @@ describe('OpenRouterAiProvider', () => {
       expect(response.toolCalls).toBeUndefined();
     });
   });
+
+  describe('Fase 6.14 — structured output', () => {
+    const responseFormat = {
+      name: 'test_schema',
+      schema: { type: 'object' as const, properties: { foo: { type: 'string' } }, required: ['foo'] },
+    };
+
+    it('sem responseFormat, o corpo do pedido nunca inclui response_format', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      await provider.complete({ messages: [{ role: 'user', content: 'oi' }] });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.response_format).toBeUndefined();
+    });
+
+    it('com responseFormat, traduz para response_format: {type: json_schema, json_schema: {name, strict, schema}}, com strict por omissão true', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: '{"foo":"bar"}' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      await provider.complete({ messages: [{ role: 'user', content: 'oi' }], responseFormat });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.response_format).toEqual({
+        type: 'json_schema',
+        json_schema: { name: 'test_schema', strict: true, schema: responseFormat.schema },
+      });
+    });
+
+    it('respeita strict: false quando explicitamente indicado', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: '{"foo":"bar"}' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      await provider.complete({
+        messages: [{ role: 'user', content: 'oi' }],
+        responseFormat: { ...responseFormat, strict: false },
+      });
+
+      const body = JSON.parse((fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.response_format.json_schema.strict).toBe(false);
+    });
+
+    it('a resposta continua normalizada como texto em content — nunca pré-parseada pelo provider', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ choices: [{ message: { content: '{"foo":"bar"}' } }] }));
+      const provider = new OpenRouterAiProvider(config);
+
+      const response = await provider.complete({ messages: [{ role: 'user', content: 'oi' }], responseFormat });
+
+      expect(response.content).toBe('{"foo":"bar"}');
+      expect(JSON.parse(response.content)).toEqual({ foo: 'bar' });
+    });
+  });
 });

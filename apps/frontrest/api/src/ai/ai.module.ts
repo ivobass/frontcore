@@ -14,17 +14,22 @@ import { AiToolOrchestratorService } from './tools/ai-tool-orchestrator.service'
 
 /**
  * Único ponto de `apps/frontrest/api` que importa `createAiProvider`/
- * `loadAiConfig` diretamente — `AiChatService` só conhece o tipo
+ * `loadAiConfig` diretamente — todo o resto só conhece o tipo
  * `AiCompletionProvider`, injetado via `AI_COMPLETION_PROVIDER` (mesmo
  * padrão de `OBJECT_STORAGE` em `uploads.module.ts`). Registado aqui
- * dentro, não num `ai-provider.module.ts` separado: único consumidor
- * real hoje (`AiChatService`) e sem ciclo de vida a fechar no shutdown
- * (`OllamaAiProvider` usa `fetch` por pedido, sem ligação persistente —
- * ao contrário de `QueueProducer`, que por isso vive no seu próprio
- * `QueueModule` com `OnModuleDestroy`). `SuppliersModule`/`ExpenseCategoriesModule`
+ * dentro, não num `ai-provider.module.ts` separado: sem ciclo de vida a
+ * fechar no shutdown (`OllamaAiProvider`/`OpenRouterAiProvider` usam
+ * `fetch` por pedido, sem ligação persistente — ao contrário de
+ * `QueueProducer`, que por isso vive no seu próprio `QueueModule` com
+ * `OnModuleDestroy`). `SuppliersModule`/`ExpenseCategoriesModule`
  * (Fase 8.4) reutilizados só para `FinancialEntityResolverService`
  * resolver nomes de fornecedor/categoria mencionados na mensagem —
  * nunca uma segunda query Prisma duplicada.
+ *
+ * `AI_COMPLETION_PROVIDER` exportado desde a Fase 6.14 — segundo
+ * consumidor real (`AiInvoiceExtractionModule`, extração estruturada de
+ * faturas) importa este módulo só por este token, nunca por
+ * `AiChatService`/`AiController`/o resto do chat.
  */
 @Module({
   imports: [DashboardModule, SuppliersModule, ExpenseCategoriesModule],
@@ -40,5 +45,6 @@ import { AiToolOrchestratorService } from './tools/ai-tool-orchestrator.service'
       useFactory: (): AiCompletionProvider => createAiProvider(loadAiConfig()),
     },
   ],
+  exports: [AI_COMPLETION_PROVIDER],
 })
 export class AiModule {}
